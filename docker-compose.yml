@@ -1,0 +1,23 @@
+# Sobe apenas o banco. O Django e o Vite rodam na máquina, com hot reload.
+#   docker compose up -d
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: notefy-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: notefy
+      POSTGRES_USER: banco
+      POSTGRES_PASSWORD: "2701"
+    ports:
+      - "5432:5432"
+    volumes:
+      - notefy-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banco -d notefy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  notefy-pgdata:

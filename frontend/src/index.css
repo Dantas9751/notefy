@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-white text-ink-800 font-sans antialiased dark:bg-ink-950 dark:text-ink-100;
+  }
+
+  /* Foco visível só no teclado: o anel em todo clique de mouse polui uma
+     interface que depende de silêncio visual. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-500/50 ring-offset-1 ring-offset-white dark:ring-offset-ink-950;
+  }
+
+  ::selection {
+    @apply bg-accent-200/60 dark:bg-accent-500/30;
+  }
+
+  /* Scrollbar discreta, no espírito minimalista da interface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.ink.300') transparent;
+  }
+  .dark * {
+    scrollbar-color: theme('colors.ink.700') transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-[3px] border-solid border-transparent bg-ink-300 bg-clip-content dark:bg-ink-700;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-ink-200 bg-white shadow-subtle transition
+           hover:shadow-card dark:border-ink-800 dark:bg-ink-900;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-sm
+           placeholder:text-ink-400 focus:border-accent-400 focus:outline-none
+           focus:ring-2 focus:ring-accent-500/20 disabled:opacity-60
+           dark:border-ink-700 dark:bg-ink-900 dark:placeholder:text-ink-500;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-500 dark:text-ink-400;
+  }
+
+  /* Tipografia do leitor de notas. */
+  .prose-note {
+    @apply max-w-prose text-[0.9375rem] leading-[1.75] text-ink-700 dark:text-ink-200;
+  }
+  .prose-note h1 {
+    @apply mb-3 mt-8 text-2xl font-semibold tracking-tight text-ink-900 dark:text-ink-50;
+  }
+  .prose-note h2 {
+    @apply mb-2 mt-7 text-xl font-semibold tracking-tight text-ink-900 dark:text-ink-50;
+  }
+  .prose-note h3 {
+    @apply mb-2 mt-6 text-base font-semibold text-ink-900 dark:text-ink-50;
+  }
+  .prose-note p {
+    @apply mb-4;
+  }
+  .prose-note ul {
+    @apply mb-4 list-disc space-y-1 pl-6;
+  }
+  .prose-note ol {
+    @apply mb-4 list-decimal space-y-1 pl-6;
+  }
+  .prose-note code {
+    @apply rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-ink-800;
+  }
+  .prose-note pre {
+    @apply mb-4 overflow-x-auto rounded-md bg-ink-100 p-4 font-mono text-sm dark:bg-ink-800;
+  }
+  .prose-note blockquote {
+    @apply mb-4 border-l-2 border-ink-300 pl-4 italic text-ink-600 dark:border-ink-600 dark:text-ink-300;
+  }
+  .prose-note a {
+    @apply text-accent-600 underline underline-offset-2 dark:text-accent-400;
+  }
+}
+
+/* --------------------------------------------------------------------
+   Destaque de sintaxe dos blocos de código.
+
+   FORA de @layer de propósito: o Tailwind poda regras dentro de uma
+   layer cujos seletores não aparecem no código-fonte, e estas classes
+   são geradas em tempo de execução pelo highlight.js — nunca estariam
+   lá para serem encontradas.
+
+   Escritas à mão em vez de importar um tema pronto: os temas do
+   highlight.js trazem fundo e cor de texto fixos, que brigariam com o
+   claro/escuro do app. Aqui só os tokens são coloridos.
+   -------------------------------------------------------------------- */
+
+.hljs-comment,
+.hljs-quote { @apply italic text-ink-400 dark:text-ink-500; }
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-name,
+.hljs-type { @apply font-medium text-violet-700 dark:text-violet-400; }
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute { @apply text-emerald-700 dark:text-emerald-400; }
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-selector-attr,
+.hljs-selector-pseudo { @apply text-amber-700 dark:text-amber-400; }
+
+.hljs-title,
+.hljs-section { @apply font-medium text-blue-700 dark:text-blue-400; }
+
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-property { @apply text-sky-700 dark:text-sky-300; }
+
+.hljs-built_in,
+.hljs-params { @apply text-rose-700 dark:text-rose-400; }
+
+.hljs-meta,
+.hljs-deletion { @apply text-ink-500 dark:text-ink-400; }
+
+.hljs-emphasis { @apply italic; }
+.hljs-strong { @apply font-semibold; }
