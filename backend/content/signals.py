@@ -1,38 +1,38 @@
-"""Manutenção do índice de busca dos documentos."""
+"""Limpeza dos arquivos em disco quando o documento deixa de existir.
 
-from django.conf import settings
-from django.contrib.postgres.search import SearchVector
+Apagar a linha da tabela não apaga o PDF, a imagem ou o áudio que ela
+aponta. Num app que roda na máquina do usuário isso é pior do que
+desperdício de espaço: o arquivo continua lá depois de o usuário ter
+mandado excluir, o que não é o que "excluir" significa para ele.
+
+Fica num `post_delete` — e não no `delete()` do modelo — porque a maior
+parte das exclusões não passa pelo `delete()` de uma instância: apagar uma
+pasta, uma categoria ou a conta inteira cascateia pelo coletor do Django,
+que percorre os objetos e dispara este signal para cada um. Um lugar só
+cobre todos os caminhos.
+"""
+
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
 from .models import Document
 
 
-@receiver(post_save, sender=Document)
-def update_document_search_vector(sender, instance, **kwargs):
-    """Recalcula o tsvector do documento após cada gravação.
-
-    Roda como UPDATE separado (e não dentro do save) porque SearchVector é
-    uma expressão SQL: precisa ser avaliada pelo banco. O título tem peso
-    'A' e o corpo peso 'B', então um termo no título ranqueia acima do
-    mesmo termo no meio do conteúdo.
-
-    `search_text` já traz o texto extraído do payload de planilhas e
-    diagramas, então esses tipos são indexados pelo próprio conteúdo, não
-    só pelo título.
-
-    `on_commit` evita indexar algo que a transação venha a desfazer, e
-    `update()` não dispara post_save de novo — sem recursão.
-    """
-    if kwargs.get("raw"):  # carga de fixtures
+@receiver(post_delete, sender=Document)
+def delete_file_from_storage(sender, instance, **kwargs):
+    """Remove o arquivo do disco depois que a exclusão for confirmada."""
+    if not instance.file:
         return
 
-    def _reindex():
-        config = settings.SEARCH_CONFIG
-        Document.objects.filter(pk=instance.pk).update(
-            search_vector=SearchVector("title", weight="A", config=config)
-            + SearchVector("search_text", weight="B", config=config)
-        )
+    name = instance.file.name
+    storage = instance.file.storage
 
-    transaction.on_commit(_reindex)
+    def _remove():
+        # `save=False`: o objeto já não existe, não há linha para atualizar.
+        if storage.exists(name):
+            storage.delete(name)
+
+    # Só depois do commit: se a transação voltar atrás, a linha continua
+    # existindo e apontando para um arquivo que teríamos apagado.
+    transaction.on_commit(_remove)

@@ -56,16 +56,19 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
             <button
               type="button"
               onClick={() => setPicking(true)}
-              className="flex w-full items-center gap-2 rounded-md border border-ink-200 px-3 py-2 text-left text-sm transition hover:bg-ink-50 dark:border-ink-700 dark:hover:bg-ink-800"
+              className="flex w-full items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-sm transition hover:bg-ink-50 overflow-hidden dark:border-ink-700 dark:bg-ink-900 dark:hover:bg-ink-800"
             >
               {folder ? (
                 <>
-                  <ColorDot color={folder._category?.color} size={7} />
-                  <span className="min-w-0 flex-1 truncate text-ink-800 dark:text-ink-100">
-                    {folder._category?.name}
-                    <ChevronRight size={11} className="mx-0.5 inline text-ink-400" />
-                    {folder.name}
-                  </span>
+                  <div className="shrink-0">
+                    <ColorDot color={folder._category?.color} size={7} />
+                  </div>
+                  
+                  <div className="flex min-w-0 flex-1 items-center text-ink-800 dark:text-ink-100">
+                    <span className="truncate">{folder._category?.name}</span>
+                    <ChevronRight size={13} className="mx-1 shrink-0 text-ink-400" />
+                    <span className="truncate font-medium">{folder.name}</span>
+                  </div>
                 </>
               ) : (
                 <span className="flex-1 text-ink-400">Escolher pasta...</span>

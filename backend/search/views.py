@@ -5,9 +5,7 @@ tem apenas três ramos (documento, pasta, tarefa) em vez de um por formato,
 e um tipo novo de documento passa a ser encontrável sem tocar aqui.
 """
 
-from django.conf import settings
-from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Count, F, Q
+from django.db.models import Case, Count, FloatField, Q, Value, When
 from django.utils.dateparse import parse_date
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.permissions import IsAuthenticated
@@ -35,6 +33,45 @@ _DOCUMENT_UI = {
 
 MAX_PER_TYPE = 50
 
+# --------------------------------------------------------------------------
+# Relevância
+#
+# O Postgres ordenava por `ts_rank` sobre um tsvector com pesos. No SQLite
+# não existe equivalente, e a alternativa honesta é ordenar pelo ONDE o
+# termo apareceu: quem procura "prova" quer a nota CHAMADA "Prova" antes
+# da nota que só menciona a palavra no meio do texto.
+#
+# É um CASE WHEN comum, então o banco ordena e pagina — nada de trazer
+# tudo para a memória e ranquear em Python, que erraria justamente os
+# resultados fora da primeira página.
+# --------------------------------------------------------------------------
+
+#: Da correspondência mais forte para a mais fraca.
+EXACT_TITLE = 3.0
+TITLE_PREFIX = 2.5
+TITLE_ANYWHERE = 2.0
+BODY_ONLY = 1.0
+
+
+def relevance(term, field="title"):
+    """Expressão de pontuação para ordenar por onde o termo bateu."""
+    return Case(
+        When(**{f"{field}__iexact": term}, then=Value(EXACT_TITLE)),
+        When(**{f"{field}__istartswith": term}, then=Value(TITLE_PREFIX)),
+        When(**{f"{field}__icontains": term}, then=Value(TITLE_ANYWHERE)),
+        # Sobrou o corpo: o registro entrou no resultado, mas o termo não
+        # está no nome dele.
+        default=Value(BODY_ONLY),
+        output_field=FloatField(),
+    )
+
+
+def ranked(qs, term, field="title"):
+    """Ordena por relevância e, no empate, pelo mais recente."""
+    if not term:
+        return qs.annotate(score=Value(0.0, output_field=FloatField())).order_by("-updated_at")
+    return qs.annotate(score=relevance(term, field)).order_by("-score", "-updated_at")
+
 
 @extend_schema(
     responses=GlobalSearchResponseSerializer,
@@ -57,8 +94,9 @@ class GlobalSearchView(APIView):
     def get(self, request):
         params = request.query_params
         term = params.get("q", "").strip()
-        types = [t for t in params.getlist("type") if t in ITEM_TYPES] or list(ITEM_TYPES)
-        category_ids = params.getlist("category")
+        raw_types = params.getlist("type") or params.getlist("type[]")
+        types = [t for t in raw_types if t in ITEM_TYPES] or list(ITEM_TYPES)
+        category_ids = params.getlist("category") or params.getlist("category[]")
         status_filter = params.get("status", "").strip()
         date_from = parse_date(params.get("date_from", "") or "")
         date_to = parse_date(params.get("date_to", "") or "")
@@ -98,8 +136,7 @@ class GlobalSearchView(APIView):
             results.extend(items)
             counts["task"] = total
 
-        # Sem termo de busca não há relevância a comparar entre tipos, então
-        # ordenamos por recência; com termo, o rank manda.
+        # Ordenação por recência (ou relevância se houver score)
         results.sort(key=lambda r: (r["score"], r["updated_at"]), reverse=True)
 
         return Response(
@@ -116,6 +153,12 @@ class GlobalSearchView(APIView):
     # ------------------------------------------------------------------
     @staticmethod
     def _apply_common(qs, ctx, category_field="categories"):
+        # Um lugar só para o corte da lixeira. As três buscas (documento,
+        # pasta, tarefa) passam por aqui, e cada uma monta o queryset a
+        # partir de `Model.objects`, que enxerga tudo — sem isto a busca
+        # global devolveria o que foi excluído, contrariando o que a própria
+        # lixeira promete ("nada aqui aparece nas buscas ou nas pastas").
+        qs = qs.alive()
         if ctx["date_from"]:
             qs = qs.filter(created_at__date__gte=ctx["date_from"])
         if ctx["date_to"]:
@@ -138,40 +181,19 @@ class GlobalSearchView(APIView):
             .loose()
             .select_related("folder", "folder__category")
         )
-        # A categoria do item vem da pasta — não há M2M para atravessar.
         qs = self._apply_common(qs, ctx, category_field="folder__category")
         if ctx["status"] in Document.Status.values:
             qs = qs.filter(status=ctx["status"])
 
-        ranked = False
         if ctx["term"]:
-            # Full-text primeiro (usa o índice GIN); se o termo não casar
-            # com nenhum lexema — prefixo curto, palavra parcial — caímos
-            # para icontains para não devolver tela vazia enquanto o
-            # usuário ainda está digitando.
-            query = SearchQuery(ctx["term"], config=settings.SEARCH_CONFIG)
-            fts = qs.filter(search_vector=query).annotate(
-                # F(), não a string: com string o Django embrulha em
-                # SearchVector() e gera to_tsvector(search_vector::text),
-                # reindexando o tsvector pronto como se fosse texto — o que
-                # destrói os pesos A/B e zera o rank.
-                rank=SearchRank(F("search_vector"), query)
+            # `search_text` guarda o texto extraído do payload, então a
+            # planilha e o diagrama são achados pelo próprio conteúdo, e
+            # não só pelo título.
+            qs = qs.filter(
+                Q(title__icontains=ctx["term"]) | Q(search_text__icontains=ctx["term"])
             )
-            if fts.exists():
-                qs, ranked = fts.order_by("-rank"), True
-            else:
-                qs = qs.filter(
-                    Q(title__icontains=ctx["term"]) | Q(search_text__icontains=ctx["term"])
-                ).order_by("-updated_at")
-        else:
-            qs = qs.order_by("-updated_at")
+        qs = ranked(qs, ctx["term"])
 
-        # Uma contagem por tipo, e não uma query por tipo: o frontend usa
-        # esses números nos chips de filtro.
-        #
-        # `.order_by()` limpo é obrigatório: qualquer ordenação pendente
-        # entraria no GROUP BY e quebraria o agrupamento (e `rank` sequer
-        # existe fora do SELECT agregado).
         per_kind = dict.fromkeys(kinds, 0)
         for row in qs.order_by().values("kind").annotate(total=Count("id")):
             per_kind[row["kind"]] = row["total"]
@@ -191,7 +213,7 @@ class GlobalSearchView(APIView):
                     "icon": doc.icon or icon,
                     "url": f"{route}/{doc.id}",
                     "updated_at": doc.updated_at.isoformat(),
-                    "score": float(getattr(doc, "rank", 0)) if ranked else 0.0,
+                    "score": doc.score,
                 }
             )
         return items, per_kind
@@ -207,6 +229,7 @@ class GlobalSearchView(APIView):
                 Q(name__icontains=ctx["term"]) | Q(description__icontains=ctx["term"])
             )
         total = qs.count()
+        qs = ranked(qs, ctx["term"], field="name")
         items = [
             {
                 "type": "folder",
@@ -219,9 +242,9 @@ class GlobalSearchView(APIView):
                 "icon": f.icon or "folder",
                 "url": f"/folders/{f.id}",
                 "updated_at": f.updated_at.isoformat(),
-                "score": 0.0,
+                "score": f.score,
             }
-            for f in qs.order_by("-updated_at")[: ctx["limit"]]
+            for f in qs[: ctx["limit"]]
         ]
         return items, total
 
@@ -238,6 +261,7 @@ class GlobalSearchView(APIView):
                 Q(title__icontains=ctx["term"]) | Q(description__icontains=ctx["term"])
             )
         total = qs.count()
+        qs = ranked(qs, ctx["term"])
         items = [
             {
                 "type": "task",
@@ -250,9 +274,9 @@ class GlobalSearchView(APIView):
                 "icon": "check-square",
                 "url": f"/board?task={t.id}",
                 "updated_at": t.updated_at.isoformat(),
-                "score": 0.0,
+                "score": t.score,
             }
-            for t in qs.order_by("-updated_at")[: ctx["limit"]]
+            for t in qs[: ctx["limit"]]
         ]
         return items, total
 

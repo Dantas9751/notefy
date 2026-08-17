@@ -15,11 +15,6 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173", "http://127.0.0.1:5173"]),
-    DB_NAME=(str, "notefy"),
-    DB_USER=(str, "postgres"),
-    DB_PASSWORD=(str, ""),
-    DB_HOST=(str, "localhost"),
-    DB_PORT=(str, "5432"),
     ACCESS_TOKEN_LIFETIME_MINUTES=(int, 30),
     REFRESH_TOKEN_LIFETIME_DAYS=(int, 14),
     MAX_UPLOAD_SIZE_MB=(int, 50),
@@ -43,7 +38,6 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.postgres",
 ]
 
 THIRD_PARTY_APPS = [
@@ -101,27 +95,50 @@ TEMPLATES = [
 
 
 # ---------------------------------------------------------------------------
-# Banco de dados
+# Banco de dados — SQLite, um arquivo só
+#
+# O Notefy é um app de uma pessoa só, rodando na máquina dela: um arquivo
+# que o usuário pode copiar, levar num pendrive e restaurar vale mais aqui
+# do que um servidor de banco. É também o que permite empacotar tudo num
+# .exe — não há serviço para instalar junto.
+#
+# `NOTEFY_DATA_DIR` existe por causa desse empacotamento: instalado em
+# Arquivos de Programas, o diretório do código é somente leitura, e tanto o
+# banco quanto os uploads precisam ir para a pasta do usuário. Em
+# desenvolvimento o padrão continua sendo a própria pasta do backend.
 # ---------------------------------------------------------------------------
+
+DATA_DIR = Path(env("NOTEFY_DATA_DIR", default=str(BASE_DIR)))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+#: Ligado quando o backend roda embutido no aplicativo de desktop, e não
+#: atrás de um servidor web. Muda o pouco que um deploy normal delegaria a
+#: outra peça: entregar os uploads e aceitar a origem da janela do Tauri.
+DESKTOP_MODE = env.bool("NOTEFY_DESKTOP", default=False)
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("DB_NAME"),
-        "USER": env("DB_USER"),
-        "PASSWORD": env("DB_PASSWORD"),
-        "HOST": env("DB_HOST"),
-        "PORT": env("DB_PORT"),
-        "CONN_MAX_AGE": 60,
-        "OPTIONS": {"connect_timeout": 10},
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": DATA_DIR / "db.sqlite3",
+        "OPTIONS": {
+            # WAL deixa leitura e escrita conviverem: sem ele, salvar uma
+            # nota tranca o banco inteiro e as requisições paralelas do
+            # frontend batem em "database is locked".
+            "init_command": (
+                "PRAGMA journal_mode=WAL;"
+                "PRAGMA synchronous=NORMAL;"
+                "PRAGMA foreign_keys=ON;"
+                "PRAGMA busy_timeout=5000;"
+            ),
+            # Pega o lock de escrita já na abertura da transação, em vez de
+            # descobrir o conflito no meio dela e ter que desfazer.
+            "transaction_mode": "IMMEDIATE",
+        },
     }
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "users.User"
-
-#: Configuração de dicionário do full-text search do Postgres.
-SEARCH_CONFIG = "portuguese"
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +215,16 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
 
+if DESKTOP_MODE:
+    # A janela do Tauri carrega o app de um protocolo próprio; para o
+    # Django, essas são origens diferentes da do servidor, e sem elas
+    # o navegador embutido bloqueia toda chamada à API.
+    CORS_ALLOWED_ORIGINS = [
+        *CORS_ALLOWED_ORIGINS,
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Internacionalização
@@ -217,7 +244,9 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Junto do banco, pelo mesmo motivo: os arquivos enviados são dados do
+# usuário e precisam de um lugar gravável, não da pasta de instalação.
+MEDIA_ROOT = DATA_DIR / "media"
 
 MAX_UPLOAD_SIZE = env("MAX_UPLOAD_SIZE_MB") * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE
@@ -228,7 +257,10 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 # Segurança (aplicada apenas fora de DEBUG)
 # ---------------------------------------------------------------------------
 
-if not DEBUG:
+#: No desktop, DEBUG é falso mas não há HTTPS: o servidor é o loopback da
+#: própria máquina. Forçar SSL aqui redirecionaria toda chamada para uma
+#: porta https que não existe, e o app não sairia da tela de login.
+if not DEBUG and not DESKTOP_MODE:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True

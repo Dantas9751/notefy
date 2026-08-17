@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Check, Tag } from 'lucide-react'
-import api from '@/lib/api'
+import { useRef, useState } from 'react'
+import { Check, Download, RotateCcw, Trash2, Upload } from 'lucide-react'
+import api, { extractError, tokenStore } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useUI } from '@/context/UIContext'
+import { useWorkspace } from '@/context/WorkspaceContext'
 import { useFetch, useMutation } from '@/hooks/useFetch'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Button, ErrorState, Field, Input, Select } from '@/components/ui'
+import ColorWheel from '@/components/ui/ColorWheel'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { ACCENT_PADRAO, CORES_PADRAO } from '@/lib/accent'
+import { IDIOMAS } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 function Section({ title, description, children }) {
   return (
@@ -22,90 +27,120 @@ function Section({ title, description, children }) {
   )
 }
 
+function Toggle({ checked, onChange, label, description }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition',
+          checked ? 'bg-accent-600' : 'bg-ink-300 dark:bg-ink-700',
+        )}
+      >
+        <span
+          className={cn(
+            'block h-4 w-4 rounded-full bg-white shadow transition-transform',
+            checked && 'translate-x-4',
+          )}
+        />
+      </button>
+      <span className="min-w-0">
+        <span className="block text-sm text-ink-800 dark:text-ink-100">{label}</span>
+        {description && (
+          <span className="mt-0.5 block text-xs text-ink-500 dark:text-ink-400">
+            {description}
+          </span>
+        )}
+      </span>
+    </label>
+  )
+}
+
 export default function Settings() {
   const { user, setUser } = useAuth()
-  const { theme, setTheme } = useUI()
-
-  const [profile, setProfile] = useState({ full_name: '' })
-  const [profileSaved, setProfileSaved] = useState(false)
-
-  const [passwords, setPasswords] = useState({ current_password: '', new_password: '' })
-  const [passwordSaved, setPasswordSaved] = useState(false)
+  const { theme, setTheme, zen, setZen, accent, setAccent, language, setLanguage } =
+    useUI()
+  const { refresh } = useWorkspace()
 
   const prefs = useFetch('/me/preferences/')
-
-  useEffect(() => {
-    if (user) setProfile({ full_name: user.full_name ?? '' })
-  }, [user])
-
-  const saveProfile = useMutation(async (payload) => {
-    const { data } = await api.patch('/me/', payload)
-    setUser(data)
-    return data
-  })
-
-  const savePassword = useMutation(async (payload) => api.post('/auth/change-password/', payload))
-
   const savePrefs = useMutation(async (payload) => {
     const { data } = await api.patch('/me/preferences/', payload)
     prefs.setData(data)
+    setUser((u) => ({ ...u, preferences: data }))
     return data
   })
 
-  const handleProfile = async (e) => {
-    e.preventDefault()
-    setProfileSaved(false)
+  const [exportando, setExportando] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [substituir, setSubstituir] = useState(false)
+  const [resumo, setResumo] = useState(null)
+  const [erroDados, setErroDados] = useState(null)
+  const [confirmarSubstituir, setConfirmarSubstituir] = useState(null)
+  const backupRef = useRef(null)
+
+  const [deletePassword, setDeletePassword] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  const exportar = async () => {
+    setErroDados(null)
+    setExportando(true)
     try {
-      await saveProfile.mutate(profile)
-      setProfileSaved(true)
-    } catch {
-      /* erro exibido */
+      const resposta = await api.get('/me/backup/', { responseType: 'blob' })
+      const nome =
+        /filename="([^"]+)"/.exec(resposta.headers['content-disposition'] ?? '')?.[1] ??
+        'notefy-backup.zip'
+      const url = URL.createObjectURL(resposta.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = nome
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (err) {
+      setErroDados(extractError(err))
+    } finally {
+      setExportando(false)
     }
   }
 
-  const handlePassword = async (e) => {
-    e.preventDefault()
-    setPasswordSaved(false)
+  const enviarBackup = async (file) => {
+    setErroDados(null)
+    setResumo(null)
+    setImportando(true)
     try {
-      await savePassword.mutate(passwords)
-      setPasswords({ current_password: '', new_password: '' })
-      setPasswordSaved(true)
-    } catch {
-      /* erro exibido */
+      const body = new FormData()
+      body.append('file', file)
+      body.append('replace', substituir ? 'true' : 'false')
+      const { data } = await api.post('/me/backup/import/', body)
+      setResumo(data)
+      refresh()
+    } catch (err) {
+      setErroDados(extractError(err))
+    } finally {
+      setImportando(false)
+      if (backupRef.current) backupRef.current.value = ''
     }
   }
+
+  const escolherBackup = (file) => {
+    if (!file) return
+    if (substituir) setConfirmarSubstituir(file)
+    else enviarBackup(file)
+  }
+
+  const corPersonalizada = !CORES_PADRAO.includes(accent)
 
   return (
     <>
-      <PageHeader title="Configurações" subtitle="Perfil, aparência e preferências." />
+      <PageHeader title="Configurações" subtitle="Gerencie as preferências e os dados do seu Notefy." />
 
       <PageBody className="max-w-2xl space-y-8">
-        <Section title="Perfil" description="Como você aparece no Notefy.">
-          {saveProfile.error && <ErrorState message={saveProfile.error} />}
-          <form onSubmit={handleProfile} className="space-y-4">
-            <Field label="E-mail" hint="O e-mail de login não pode ser alterado por aqui.">
-              <Input value={user?.email ?? ''} disabled />
-            </Field>
-            <Field label="Nome">
-              <Input
-                value={profile.full_name}
-                onChange={(e) => setProfile({ full_name: e.target.value })}
-              />
-            </Field>
-            <div className="flex items-center gap-3">
-              <Button type="submit" loading={saveProfile.loading}>
-                Salvar perfil
-              </Button>
-              {profileSaved && (
-                <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                  <Check size={13} /> salvo
-                </span>
-              )}
-            </div>
-          </form>
-        </Section>
 
-        <Section title="Aparência" description="Tema da interface.">
+        <Section title="Aparência" description="Personalize o visual do aplicativo.">
           <Field label="Tema">
             <Select value={theme} onChange={(e) => setTheme(e.target.value)}>
               <option value="system">Seguir o sistema</option>
@@ -114,13 +149,61 @@ export default function Settings() {
             </Select>
           </Field>
 
+          <Toggle
+            checked={zen}
+            onChange={setZen}
+            label="Modo zen"
+            description="Esconde a barra lateral e os cabeçalhos para sobrar só o conteúdo. Ctrl+. liga e desliga."
+          />
+
+          <div>
+            <span className="label">Cor de destaque</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {CORES_PADRAO.map((cor) => (
+                <button
+                  key={cor}
+                  type="button"
+                  onClick={() => setAccent(cor)}
+                  title={cor}
+                  aria-label={cor}
+                  className={cn(
+                    'h-7 w-7 rounded-full border-2 transition',
+                    accent === cor
+                      ? 'border-ink-900 dark:border-white'
+                      : 'border-ink-200 dark:border-ink-700',
+                  )}
+                  style={{ backgroundColor: cor }}
+                />
+              ))}
+              <ColorWheel
+                value={accent}
+                onChange={setAccent}
+                selected={corPersonalizada}
+                title="Cor personalizada"
+              />
+              {accent !== ACCENT_PADRAO && (
+                <button
+                  type="button"
+                  onClick={() => setAccent(ACCENT_PADRAO)}
+                  className="ml-1 inline-flex items-center gap-1 text-xs text-ink-500 transition hover:text-ink-800 dark:hover:text-ink-200"
+                >
+                  <RotateCcw size={12} />
+                  Restaurar cor
+                </button>
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-ink-500 dark:text-ink-400">
+              Esta cor será usada para botões e elementos ativos.
+            </p>
+          </div>
+
           {prefs.data && (
             <Field label="Tela inicial">
               <Select
                 value={prefs.data.default_view}
                 onChange={(e) => savePrefs.mutate({ default_view: e.target.value })}
               >
-                <option value="dashboard">Dashboard</option>
+                <option value="dashboard">Início</option>
                 <option value="calendar">Calendário</option>
                 <option value="board">Quadro</option>
               </Select>
@@ -128,56 +211,102 @@ export default function Settings() {
           )}
         </Section>
 
-        <Section
-          title="Organização"
-          description="Categorias e pastas se gerenciam onde você as usa: na tela inicial e na sidebar, com o botão direito."
-        >
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 rounded-md border border-ink-200 px-3.5 py-2 text-sm text-ink-700 transition hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800"
-          >
-            <Tag size={15} />
-            Ver categorias
-          </Link>
+        <Section title="Dados" description="Faça backup ou importe seus dados.">
+          {erroDados && <ErrorState message={erroDados} />}
+          {resumo && (
+            <p className="flex items-start gap-1.5 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+              <Check size={13} className="mt-0.5 shrink-0" />
+              Importação concluída: {resumo.categorias} categorias, {resumo.pastas} pastas, {resumo.documentos} itens e {resumo.tarefas} tarefas.
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button icon={Download} onClick={exportar} loading={exportando}>
+              {exportando ? 'Exportando...' : 'Exportar Backup'}
+            </Button>
+
+            <input
+              ref={backupRef}
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => escolherBackup(e.target.files?.[0])}
+            />
+            <Button
+              variant="secondary"
+              icon={Upload}
+              onClick={() => backupRef.current?.click()}
+              loading={importando}
+            >
+              {importando ? 'Importando...' : 'Importar Backup'}
+            </Button>
+          </div>
+
+          <Toggle
+            checked={substituir}
+            onChange={setSubstituir}
+            label="Substituir dados atuais"
+            description="Ao importar, apaga todos os dados existentes."
+          />
         </Section>
 
-        <Section title="Segurança" description="Altere sua senha de acesso.">
-          {savePassword.error && <ErrorState message={savePassword.error} />}
-          <form onSubmit={handlePassword} className="space-y-4">
-            <Field label="Senha atual">
-              <Input
-                type="password"
-                autoComplete="current-password"
-                value={passwords.current_password}
-                onChange={(e) =>
-                  setPasswords((p) => ({ ...p, current_password: e.target.value }))
-                }
-                required
-              />
-            </Field>
-            <Field label="Nova senha" hint="Mínimo de 8 caracteres.">
-              <Input
-                type="password"
-                autoComplete="new-password"
-                value={passwords.new_password}
-                onChange={(e) => setPasswords((p) => ({ ...p, new_password: e.target.value }))}
-                required
-                minLength={8}
-              />
-            </Field>
-            <div className="flex items-center gap-3">
-              <Button type="submit" variant="secondary" loading={savePassword.loading}>
-                Alterar senha
-              </Button>
-              {passwordSaved && (
-                <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                  <Check size={13} /> senha alterada
-                </span>
-              )}
-            </div>
-          </form>
+        <Section
+          title="Excluir conta"
+          description="Esta ação é irreversível e apagará tudo."
+        >
+          <Field label="Senha" hint="Digite sua senha para confirmar a exclusão.">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </Field>
+          <Button
+            variant="danger"
+            icon={Trash2}
+            disabled={!deletePassword}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Excluir minha conta
+          </Button>
         </Section>
       </PageBody>
+
+      <ConfirmDialog
+        open={!!confirmarSubstituir}
+        title="Confirmar substituição"
+        message="Tem certeza? Seus dados atuais serão apagados permanentemente antes da importação."
+        confirmLabel="Importar"
+        onClose={() => {
+          setConfirmarSubstituir(null)
+          if (backupRef.current) backupRef.current.value = ''
+        }}
+        onConfirm={async () => {
+          const file = confirmarSubstituir
+          setConfirmarSubstituir(null)
+          await enviarBackup(file)
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Excluir conta"
+        message={
+          <>
+            Tem certeza? A conta <strong>{user?.username}</strong> e todo o seu conteúdo
+            serão apagados permanentemente. Isso não pode ser desfeito.
+          </>
+        }
+        confirmLabel="Excluir minha conta"
+        onClose={() => setConfirmingDelete(false)}
+        onConfirm={async () => {
+          await api.delete('/me/', { data: { password: deletePassword } })
+          tokenStore.clear()
+          setUser(null)
+        }}
+      />
     </>
   )
 }

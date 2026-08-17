@@ -1,15 +1,17 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { extractError } from '@/lib/api'
 import { Button, Field, Input } from '@/components/ui'
 
 export default function Login() {
+  const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ username: '', password: '' })
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -18,13 +20,13 @@ export default function Login() {
     setLoading(true)
     setError(null)
     try {
-      await login(form.email.trim(), form.password)
+      await login(form.username.trim(), form.password)
       // Volta para a rota que o usuário tentou abrir antes de ser barrado.
       navigate(location.state?.from?.pathname ?? '/', { replace: true })
     } catch (err) {
       setError(
         err?.response?.status === 401
-          ? 'E-mail ou senha incorretos.'
+          ? t('login.erro')
           : extractError(err),
       )
     } finally {
@@ -40,7 +42,7 @@ export default function Login() {
             Notefy
           </h1>
           <p className="mt-1.5 text-sm text-ink-500 dark:text-ink-400">
-            Suas notas, estudos e tarefas em um só lugar.
+            {t('login.subtitulo')}
           </p>
         </div>
 
@@ -54,19 +56,19 @@ export default function Login() {
             </p>
           )}
 
-          <Field label="E-mail">
+          <Field label={t('login.usuario')}>
             <Input
-              type="email"
-              autoComplete="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              placeholder="voce@exemplo.com"
+              type="text"
+              autoComplete="username"
+              value={form.username}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              placeholder="Usuário"
               autoFocus
               required
             />
           </Field>
 
-          <Field label="Senha">
+          <Field label={t('login.senha')}>
             <Input
               type="password"
               autoComplete="current-password"
@@ -78,17 +80,17 @@ export default function Login() {
           </Field>
 
           <Button type="submit" size="lg" className="w-full" loading={loading}>
-            Entrar
+            {t('login.entrar')}
           </Button>
         </form>
 
         <p className="mt-5 text-center text-sm text-ink-500 dark:text-ink-400">
-          Ainda não tem conta?{' '}
+          {t('login.semConta')}{' '}
           <Link
             to="/register"
             className="font-medium text-accent-600 underline-offset-2 hover:underline dark:text-accent-400"
           >
-            Criar conta
+            {t('login.criarConta')}
           </Link>
         </p>
       </div>

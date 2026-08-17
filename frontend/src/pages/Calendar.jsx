@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   addMonths,
   eachDayOfInterval,
+  endOfDay,
   endOfMonth,
   endOfWeek,
   format,
   isSameDay,
   isSameMonth,
   isToday,
+  startOfDay,
   startOfMonth,
   startOfWeek,
   subMonths,
@@ -49,6 +51,10 @@ export default function Calendar() {
   const [scheduling, setScheduling] = useState(null)
   const [selectedDay, setSelectedDay] = useState(null)
   const [dropDay, setDropDay] = useState(null)
+  //: Arrastar por vários dias para criar uma tarefa com duração.
+  //: `ancora` é onde o botão desceu; `ponta` acompanha o mouse.
+  const [ancora, setAncora] = useState(null)
+  const [ponta, setPonta] = useState(null)
 
   // A grade mostra semanas completas, então buscamos do primeiro dia da
   // primeira semana ao último da última — não do dia 1 ao 30.
@@ -81,6 +87,53 @@ export default function Calendar() {
     onEdit: (task) => setModal({ task }),
     onSchedule: (task) => setScheduling(task),
   })
+
+  // Soltar o botão fora da grade cancela a seleção. Sem isto, a faixa
+  // ficaria "grudada" no mouse depois de sair do calendário.
+  useEffect(() => {
+    if (!ancora) return undefined
+    const encerrar = () => {
+      setAncora(null)
+      setPonta(null)
+    }
+    window.addEventListener('mouseup', encerrar)
+    return () => window.removeEventListener('mouseup', encerrar)
+  }, [ancora])
+
+  /** Extremos do intervalo em arraste, já ordenados. */
+  const intervalo = useMemo(() => {
+    if (!ancora || !ponta) return null
+    const [de, ate] = ancora <= ponta ? [ancora, ponta] : [ponta, ancora]
+    return { de, ate }
+  }, [ancora, ponta])
+
+  const dentroDoIntervalo = (day) =>
+    intervalo && day >= startOfDay(intervalo.de) && day <= endOfDay(intervalo.ate)
+
+  /**
+   * Fim do arraste: abre o formulário já com as duas datas.
+   *
+   * Um dia só cai no comportamento antigo (seleciona a célula), porque
+   * clicar num dia não pode virar "criar tarefa" — quem quer criar dá
+   * duplo clique ou usa o botão.
+   */
+  const encerrarArraste = (day) => {
+    if (!ancora) return
+    const [de, ate] = ancora <= day ? [ancora, day] : [day, ancora]
+    setAncora(null)
+    setPonta(null)
+    if (isSameDay(de, ate)) {
+      setSelectedDay(day)
+      return
+    }
+    // 09:00 do primeiro dia até 18:00 do último: a tarefa cobre os dias
+    // escolhidos por inteiro em vez de terminar na madrugada.
+    const inicio = new Date(de)
+    inicio.setHours(9, 0, 0, 0)
+    const fimIntervalo = new Date(ate)
+    fimIntervalo.setHours(18, 0, 0, 0)
+    setModal({ date: inicio, endDate: fimIntervalo })
+  }
 
   /** Solta uma tarefa num dia, preservando a hora que ela já tinha. */
   const dropOnDay = async (day, taskId) => {
@@ -218,10 +271,49 @@ export default function Calendar() {
               const isDropTarget = dropDay && isSameDay(day, dropDay)
 
               return (
-                <button
+                // Célula de dia como <div>, e não <button>.
+                //
+                // Os chips de tarefa são `<div draggable>` DENTRO dela, e o
+                // modelo de conteúdo de `<button>` só aceita phrasing content
+                // — `<div>` ali é HTML inválido. Na prática o Chrome resolvia
+                // o gesto pelo botão: arrastar um chip arrastava a caixa do
+                // dia inteira, ou o chip errado quando havia mais de um.
+                // Sem o botão, cada chip inicia o próprio arraste e a célula
+                // fica sendo só a zona de soltura.
+                <div
                   key={day.toISOString()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    // O <button> dava Enter/Espaço de graça; como div,
+                    // devolvemos na mão para não perder o teclado.
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    setSelectedDay(day)
+                  }}
                   onClick={() => setSelectedDay(day)}
                   onDoubleClick={() => setModal({ date: day })}
+                  onMouseDown={(e) => {
+                    // Só o botão esquerdo, e nunca em cima de um evento —
+                    // ali o gesto é arrastar a tarefa, não criar outra.
+                    if (e.button !== 0 || e.target.closest('[draggable="true"]')) return
+                    setAncora(day)
+                    setPonta(day)
+                  }}
+                  // `mousemove` e não `mouseenter`: enter/leave são
+                  // sintetizados pelo React a partir de out/over e falham
+                  // quando o ponteiro entra numa célula sem passar pela
+                  // borda esperada. A guarda evita re-render a cada pixel.
+                  onMouseMove={() => {
+                    if (!ancora) return
+                    if (ponta && isSameDay(ponta, day)) return
+                    setPonta(day)
+                  }}
+                  onMouseUp={() => encerrarArraste(day)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    openMenu(e, { day })
+                  }}
                   onDragOver={(e) => {
                     if (!Array.from(e.dataTransfer.types).includes(TASK_MIME)) return
                     e.preventDefault()
@@ -242,6 +334,8 @@ export default function Calendar() {
                     outside && 'bg-ink-50/40 dark:bg-ink-900/20',
                     selectedDay && isSameDay(day, selectedDay) && 'ring-1 ring-inset ring-accent-400',
                     isDropTarget && 'bg-accent-100 ring-1 ring-inset ring-accent-500 dark:bg-accent-500/20',
+                    dentroDoIntervalo(day) &&
+                      'bg-accent-100/70 ring-1 ring-inset ring-accent-400 dark:bg-accent-500/20',
                   )}
                 >
                   <span
@@ -294,7 +388,7 @@ export default function Calendar() {
                       </div>
                     )}
                   </div>
-                </button>
+                </div>
               )
             })}
           </div>
@@ -359,6 +453,7 @@ export default function Calendar() {
         open={!!modal}
         task={modal?.task}
         defaultDate={modal?.date}
+        defaultEndDate={modal?.endDate}
         onClose={() => setModal(null)}
         onSaved={() => {
           setModal(null)
@@ -379,7 +474,19 @@ export default function Calendar() {
         x={menu?.x ?? 0}
         y={menu?.y ?? 0}
         onClose={closeMenu}
-        items={menu ? buildMenu(menu.payload.task) : []}
+        items={
+          menu?.payload?.task
+            ? buildMenu(menu.payload.task)
+            : menu?.payload?.day
+              ? [
+                  {
+                    label: 'Nova tarefa',
+                    icon: Plus,
+                    onClick: () => setModal({ date: menu.payload.day }),
+                  },
+                ]
+              : []
+        }
       />
       {dialogs}
     </>

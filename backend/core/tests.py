@@ -9,7 +9,13 @@ from organization.models import Category, Folder
 from planner.models import Task
 from users.models import User
 
-from .testutils import make_category, make_document, make_folder, make_upload
+from .testutils import (
+    make_category,
+    make_document,
+    make_folder,
+    make_upload,
+    make_user,
+)
 
 
 class AuthFlowTests(APITestCase):
@@ -17,7 +23,7 @@ class AuthFlowTests(APITestCase):
         response = self.client.post(
             reverse("auth-register"),
             {
-                "email": "novo@ex.com",
+                "username": "novo",
                 "full_name": "Novo Usuário",
                 "password": "senha-forte-123",
                 "password_confirm": "senha-forte-123",
@@ -26,26 +32,50 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn("access", response.data)
-        self.assertTrue(hasattr(User.objects.get(email="novo@ex.com"), "preferences"))
+        self.assertTrue(hasattr(User.objects.get(username="novo"), "preferences"))
 
     def test_register_rejects_mismatched_passwords(self):
         response = self.client.post(
             reverse("auth-register"),
-            {"email": "x@ex.com", "password": "senha-forte-123",
+            {"username": "x", "password": "senha-forte-123",
              "password_confirm": "outra-senha-456"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_login_returns_user_payload(self):
-        User.objects.create_user(email="user@ex.com", password="senha-forte-123")
+        User.objects.create_user(username="user", password="senha-forte-123")
         response = self.client.post(
             reverse("auth-login"),
-            {"email": "user@ex.com", "password": "senha-forte-123"},
+            {"username": "user", "password": "senha-forte-123"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["user"]["email"], "user@ex.com")
+        self.assertEqual(response.data["user"]["username"], "user")
+
+    def test_refresh_of_a_deleted_account_returns_401(self):
+        """Sessão órfã tem que virar logout, não erro de servidor.
+
+        Acontece de verdade: a conta é excluída numa aba e outra, ainda
+        aberta, tenta renovar o token. A biblioteca deixava o
+        `User.DoesNotExist` subir e virar 500, e aí o frontend não sabia
+        que era caso de mandar para o login.
+        """
+        user = User.objects.create_user(username="some", password="senha-forte-123")
+        login = self.client.post(
+            reverse("auth-login"),
+            {"username": "some", "password": "senha-forte-123"},
+            format="json",
+        )
+        refresh = login.data["refresh"]
+        user.delete()
+
+        response = self.client.post(
+            reverse("auth-refresh"), {"refresh": refresh}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.data["code"], "token_not_valid")
 
     def test_endpoints_require_authentication(self):
         """Todo endpoint de dados precisa recusar requisição anônima.
@@ -72,7 +102,7 @@ class HierarchyTests(APITestCase):
     """Categoria → pasta → item, sem exceção."""
 
     def setUp(self):
-        self.user = User.objects.create_user(email="h@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="h", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.category = make_category(self.user, "Biologia")
 
@@ -145,21 +175,26 @@ class HierarchyTests(APITestCase):
         response = self.client.get(f"/api/documents/{doc.pk}/")
         self.assertEqual(response.data["category"]["name"], "Química")
 
-    def test_category_with_folders_cannot_be_deleted(self):
-        """Apagar a categoria levaria junto todo o conteúdo; a API recusa."""
+    def test_category_with_folders_asks_before_deleting(self):
+        """Apagar a categoria levaria junto todo o conteúdo; a API pergunta."""
         make_folder(self.user, self.category, "Cheia")
         response = self.client.delete(f"/api/categories/{self.category.pk}/")
+
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(response.data["requires_confirmation"])
+        # Nada foi apagado: a primeira chamada só pergunta.
         self.assertTrue(Category.objects.filter(pk=self.category.pk).exists())
 
-    def test_folder_with_documents_cannot_be_deleted(self):
+    def test_folder_with_documents_asks_before_deleting(self):
         folder = make_folder(self.user, self.category, "Cheia")
         make_document(self.user, folder)
         response = self.client.delete(f"/api/folders/{folder.pk}/")
+
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(response.data["requires_confirmation"])
         self.assertTrue(Folder.objects.filter(pk=folder.pk).exists())
 
-    def test_folder_with_subfolders_cannot_be_deleted(self):
+    def test_folder_with_subfolders_asks_before_deleting(self):
         root = make_folder(self.user, self.category, "Raiz")
         make_folder(self.user, name="Filha", parent=root)
         self.assertEqual(
@@ -167,12 +202,70 @@ class HierarchyTests(APITestCase):
             status.HTTP_409_CONFLICT,
         )
 
+    def test_confirmation_counts_the_whole_subtree(self):
+        """O aviso conta o galho inteiro — é isso que some de verdade."""
+        root = make_folder(self.user, self.category, "Raiz")
+        child = make_folder(self.user, name="Filha", parent=root)
+        make_folder(self.user, name="Neta", parent=child)
+        make_document(self.user, root, title="Na raiz")
+        make_document(self.user, child, title="Na filha")
+
+        response = self.client.delete(f"/api/folders/{root.pk}/")
+
+        self.assertEqual(response.data["counts"], {"folders": 2, "documents": 2})
+
+    def test_forced_delete_removes_the_folder_subtree(self):
+        root = make_folder(self.user, self.category, "Raiz")
+        child = make_folder(self.user, name="Filha", parent=root)
+        make_document(self.user, root, title="Na raiz")
+        make_document(self.user, child, title="Na filha")
+        outra = make_folder(self.user, self.category, "Intacta")
+        preservado = make_document(self.user, outra, title="Fora da árvore")
+
+        response = self.client.delete(f"/api/folders/{root.pk}/?force=true")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # Exclusão suave: a subárvore sai de circulação, mas continua
+        # recuperável pela lixeira.
+        self.assertFalse(Folder.objects.alive().filter(pk__in=[root.pk, child.pk]).exists())
+        self.assertEqual(Folder.objects.trashed().filter(pk__in=[root.pk, child.pk]).count(), 2)
+        self.assertEqual(Document.objects.alive().count(), 1)
+        self.assertTrue(Document.objects.filter(pk=preservado.pk).exists())
+        # A categoria não é levada junto: quem foi excluída foi a pasta.
+        self.assertTrue(Category.objects.filter(pk=self.category.pk).exists())
+
+    def test_forced_delete_removes_the_whole_category(self):
+        folder = make_folder(self.user, self.category, "Cheia")
+        make_document(self.user, folder, title="Conteúdo")
+
+        response = self.client.delete(f"/api/categories/{self.category.pk}/?force=true")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(Category.objects.alive().count(), 0)
+        self.assertEqual(Folder.objects.alive().count(), 0)
+        self.assertEqual(Document.objects.alive().count(), 0)
+        # Nada some do banco: a lixeira guarda os três níveis.
+        self.assertEqual(Category.objects.trashed().count(), 1)
+        self.assertEqual(Folder.objects.trashed().count(), 1)
+        self.assertEqual(Document.objects.trashed().count(), 1)
+
     def test_empty_folder_can_be_deleted(self):
         folder = make_folder(self.user, self.category, "Vazia")
         self.assertEqual(
             self.client.delete(f"/api/folders/{folder.pk}/").status_code,
             status.HTTP_204_NO_CONTENT,
         )
+
+    def test_force_does_not_leak_across_owners(self):
+        """`?force=true` não vira uma porta para a pasta de outra pessoa."""
+        outro = make_user("intruso@example.com")
+        alheia = make_folder(outro, make_category(outro, "Dele"), "Privada")
+        make_document(outro, alheia, title="Segredo")
+
+        response = self.client.delete(f"/api/folders/{alheia.pk}/?force=true")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Folder.objects.filter(pk=alheia.pk).exists())
 
     def test_deleting_the_account_removes_the_whole_hierarchy(self):
         """A recusa é da API, não do banco.
@@ -186,6 +279,30 @@ class HierarchyTests(APITestCase):
 
         self.user.delete()
 
+        self.assertEqual(Category.objects.count(), 0)
+        self.assertEqual(Folder.objects.count(), 0)
+        self.assertEqual(Document.objects.count(), 0)
+
+    def test_deleting_the_account_through_the_api_requires_the_password(self):
+        make_document(self.user, make_folder(self.user, self.category, "Cheia"))
+
+        response = self.client.delete(
+            "/api/me/", {"password": "senha-errada"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+    def test_deleting_the_account_through_the_api_takes_everything(self):
+        folder = make_folder(self.user, self.category, "Cheia")
+        make_document(self.user, folder, title="Conteúdo")
+
+        response = self.client.delete(
+            "/api/me/", {"password": "senha-forte-123"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
         self.assertEqual(Category.objects.count(), 0)
         self.assertEqual(Folder.objects.count(), 0)
         self.assertEqual(Document.objects.count(), 0)
@@ -220,8 +337,8 @@ class HierarchyTests(APITestCase):
 class OwnershipIsolationTests(APITestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.alice = User.objects.create_user(email="alice@ex.com", password="senha-forte-123")
-        cls.bob = User.objects.create_user(email="bob@ex.com", password="senha-forte-123")
+        cls.alice = User.objects.create_user(username="alice", password="senha-forte-123")
+        cls.bob = User.objects.create_user(username="bob", password="senha-forte-123")
         cls.bob_folder = make_folder(cls.bob, name="Pasta do Bob")
         cls.bob_doc = make_document(cls.bob, cls.bob_folder, title="Nota do Bob")
         cls.alice_folder = make_folder(cls.alice, name="Pasta da Alice")
@@ -274,7 +391,7 @@ class DocumentKindTests(APITestCase):
     """Os cinco tipos convivem na mesma pasta."""
 
     def setUp(self):
-        self.user = User.objects.create_user(email="k@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="k", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.category = make_category(self.user, "Estudos")
         self.folder = make_folder(self.user, self.category, "Semestre 1")
@@ -323,6 +440,70 @@ class DocumentKindTests(APITestCase):
         self.assertEqual(doc.file_kind, Document.FileKind.PDF)
         self.assertEqual(doc.mime_type, "application/pdf")
         self.assertTrue(doc.checksum)
+
+    def _upload_one(self, name="anexo.pdf"):
+        response = self.client.post(
+            "/api/documents/upload/",
+            {"files": [make_upload(name)], "folder": str(self.folder.pk)},
+            format="multipart",
+        )
+        return Document.objects.get(pk=response.data[0]["id"])
+
+    # A remoção do arquivo roda em `transaction.on_commit`, e o teste vive
+    # dentro de uma transação que nunca commita — daí o
+    # `captureOnCommitCallbacks`, que executa o que ficaria pendurado.
+
+    def test_deleting_a_document_sends_it_to_the_trash_keeping_the_file(self):
+        """Excluir manda para a lixeira — e o arquivo tem que sobreviver.
+
+        Apagar o arquivo do disco aqui tornaria "restaurar" uma mentira: o
+        registro voltaria sem o conteúdo.
+        """
+        doc = self._upload_one()
+        storage, name = doc.file.storage, doc.file.name
+        self.assertTrue(storage.exists(name))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            doc.delete()
+
+        doc.refresh_from_db()
+        self.assertIsNotNone(doc.deleted_at)
+        self.assertFalse(Document.objects.alive().filter(pk=doc.pk).exists())
+        self.assertTrue(storage.exists(name))
+
+    def test_emptying_the_trash_removes_the_file_from_disk(self):
+        """É o esvaziamento da lixeira que libera o disco."""
+        doc = self._upload_one()
+        storage, name = doc.file.storage, doc.file.name
+        doc.delete()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete("/api/trash/")
+
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+        self.assertFalse(storage.exists(name))
+
+    def test_deleting_a_folder_takes_its_content_to_the_trash(self):
+        """A cascata suave precisa alcançar o conteúdo, não só a pasta."""
+        doc = self._upload_one()
+        storage, name = doc.file.storage, doc.file.name
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(f"/api/folders/{self.folder.pk}/?force=true")
+
+        self.assertFalse(Document.objects.alive().filter(pk=doc.pk).exists())
+        self.assertTrue(Document.objects.trashed().filter(pk=doc.pk).exists())
+        # O arquivo continua no disco enquanto der para restaurar.
+        self.assertTrue(storage.exists(name))
+
+    def test_deleting_the_account_takes_the_files_with_it(self):
+        doc = self._upload_one()
+        storage, name = doc.file.storage, doc.file.name
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete("/api/me/", {"password": "senha-forte-123"}, format="json")
+
+        self.assertFalse(storage.exists(name))
 
     def test_folder_holds_every_kind_together(self):
         """O ponto do Drive+Notion: tipos diferentes na mesma pasta."""
@@ -421,7 +602,7 @@ class DocumentKindTests(APITestCase):
 
 class DocumentPayloadValidationTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="v@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="v", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.folder = make_folder(self.user, name="Payloads")
 
@@ -499,7 +680,7 @@ class DocumentPayloadValidationTests(APITestCase):
 
 class PdfExportTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="pdf@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="pdf", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.folder = make_folder(self.user, name="Estudos")
         self.note = make_document(
@@ -539,7 +720,7 @@ class PdfExportTests(APITestCase):
         )
 
     def test_cannot_export_another_users_note(self):
-        other = User.objects.create_user(email="outro@ex.com", password="senha-forte-123")
+        other = User.objects.create_user(username="outro", password="senha-forte-123")
         alheia = make_document(other, make_folder(other, name="Dele"), kind="note", title="X")
         self.assertEqual(
             self.client.get(f"/api/documents/{alheia.pk}/pdf/").status_code,
@@ -549,7 +730,7 @@ class PdfExportTests(APITestCase):
 
 class NoteSectionTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="sec@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="sec", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.folder = make_folder(self.user, name="Notas")
 
@@ -605,7 +786,7 @@ class NoteSectionTests(APITestCase):
 
 class PlannerTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="task@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="task", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.folder = make_folder(self.user, name="Planner")
 
@@ -717,7 +898,7 @@ class PlannerTests(APITestCase):
 
 class GlobalSearchTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="s@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="s", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.category = make_category(self.user, "Biologia")
         self.folder = make_folder(self.user, self.category, "Genética")
@@ -769,7 +950,7 @@ class GlobalSearchTests(APITestCase):
         self.assertEqual([r["title"] for r in response.data["results"]], ["Modelo"])
 
     def test_file_is_found_by_part_of_its_name(self):
-        """O Postgres trata 'relatorio_final.pdf' como um token só; guardar
+        """A busca casa substrings, mas 'relatorio_final.pdf' é uma palavra só; guardar
         o nome também quebrado em palavras é o que faz a busca parcial valer."""
         with self.captureOnCommitCallbacks(execute=True):
             self.client.post(
@@ -794,7 +975,7 @@ class GlobalSearchTests(APITestCase):
         self.assertEqual([r["title"] for r in response.data["results"]], ["Célula"])
 
     def test_search_excludes_other_users_data(self):
-        other = User.objects.create_user(email="other@ex.com", password="senha-forte-123")
+        other = User.objects.create_user(username="other", password="senha-forte-123")
         make_document(other, make_folder(other, name="Dele"), title="Segredo alheio")
 
         self.assertEqual(self.client.get("/api/search/", {"q": "segredo"}).data["total"], 0)
@@ -808,7 +989,7 @@ class GlobalSearchTests(APITestCase):
 
 class DocumentDerivedFieldTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="n@ex.com", password="senha-forte-123")
+        self.user = User.objects.create_user(username="n", password="senha-forte-123")
         self.client.force_authenticate(self.user)
         self.folder = make_folder(self.user, name="Derivados")
 

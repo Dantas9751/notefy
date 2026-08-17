@@ -1,4 +1,4 @@
-from django.db.models import Count
+from django.db.models import Count, Q
 from django_filters import rest_framework as filters
 from rest_framework import status
 from rest_framework.decorators import action
@@ -14,6 +14,111 @@ from .serializers import (
     validate_unique_folder_name,
 )
 
+#: Contagens que a categoria mostra. `Count` sobre uma relação enxerga tudo,
+#: inclusive o que está na lixeira — o filtro por `deleted_at` é o que impede
+#: a sidebar de anunciar "8 itens" numa categoria onde só 5 continuam vivos.
+#: Definidas uma vez porque `get_queryset` e `tree` precisam das mesmas.
+CATEGORY_COUNTS = {
+    "folder_count": Count(
+        "folders", filter=Q(folders__deleted_at__isnull=True), distinct=True
+    ),
+    # Documentos não pendem da categoria: chegam por folders → documents,
+    # então a contagem atravessa a pasta — e a pasta também precisa estar viva.
+    "document_count": Count(
+        "folders__documents",
+        filter=Q(folders__deleted_at__isnull=True, folders__documents__deleted_at__isnull=True),
+        distinct=True,
+    ),
+    "task_count": Count("tasks", filter=Q(tasks__deleted_at__isnull=True), distinct=True),
+}
+
+#: O mesmo para a pasta — o cartão dela anuncia "N item(ns) · M subpasta(s)".
+FOLDER_COUNTS = {
+    "document_count": Count(
+        "documents", filter=Q(documents__deleted_at__isnull=True), distinct=True
+    ),
+    "child_count": Count(
+        "children", filter=Q(children__deleted_at__isnull=True), distinct=True
+    ),
+}
+
+# --------------------------------------------------------------------------
+# Exclusão em cascata
+#
+# Apagar uma pasta apaga o que está dentro dela — no banco isso já acontece
+# sozinho (`on_delete=CASCADE`). O que a API acrescenta é a *pergunta*: se
+# ainda houver conteúdo, o primeiro DELETE não apaga nada, devolve 409 com
+# `requires_confirmation` e a contagem do que sumiria. O cliente mostra o
+# aviso e repete o pedido com `?force=true`.
+#
+# Duas chamadas em vez de um parâmetro logo na primeira: assim o caminho
+# destrutivo nunca é o padrão, nem para um cliente distraído.
+# --------------------------------------------------------------------------
+
+
+def _forced(request):
+    return request.query_params.get("force") == "true"
+
+
+def _document_count(folders):
+    """Quantos documentos vivem nestas pastas."""
+    # Import local: `content` importa `organization.models`, e um import de
+    # módulo aqui fecharia o ciclo.
+    from content.models import Document
+
+    return Document.objects.alive().filter(folder__in=folders).count()
+
+
+def _favoritos_em(folders):
+    """Nomes dos favoritos vivos dentro destas pastas — e delas próprias."""
+    from content.models import Document
+
+    nomes = [folder.name for folder in folders if folder.is_favorite]
+    nomes += list(
+        Document.objects.alive()
+        .filter(folder__in=folders, is_favorite=True)
+        .values_list("title", flat=True)
+    )
+    return nomes
+
+
+def blocked_by_favorites(nomes):
+    """423 — e `?force=true` não derruba.
+
+    Favorito é uma marca deliberada: a pessoa foi lá e clicou na estrela.
+    Excluir a pasta em volta apagaria essa escolha como efeito colateral de
+    outra ação, e o aviso genérico de "ainda contém conteúdo" não dá para
+    perceber que era ali que estava o material marcado.
+
+    423 e não 409 de propósito: o cliente repete qualquer 409 com
+    `?force=true`, e esta recusa não é negociável — primeiro tira a estrela.
+    """
+    mostrados = ", ".join(nomes[:5])
+    resto = f" e mais {len(nomes) - 5}" if len(nomes) > 5 else ""
+    return Response(
+        {
+            "detail": (
+                f"Contém favoritos ({mostrados}{resto}). "
+                "Remova a estrela deles antes de excluir."
+            ),
+            "blocked_by_favorites": True,
+            "favorites": nomes[:20],
+        },
+        status=status.HTTP_423_LOCKED,
+    )
+
+
+def needs_confirmation(detail, counts):
+    """409 pedindo o segundo DELETE, agora com `?force=true`."""
+    return Response(
+        {
+            "detail": f"{detail} Confirme para excluir tudo.",
+            "requires_confirmation": True,
+            "counts": counts,
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
+
 
 class CategoryViewSet(OwnedModelViewSet):
     """Categoria — o topo da hierarquia categoria → pasta → item."""
@@ -28,28 +133,32 @@ class CategoryViewSet(OwnedModelViewSet):
         return (
             super()
             .get_queryset()
-            .annotate(
-                folder_count=Count("folders", distinct=True),
-                # Documentos não pendem da categoria: chegam por
-                # folders → documents, então a contagem atravessa a pasta.
-                document_count=Count("folders__documents", distinct=True),
-                task_count=Count("tasks", distinct=True),
-            )
+            .annotate(**CATEGORY_COUNTS)
         )
 
     def destroy(self, request, *args, **kwargs):
-        # A relação cascateia no banco; a recusa mora aqui. Checar antes de
-        # apagar é mais claro (e mais seguro) do que descobrir pelo estrago.
+        """Exclui a categoria — com as pastas dentro dela, se confirmado."""
         category = self.get_object()
-        if category.folders.exists():
-            return Response(
-                {
-                    "detail": (
-                        "Esta categoria ainda tem pastas. Mova ou exclua as pastas "
-                        "antes de removê-la."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
+        # Só o que ainda está vivo conta para o aviso: alertar sobre pastas
+        # que já estão na lixeira faria a confirmação pedir cuidado com
+        # conteúdo que o usuário já descartou.
+        folders = Folder.objects.alive().filter(owner=request.user, category=category)
+
+        # Antes da contagem: a checagem de favoritos não é um aviso que se
+        # confirma, é uma parada. Deixá-la depois abriria a brecha de o
+        # `?force=true` passar por cima.
+        # Só pastas e documentos têm estrela; categoria não tem o campo.
+        favoritos = _favoritos_em(folders)
+        if favoritos:
+            return blocked_by_favorites(favoritos)
+
+        counts = {
+            "folders": folders.count(),
+            "documents": _document_count(folders),
+        }
+        if any(counts.values()) and not _forced(request):
+            return needs_confirmation(
+                f"A categoria “{category.name}” ainda contém conteúdo.", counts
             )
         return super().destroy(request, *args, **kwargs)
 
@@ -58,13 +167,11 @@ class CategoryViewSet(OwnedModelViewSet):
         """Pastas raiz da categoria — o segundo nível da navegação."""
         category = self.get_object()
         folders = (
-            Folder.objects.filter(owner=request.user, category=category, parent__isnull=True)
+            Folder.objects.alive()
+            .filter(owner=request.user, category=category, parent__isnull=True)
             .filter(is_archived=False)
             .select_related("category")
-            .annotate(
-                document_count=Count("documents", distinct=True),
-                child_count=Count("children", distinct=True),
-            )
+            .annotate(**FOLDER_COUNTS)
             .order_by("position", "name")
         )
 
@@ -99,25 +206,33 @@ class FolderViewSet(OwnedModelViewSet):
             super()
             .get_queryset()
             .select_related("category")
-            .annotate(
-                document_count=Count("documents", distinct=True),
-                child_count=Count("children", distinct=True),
-            )
+            .annotate(**FOLDER_COUNTS)
         )
 
     def destroy(self, request, *args, **kwargs):
+        """Exclui a pasta — com a subárvore inteira, se confirmado.
+
+        A contagem cobre TODA a subárvore, não só os filhos diretos: é isso
+        que some de fato, e é isso que o aviso precisa dizer.
+        """
         folder = self.get_object()
-        # Subpastas contam como conteúdo: apagar a raiz levaria o galho
-        # inteiro, que é justamente o que queremos que seja deliberado.
-        if folder.documents.exists() or folder.children.exists():
-            return Response(
-                {
-                    "detail": (
-                        "Esta pasta ainda tem conteúdo. Mova ou exclua os itens e "
-                        "subpastas antes de removê-la."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
+        # `.alive()`: subpastas já na lixeira não devem inflar o aviso de
+        # "esta pasta ainda contém conteúdo".
+        subtree = Folder.objects.alive().descendants_of(folder, include_self=True)
+
+        # Idem: parada, não aviso. `include_self=True` faz a própria pasta
+        # favoritada bloquear a exclusão dela mesma.
+        favoritos = _favoritos_em(subtree)
+        if favoritos:
+            return blocked_by_favorites(favoritos)
+
+        counts = {
+            "folders": max(subtree.count() - 1, 0),  # a própria pasta não se conta
+            "documents": _document_count(subtree),
+        }
+        if any(counts.values()) and not _forced(request):
+            return needs_confirmation(
+                f"A pasta “{folder.name}” ainda contém conteúdo.", counts
             )
         return super().destroy(request, *args, **kwargs)
 
@@ -151,12 +266,9 @@ class FolderViewSet(OwnedModelViewSet):
                 parent._children.append(folder)
 
         categories = (
-            Category.objects.filter(owner=request.user)
-            .annotate(
-                folder_count=Count("folders", distinct=True),
-                document_count=Count("folders__documents", distinct=True),
-                task_count=Count("tasks", distinct=True),
-            )
+            Category.objects.alive()
+            .filter(owner=request.user)
+            .annotate(**CATEGORY_COUNTS)
             .order_by("-is_pinned", "position", "name")
         )
 
@@ -187,13 +299,19 @@ class FolderViewSet(OwnedModelViewSet):
 
         folder = self.get_object()
         subfolders = self.get_queryset().filter(parent=folder, is_archived=False)
+        # `.alive()` explícito: o filtro central de `OwnedModelViewSet` age
+        # sobre `get_queryset()`, e estes vêm do gerenciador reverso, que não
+        # passa por lá. Sem isto a pasta continua listando o que já está na
+        # lixeira — e o item aparece até ser clicado, quando a API responde
+        # 404 e a tela quebra sem explicação.
         documents = (
-            folder.documents.filter(is_archived=False)
+            folder.documents.alive()
+            .filter(is_archived=False)
             .loose()
             .with_relations()
             .order_by("-is_pinned", "-updated_at")
         )
-        tasks = folder.tasks.with_relations().order_by("position", "-priority")
+        tasks = folder.tasks.alive().with_relations().order_by("position", "-priority")
 
         ctx = {"request": request}
         serialized = DocumentListSerializer(documents, many=True, context=ctx).data

@@ -1,16 +1,17 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { extractError } from '@/lib/api'
 import { Button, Field, Input } from '@/components/ui'
 
 export default function Register() {
+  const { t } = useTranslation()
   const { register } = useAuth()
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
-    full_name: '',
-    email: '',
+    username: '',
     password: '',
     password_confirm: '',
   })
@@ -22,13 +23,13 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (form.password !== form.password_confirm) {
-      setError('As senhas não conferem.')
+      setError(t('cadastro.senhasDiferentes'))
       return
     }
     setLoading(true)
     setError(null)
     try {
-      await register({ ...form, email: form.email.trim() })
+      await register({ ...form, username: form.username.trim() })
       navigate('/', { replace: true })
     } catch (err) {
       setError(extractError(err))
@@ -42,10 +43,10 @@ export default function Register() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-ink-900 dark:text-ink-50">
-            Criar conta
+            {t('cadastro.titulo')}
           </h1>
           <p className="mt-1.5 text-sm text-ink-500 dark:text-ink-400">
-            Comece a organizar seus estudos hoje.
+            {t('cadastro.subtitulo')}
           </p>
         </div>
 
@@ -59,21 +60,19 @@ export default function Register() {
             </p>
           )}
 
-          <Field label="Nome">
-            <Input value={form.full_name} onChange={set('full_name')} autoFocus />
-          </Field>
-
-          <Field label="E-mail">
+          <Field label={t('login.usuario')}>
             <Input
-              type="email"
-              autoComplete="email"
-              value={form.email}
-              onChange={set('email')}
+              type="text"
+              autoComplete="username"
+              value={form.username}
+              onChange={set('username')}
+              placeholder="Usuário"
+              autoFocus
               required
             />
           </Field>
 
-          <Field label="Senha" hint="Mínimo de 8 caracteres.">
+          <Field label={t('login.senha')} hint={t('cadastro.dicaSenha')}>
             <Input
               type="password"
               autoComplete="new-password"
@@ -84,7 +83,7 @@ export default function Register() {
             />
           </Field>
 
-          <Field label="Confirmar senha">
+          <Field label={t('cadastro.confirmarSenha')}>
             <Input
               type="password"
               autoComplete="new-password"
@@ -95,17 +94,17 @@ export default function Register() {
           </Field>
 
           <Button type="submit" size="lg" className="w-full" loading={loading}>
-            Criar conta
+            {t('cadastro.titulo')}
           </Button>
         </form>
 
         <p className="mt-5 text-center text-sm text-ink-500 dark:text-ink-400">
-          Já tem conta?{' '}
+          {t('cadastro.jaTemConta')}{' '}
           <Link
             to="/login"
             className="font-medium text-accent-600 underline-offset-2 hover:underline dark:text-accent-400"
           >
-            Entrar
+            {t('login.entrar')}
           </Link>
         </p>
       </div>

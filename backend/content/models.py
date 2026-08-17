@@ -8,7 +8,7 @@ query só, e um tipo novo custa uma entrada no enum.
 
 O preço é um punhado de colunas que só valem para certos tipos
 (`file` para arquivos, `content` para notas, `data` para os editores
-visuais). É um preço barato: no Postgres coluna nula não ocupa espaço, e
+visuais). É um preço barato: coluna nula quase não ocupa espaço, e
 a coesão que se ganha na API e na interface é o objetivo do produto.
 """
 
@@ -17,13 +17,12 @@ import mimetypes
 import re
 import uuid
 
-from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from django.db.models.functions import Lower
 
-from core.models import BaseModel
+from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator, icon_name_validator
 from organization.models import Folder
 
@@ -50,14 +49,7 @@ def document_upload_path(instance, filename):
     return f"files/{instance.owner_id}/{created.year}/{created.month:02d}/{uuid.uuid4().hex}.{ext}"
 
 
-#: Nome antigo de `document_upload_path`, de quando arquivos viviam num
-#: modelo `Attachment` separado. As migrations históricas importam este
-#: símbolo e quebrariam sem ele; manter o alias é mais seguro do que
-#: reescrever migrations já aplicadas em bancos existentes.
-attachment_upload_path = document_upload_path
-
-
-class DocumentQuerySet(models.QuerySet):
+class DocumentQuerySet(SoftDeleteQuerySet):
     def active(self):
         return self.filter(is_archived=False)
 
@@ -141,10 +133,6 @@ class Document(BaseModel):
 
     folder = models.ForeignKey(
         Folder,
-        # CASCADE no banco, recusa na API — mesmo motivo de
-        # `Folder.category`: PROTECT impediria apagar a conta do usuário.
-        # A hierarquia é obrigatória, então não existe "raiz" para onde o
-        # item cair; a view exige esvaziar a pasta antes de removê-la.
         on_delete=models.CASCADE,
         related_name="documents",
         verbose_name="pasta",
@@ -164,8 +152,6 @@ class Document(BaseModel):
     is_archived = models.BooleanField("arquivado", default=False)
     position = models.FloatField("posição", default=0)
 
-    #: Arquivo anexado a outro documento (ex.: um PDF dentro de uma nota).
-    #: Fora isso, todo documento é de topo e aparece direto na pasta.
     attached_to = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -211,10 +197,8 @@ class Document(BaseModel):
     # ------------------------------------------------------------------
     excerpt = models.CharField("resumo", max_length=320, blank=True, editable=False)
     word_count = models.PositiveIntegerField(default=0, editable=False)
-    #: Texto extraído de dentro do payload (células, rótulos de nós). É o
-    #: que torna planilha e diagrama encontráveis pelo próprio conteúdo.
     search_text = models.TextField(blank=True, editable=False)
-    search_vector = SearchVectorField(null=True, editable=False)
+
     last_viewed_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     objects = DocumentQuerySet.as_manager()
@@ -228,15 +212,17 @@ class Document(BaseModel):
                 condition=~models.Q(attached_to=models.F("id")),
                 name="document_cannot_attach_to_itself",
             ),
+            models.UniqueConstraint(
+                "owner", "folder", "kind", Lower("title"),
+                name="unique_document_title_per_kind_and_folder",
+                condition=models.Q(deleted_at__isnull=True),
+            ),
         ]
         indexes = [
-            GinIndex(fields=["search_vector"], name="document_search_gin"),
             models.Index(fields=["owner", "kind"]),
             models.Index(fields=["owner", "folder"]),
             models.Index(fields=["owner", "status"]),
             models.Index(fields=["owner", "-updated_at"]),
-            # Filtrar por categoria vira um JOIN em folder.category; o
-            # índice do lado da pasta é o que mantém isso barato.
             models.Index(fields=["folder", "-updated_at"]),
         ]
 
@@ -247,12 +233,7 @@ class Document(BaseModel):
     # Validação
     # ------------------------------------------------------------------
     def _validate_attachment(self):
-        """Regras de anexo.
-
-        Chamada pelo `save()`, e não só pelo `clean()`, porque o DRF não
-        invoca `full_clean()` — a rota de upload em lote cria documentos
-        direto, e sem isto passaria por cima destas regras.
-        """
+        """Regras de anexo."""
         if not self.attached_to_id:
             return
 
@@ -263,8 +244,6 @@ class Document(BaseModel):
             raise ValidationError(
                 {"attached_to": "Só arquivos podem ser anexados a outro documento."}
             )
-        # Um nível apenas: anexo de anexo criaria uma cadeia que a
-        # interface não sabe exibir e que abriria espaço para ciclos.
         if parent.attached_to_id:
             raise ValidationError(
                 {"attached_to": "Não é possível anexar um arquivo a outro anexo."}
@@ -272,11 +251,6 @@ class Document(BaseModel):
 
     @property
     def category(self):
-        """A categoria vem da pasta — o item não tem categoria própria.
-
-        Como `Folder.category` é denormalizada em toda a subárvore, isso é
-        um acesso direto, sem subir a árvore.
-        """
         return self.folder.category if self.folder_id else None
 
     def clean(self):
@@ -287,6 +261,20 @@ class Document(BaseModel):
 
         self._validate_attachment()
 
+        # Valida restrição de itens do MESMO TIPO com o MESMO NOME na MESMA PASTA
+        if self.title and self.kind and self.folder_id:
+            qs = Document.objects.alive().filter(
+                folder_id=self.folder_id,
+                kind=self.kind,
+                title__iexact=self.title
+            )
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({
+                    "title": f"Já existe um(a) {self.get_kind_display().lower()} com este nome nesta pasta."
+                })
+
         if self.kind in self.EDITABLE_KINDS and self.data:
             validate_data(self.kind, self.data)
 
@@ -295,16 +283,10 @@ class Document(BaseModel):
     # ------------------------------------------------------------------
     def _plain_text(self):
         if self.kind == self.Kind.NOTE:
-            # Nota em seções guarda o texto no payload; `content` só
-            # sobrevive para as notas anteriores à divisão em blocos.
             if isinstance(self.data, dict) and self.data.get("sections"):
                 return extract_text(self.kind, self.data)
             return _WS_RE.sub(" ", _TAG_RE.sub(" ", self.content or "")).strip()
         if self.kind == self.Kind.FILE:
-            # O Postgres trata "relatorio_final.pdf" como UM token de nome
-            # de arquivo, então buscar "relatorio" não acharia nada. Guardar
-            # também a versão quebrada em palavras é o que faz a busca por
-            # parte do nome funcionar, como se espera de um Drive.
             name = self.original_name or ""
             words = _SEPARATOR_RE.sub(" ", name).strip()
             parts = [name, words] if words and words != name else [name]
@@ -332,7 +314,6 @@ class Document(BaseModel):
             self.title = self.original_name
 
     def _compute_checksum(self):
-        """SHA-256 lido em blocos — arquivos grandes não vão para a memória."""
         digest = hashlib.sha256()
         try:
             self.file.open("rb")
@@ -343,27 +324,18 @@ class Document(BaseModel):
         return digest.hexdigest()
 
     def save(self, *args, **kwargs):
+        self.full_clean()  
         self._validate_attachment()
 
-        # Anexo mora na mesma pasta do documento que o hospeda: ele não é
-        # escolhido por lugar nenhum na interface, então herdar é a única
-        # forma de satisfazer a pasta obrigatória sem inventar um destino.
         if self.attached_to_id:
             self.folder_id = self.attached_to.folder_id
 
-        # `_committed` é False enquanto o arquivo ainda não foi gravado no
-        # storage — é o sinal de que há upload novo. Testar só o checksum
-        # vazio deixaria os metadados desatualizados quando o usuário
-        # substituísse o arquivo de um documento existente.
         if self.file and not getattr(self.file, "_committed", True):
             self._absorb_uploaded_file()
 
         if self.kind in self.EDITABLE_KINDS and not self.data:
             self.data = empty_data_for(self.kind)
 
-        # Nota criada só com `content` (API antiga, admin, shell) precisa
-        # virar uma seção de texto — senão o payload padrão traria seções
-        # vazias e o corpo escrito sumiria da busca e do PDF.
         if self.kind == self.Kind.NOTE and self.content:
             sections = self.data.get("sections") or []
             if not any((s.get("html") or s.get("code")) for s in sections):

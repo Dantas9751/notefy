@@ -27,3 +27,36 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Desktop (Tauri)
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/
+frontend/src-tauri/gen/
+backend/build/
+backend/dist/
+
+# Gerado por criar-certificado.ps1. E so a chave publica (a privada fica no
+# armazenamento do Windows), mas e artefato de build, nao fonte.
+notefy-publicador.cer
+
+# ---- Backups e exportacoes de dados ----
+#
+# Nada aqui e fonte: sao copias do banco e dumps do conteudo real do
+# usuario. O JSON de exportacao carrega ate os hashes de senha, e as
+# pastas de backup do APPDATA vem com o secret.key que assina os tokens
+# de sessao. Um push com isso vaza credencial, nao so dado.
+appdata-notefy-*/
+notefy-dados-*.json
+notefy-backup-*.sqlite3
+notefy-antes-de-restaurar-*.sqlite3
+backend-db-antes-*.sqlite3
+secret.key
+
+# O WAL e o SHM do SQLite nao casam com `*.sqlite3` e carregam as
+# transacoes ainda nao gravadas no arquivo principal.
+*.sqlite3-shm
+*.sqlite3-wal
+
+# ---- Instaladores gerados pelo build do desktop ----
+*.msi
+*.exe

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { CalendarClock, CalendarX2 } from 'lucide-react'
 import api from '@/lib/api'
-import { Button, Field, Input, Modal } from '@/components/ui'
+import { Button, Field, Input, Modal, Select } from '@/components/ui'
+import { useFetch } from '@/hooks/useFetch'
 
 /** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
 export function toLocalInput(iso) {
@@ -21,7 +22,7 @@ export function toLocalInput(iso) {
  * curto e dedicado evita abrir o formulário inteiro só para marcar um dia.
  */
 export default function TaskScheduler({ open, task, onClose, onSaved, defaultDate }) {
-  const [form, setForm] = useState({ starts_at: '', ends_at: '', all_day: false })
+  const [form, setForm] = useState({ starts_at: '', ends_at: '', all_day: false, board: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -33,9 +34,17 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
       starts_at: toLocalInput(task.starts_at) || toLocalInput(defaultDate),
       ends_at: toLocalInput(task.ends_at),
       all_day: task.all_day ?? false,
+      board: task.board ?? '',
     })
   }
   if (!open && loadedFor !== null) setLoadedFor(null)
+
+  const boards = useFetch('/boards/', { enabled: open })
+  const boardList = boards.data?.results ?? []
+  // O quadro da tarefa manda; se ela ainda nao tem um, cai no padrao. E o
+  // que faz agendar pelo calendario nunca produzir tarefa sem Kanban.
+  const boardAtual =
+    form.board || boardList.find((b) => b.is_default)?.id || boardList[0]?.id || ''
 
   const submit = async (clear = false) => {
     setLoading(true)
@@ -46,6 +55,10 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
         ends_at: clear || !form.ends_at ? null : new Date(form.ends_at).toISOString(),
         all_day: form.all_day,
       })
+      // O agendamento nao mexe no quadro; se mudou, e um PATCH a parte.
+      if (boardAtual && boardAtual !== task.board) {
+        await api.patch(`/tasks/${task.id}/`, { board: boardAtual })
+      }
       onSaved?.(data)
       onClose()
     } catch (err) {
@@ -102,6 +115,20 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
             onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
             autoFocus
           />
+        </Field>
+
+        <Field label="Quadro" hint="Em qual Kanban esta tarefa aparece.">
+          <Select
+            value={boardAtual}
+            onChange={(e) => setForm((f) => ({ ...f, board: e.target.value }))}
+          >
+            {boardList.map((board) => (
+              <option key={board.id} value={board.id}>
+                {board.name}
+                {board.is_default ? ' (padrão)' : ''}
+              </option>
+            ))}
+          </Select>
         </Field>
 
         <Field label="Fim" hint="Opcional. Deixe vazio para um compromisso pontual.">

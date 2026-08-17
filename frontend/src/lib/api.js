@@ -117,11 +117,15 @@ export function extractError(error, fallback = 'Algo deu errado. Tente novamente
   if (!data) return error?.message || fallback
   if (typeof data === 'string') return data
   if (data.detail) return data.detail
+  
   const first = Object.entries(data)[0]
   if (!first) return fallback
-  const [field, value] = first
+  
+  const [, value] = first
   const message = Array.isArray(value) ? value[0] : value
-  return field === 'non_field_errors' ? message : `${field}: ${message}`
+  
+  // Retorna apenas a mensagem limpa, sem concatenar o nome do campo (field:)
+  return typeof message === 'string' ? message : fallback
 }
 
 export default api

@@ -13,39 +13,50 @@ def avatar_upload_path(instance, filename):
 
 
 class UserManager(BaseUserManager):
-    """Manager com e-mail como identificador de login."""
+    """Manager com nome de usuário como identificador de login."""
 
     use_in_migrations = True
 
-    def _create_user(self, email, password, **extra_fields):
-        if not email:
-            raise ValueError("O e-mail é obrigatório.")
-        email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+    def _create_user(self, username, password, **extra_fields):
+        if not username:
+            raise ValueError("O nome de usuário é obrigatório.")
+        username = self.model.normalize_username(username).strip()
+        user = self.model(username=username, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, username, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, password, **extra_fields)
 
-    def create_superuser(self, email, password=None, **extra_fields):
+    def create_superuser(self, username, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superusuário precisa de is_staff=True.")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superusuário precisa de is_superuser=True.")
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, password, **extra_fields)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """Usuário do Notefy — login por e-mail, sem username."""
+    """Usuário do Notefy — login por nome de usuário e senha, e nada mais.
 
+    Não há e-mail: o Notefy roda como aplicativo de desktop, sobre um banco
+    local. Não existe servidor para onde mandar confirmação, recuperação de
+    senha nem notificação, então pedir e-mail seria coletar um dado que o
+    app não tem como usar — e mais um campo entre o usuário e a entrada.
+    """
+
+    #: Sem validador de "letras e números": o dono do aplicativo é quem
+    #: escolhe como se chamar no próprio computador, e recusar um acento ou
+    #: um espaço aqui só criaria um erro sem propósito.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField("e-mail", unique=True, db_index=True)
+    username = models.CharField(
+        "nome de usuário", max_length=150, unique=True, db_index=True
+    )
     full_name = models.CharField("nome completo", max_length=150, blank=True)
     avatar = models.ImageField("avatar", upload_to=avatar_upload_path, blank=True, null=True)
 
@@ -56,22 +67,22 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = "email"
+    USERNAME_FIELD = "username"
     REQUIRED_FIELDS = []
 
     class Meta:
         verbose_name = "usuário"
         verbose_name_plural = "usuários"
-        ordering = ("email",)
+        ordering = ("username",)
 
     def __str__(self):
-        return self.full_name or self.email
+        return self.full_name or self.username
 
     def get_full_name(self):
-        return self.full_name or self.email
+        return self.full_name or self.username
 
     def get_short_name(self):
-        return (self.full_name or self.email).split(" ")[0]
+        return (self.full_name or self.username).split(" ")[0]
 
 
 class UserPreferences(models.Model):
@@ -104,4 +115,4 @@ class UserPreferences(models.Model):
         verbose_name_plural = "preferências"
 
     def __str__(self):
-        return f"Preferências de {self.user.email}"
+        return f"Preferências de {self.user.username}"

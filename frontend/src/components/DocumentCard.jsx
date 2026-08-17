@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
-import { Copy, ExternalLink, FolderInput, Paperclip, Pin, Star, Trash2 } from 'lucide-react'
+import { Copy, ExternalLink, FolderInput, Paperclip, Pin, Trash2 } from 'lucide-react'
 import { Badge, ColorDot } from '@/components/ui'
+import FavoriteButton from '@/components/FavoriteButton'
 import { DOCUMENT_STATUS, documentPath, kindMeta } from '@/lib/documents'
 import { setDragPayload } from '@/lib/dnd'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
@@ -12,7 +13,19 @@ import { cn, formatBytes, formatRelative } from '@/lib/utils'
  * ícone, cor de acento e destino do clique; o resto do layout é igual, que
  * é o que faz nota, planilha e PDF conviverem na mesma grade.
  */
-export default function DocumentCard({ document: doc, onContextMenu, showFolder = false }) {
+export default function DocumentCard({
+  document: doc,
+  onContextMenu,
+  showFolder = false,
+  //: Chamado depois de favoritar. A lista que desenha o cartão decide se
+  //: recarrega — em "Favoritos" o item some, numa pasta ele só muda de cor.
+  onFavorited,
+  //: Estilo extra aplicado no PRÓPRIO cartão. Existe para a seleção
+  //: múltipla: desenhar o anel num wrapper por fora faz ele seguir o raio
+  //: do wrapper, e não o do cartão — sobra nos cantos. Aqui o anel nasce
+  //: na mesma caixa e no mesmo arredondamento da borda que ele acompanha.
+  className,
+}) {
   const navigate = useNavigate()
   const meta = kindMeta(doc.kind)
   const Icon = meta.icon
@@ -33,7 +46,10 @@ export default function DocumentCard({ document: doc, onContextMenu, showFolder 
       }
       onClick={() => navigate(documentPath(doc))}
       onContextMenu={(event) => onContextMenu?.(event, { type: 'document', document: doc })}
-      className="card group block cursor-pointer p-4 active:cursor-grabbing"
+      className={cn(
+        'card group flex h-full cursor-pointer flex-col p-4 transition active:cursor-grabbing',
+        className,
+      )}
       style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
     >
       <div className="flex items-start gap-2">
@@ -42,7 +58,12 @@ export default function DocumentCard({ document: doc, onContextMenu, showFolder 
           {doc.title}
         </h3>
         {doc.is_pinned && <Pin size={13} className="shrink-0 text-ink-400" />}
-        {doc.is_favorite && <Star size={13} className="shrink-0 fill-amber-400 text-amber-400" />}
+        <FavoriteButton
+          endpoint={`/documents/${doc.id}/`}
+          value={doc.is_favorite}
+          onChanged={onFavorited}
+          className="mt-0.5"
+        />
       </div>
 
       {doc.excerpt && !isFile && (
@@ -51,7 +72,7 @@ export default function DocumentCard({ document: doc, onContextMenu, showFolder 
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      <div className="mt-auto pt-3 flex flex-wrap items-center gap-1.5">
         <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
           {meta.label}
         </Badge>

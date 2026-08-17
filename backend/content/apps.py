@@ -7,4 +7,7 @@ class ContentConfig(AppConfig):
     verbose_name = "Conteúdo"
 
     def ready(self):
+        # O texto de busca é derivado dentro do próprio `Document.save()`;
+        # o que sobra para os signals é apagar o arquivo do disco quando o
+        # documento some.
         from . import signals  # noqa: F401

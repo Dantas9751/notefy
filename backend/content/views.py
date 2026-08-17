@@ -91,6 +91,14 @@ class DocumentViewSet(OwnedModelViewSet):
         instance = self.get_object()
         Document.objects.filter(pk=instance.pk).update(last_viewed_at=timezone.now())
         return Response(self.get_serializer(instance).data)
+    def destroy(self, request, *args, **kwargs):
+        document = self.get_object()
+        if document.is_favorite:
+            return Response(
+                {"detail": f"'{document.title}' é um item favorito. Remova a estrela dos favoritos antes de excluí-lo."},
+                status=status.HTTP_423_LOCKED
+            )
+        return super().destroy(request, *args, **kwargs)
 
     # ------------------------------------------------------------------
     # Rotas de apoio

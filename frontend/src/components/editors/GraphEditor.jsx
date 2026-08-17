@@ -26,11 +26,11 @@ import {
   clampZoom,
   edgeGeometry,
   edgePath,
+  eraseFromStroke,
   fitViewport,
   nodeRect,
   paletteFor,
   rectBetween,
-  strokeHitsPoint,
   strokePath,
   toWorld,
   uid,
@@ -260,11 +260,24 @@ export default function GraphEditor({ kind, data, onChange }) {
     })
   }
 
+  /**
+   * Passa a borracha num ponto, cortando os traços em vez de removê-los.
+   *
+   * Cada traço devolve os pedaços que sobraram: nenhum se ele foi todo
+   * apagado, um se só aparou a ponta, dois ou mais se o corte foi no meio.
+   */
   const eraseAt = (world) => {
-    const remaining = strokes.filter(
-      (stroke) => !strokeHitsPoint(stroke, world, ERASER_TOLERANCE),
-    )
-    if (remaining.length !== strokes.length) update({ strokes: remaining })
+    let changed = false
+    const remaining = []
+
+    for (const stroke of strokes) {
+      const pieces = eraseFromStroke(stroke, world, ERASER_TOLERANCE)
+      // `eraseFromStroke` devolve o próprio traço quando não encostou nele.
+      if (pieces.length !== 1 || pieces[0] !== stroke) changed = true
+      remaining.push(...pieces)
+    }
+
+    if (changed) update({ strokes: remaining })
   }
 
   const handlePointerMove = (event) => {
@@ -408,11 +421,16 @@ export default function GraphEditor({ kind, data, onChange }) {
         setEditingNode(null)
         setTool('select')
       }
-      if (isCanvas && !event.metaKey && !event.ctrlKey) {
-        const shortcuts = {
-          v: 'select', p: 'pen', m: 'marker', h: 'highlighter',
-          e: 'eraser', t: 'text', r: 'rect', o: 'ellipse', l: 'line_shape',
-        }
+      if (!event.metaKey && !event.ctrlKey) {
+        // No diagrama valem só os atalhos das duas ferramentas que ele
+        // tem; deixar 'p' de caneta ativo ali colocaria o editor num
+        // estado sem botão correspondente na barra.
+        const shortcuts = isCanvas
+          ? {
+              v: 'select', p: 'pen', m: 'marker', h: 'highlighter',
+              e: 'eraser', t: 'text', r: 'rect', o: 'ellipse', l: 'line_shape',
+            }
+          : { v: 'select', t: 'text' }
         if (shortcuts[event.key]) setTool(shortcuts[event.key])
       }
     }
@@ -428,46 +446,58 @@ export default function GraphEditor({ kind, data, onChange }) {
   }
 
   const selectedNode = nodes.find((n) => n.id === selected)
-  const editing = nodes.find((n) => n.id === editingNode)
 
   return (
     <div className="flex min-h-0 flex-1">
       {/* Paleta */}
       <div className="w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800">
+        {/* O diagrama também ganha ferramentas, só que duas: selecionar e
+            texto. O texto solto é o que permite anotar um diagrama —
+            legenda, observação, título de área — sem precisar inventar uma
+            forma para segurar a frase. O tipo `text` já é válido no
+            esquema de diagrama no backend, então nada mais precisa mudar. */}
+        <>
+          <p className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+            Ferramentas
+          </p>
+          <div className={cn('grid gap-1', isCanvas ? 'grid-cols-5' : 'grid-cols-2')}>
+            {(isCanvas
+              ? [
+                  { id: 'select', icon: MousePointer2, title: 'Selecionar (V)' },
+                  { id: 'pen', icon: PenLine, title: 'Caneta (P)' },
+                  { id: 'marker', icon: Brush, title: 'Marcador (M)' },
+                  { id: 'highlighter', icon: Highlighter, title: 'Marca-texto (H)' },
+                  { id: 'eraser', icon: Eraser, title: 'Borracha (E)' },
+                  { id: 'text', icon: Type, title: 'Texto (T) — clique para escrever' },
+                  { id: 'rect', icon: Square, title: 'Retângulo (R) — arraste para desenhar' },
+                  { id: 'ellipse', icon: Circle, title: 'Elipse (O) — arraste para desenhar' },
+                  { id: 'triangle', icon: Triangle, title: 'Triângulo — arraste para desenhar' },
+                  { id: 'line_shape', icon: Slash, title: 'Linha (L) — arraste para desenhar' },
+                ]
+              : [
+                  { id: 'select', icon: MousePointer2, title: 'Selecionar (V)' },
+                  { id: 'text', icon: Type, title: 'Texto livre (T) — clique para escrever' },
+                ]
+            ).map((item) => (
+              <button
+                key={item.id}
+                title={item.title}
+                onClick={() => setTool(item.id)}
+                className={cn(
+                  'flex items-center justify-center rounded-md p-2 transition',
+                  tool === item.id
+                    ? 'bg-accent-600 text-white'
+                    : 'text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800',
+                )}
+              >
+                <item.icon size={14} />
+              </button>
+            ))}
+          </div>
+        </>
+
         {isCanvas && (
           <>
-            <p className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
-              Ferramentas
-            </p>
-            <div className="grid grid-cols-5 gap-1">
-              {[
-                { id: 'select', icon: MousePointer2, title: 'Selecionar (V)' },
-                { id: 'pen', icon: PenLine, title: 'Caneta (P)' },
-                { id: 'marker', icon: Brush, title: 'Marcador (M)' },
-                { id: 'highlighter', icon: Highlighter, title: 'Marca-texto (H)' },
-                { id: 'eraser', icon: Eraser, title: 'Borracha (E)' },
-                { id: 'text', icon: Type, title: 'Texto (T) — clique para escrever' },
-                { id: 'rect', icon: Square, title: 'Retângulo (R) — arraste para desenhar' },
-                { id: 'ellipse', icon: Circle, title: 'Elipse (O) — arraste para desenhar' },
-                { id: 'triangle', icon: Triangle, title: 'Triângulo — arraste para desenhar' },
-                { id: 'line_shape', icon: Slash, title: 'Linha (L) — arraste para desenhar' },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  title={item.title}
-                  onClick={() => setTool(item.id)}
-                  className={cn(
-                    'flex items-center justify-center rounded-md p-2 transition',
-                    tool === item.id
-                      ? 'bg-accent-600 text-white'
-                      : 'text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800',
-                  )}
-                >
-                  <item.icon size={14} />
-                </button>
-              ))}
-            </div>
-
             <div className="mt-2 flex flex-wrap gap-1">
               {['#1a1816', ...NODE_COLORS.slice(0, 8)].map((color) => (
                 <button
@@ -747,6 +777,12 @@ export default function GraphEditor({ kind, data, onChange }) {
                 connecting={connecting?.from === node.id}
                 onPointerDown={(e) => handleNodePointerDown(e, node)}
                 onDoubleClick={() => setEditingNode(node.id)}
+                editing={editingNode === node.id}
+                onCommitText={(texto) => {
+                  updateNode(node.id, { text: texto })
+                  setEditingNode(null)
+                }}
+                onCancelText={() => setEditingNode(null)}
                 onResize={(e, handle) => handleResizeStart(e, node, handle)}
                 onStartConnection={(e) => {
                   const rect = nodeRect(node, palette.nodes)
@@ -798,23 +834,28 @@ export default function GraphEditor({ kind, data, onChange }) {
         )}
       </div>
 
-      {/* Inspetor */}
-      {(editing || selectedNode) && (
+      {/* Inspetor.
+          Agora vive só da seleção. O duplo clique deixou de abrir painel:
+          ele edita o rótulo no próprio nó. O inspetor continua sendo onde
+          moram as propriedades que NÃO são texto — cor, tamanho, atributos
+          de classe, conexões — e essas nada ganham em ficar sobre o
+          desenho. */}
+      {selectedNode && (
         <NodeInspector
-          node={editing ?? selectedNode}
+          node={selectedNode}
           kind={kind}
           edges={edges}
-          onChange={(patch) => updateNode((editing ?? selectedNode).id, patch)}
+          onChange={(patch) => updateNode(selectedNode.id, patch)}
           onChangeEdge={(id, patch) =>
             update({ edges: edges.map((e) => (e.id === id ? { ...e, ...patch } : e)) })
           }
           onDeleteEdge={deleteEdge}
           onDelete={() => {
-            deleteNode((editing ?? selectedNode).id)
+            deleteNode(selectedNode.id)
             setSelected(null)
             setEditingNode(null)
           }}
-          onClose={() => setEditingNode(null)}
+          onClose={() => setSelected(null)}
         />
       )}
     </div>

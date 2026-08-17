@@ -1,17 +1,19 @@
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django_filters import rest_framework as filters
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.views import OwnedModelViewSet
 
-from .models import ChecklistItem, Task
+from .models import Board, ChecklistItem, Task
 from .serializers import (
+    BoardSerializer,
     ChecklistItemSerializer,
     ChecklistItemWriteSerializer,
     TaskCalendarSerializer,
@@ -21,6 +23,7 @@ from .serializers import (
 
 class TaskFilter(filters.FilterSet):
     category = filters.UUIDFilter(field_name="categories__id")
+    board = filters.UUIDFilter(field_name="board_id")
     folder = filters.UUIDFilter(field_name="folder_id")
     document = filters.UUIDFilter(field_name="document_id")
     starts_after = filters.DateTimeFilter(field_name="starts_at", lookup_expr="gte")
@@ -28,10 +31,17 @@ class TaskFilter(filters.FilterSet):
     priority_min = filters.NumberFilter(field_name="priority", lookup_expr="gte")
     unscheduled = filters.BooleanFilter(field_name="starts_at", lookup_expr="isnull")
     overdue = filters.BooleanFilter(method="filter_overdue")
+    #: `?open=true` esconde as concluídas. O roadmap usa para não ficar
+    #: cheio de barras de coisas que já acabaram — o que já foi feito não
+    #: é mais planejamento.
+    open = filters.BooleanFilter(method="filter_open")
 
     class Meta:
         model = Task
-        fields = ("status", "priority", "category", "folder", "document", "all_day")
+        fields = ("status", "priority", "category", "board", "folder", "document", "all_day")
+
+    def filter_open(self, queryset, name, value):
+        return queryset.open() if value else queryset
 
     def filter_overdue(self, queryset, name, value):
         if not value:
@@ -40,6 +50,45 @@ class TaskFilter(filters.FilterSet):
         return queryset.open().filter(
             Q(ends_at__lt=now) | Q(ends_at__isnull=True, starts_at__lt=now)
         )
+
+
+class BoardViewSet(OwnedModelViewSet):
+    """CRUD dos quadros Kanban."""
+
+    serializer_class = BoardSerializer
+    queryset = Board.objects.all()
+    ordering = ("position", "name")
+    search_fields = ("name",)
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(task_count=Count("tasks"))
+
+    def list(self, request, *args, **kwargs):
+        # Garante o quadro padrao antes de listar: uma conta que nunca criou
+        # tarefa nenhuma ainda nao tem quadro, e o seletor do frontend
+        # apareceria vazio — sem opcao de escolher nada.
+        Board.default_for(request.user)
+        return super().list(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        """O quadro padrao nao pode ser excluido, e nada se perde ao excluir
+        os outros: as tarefas do quadro removido voltam para o padrao."""
+        if instance.is_default:
+            raise ValidationError(
+                {"detail": "O quadro padrão não pode ser excluído."}
+            )
+        padrao = Board.default_for(instance.owner)
+        instance.tasks.update(board=padrao)
+        instance.delete()
+
+    @action(detail=True, methods=["post"])
+    def make_default(self, request, pk=None):
+        """Elege este quadro como o padrao, rebaixando o anterior."""
+        board = self.get_object()
+        Board.objects.filter(owner=request.user, is_default=True).update(is_default=False)
+        board.is_default = True
+        board.save(update_fields=["is_default"])
+        return Response(self.get_serializer(board).data)
 
 
 class TaskViewSet(OwnedModelViewSet):
@@ -77,7 +126,14 @@ class TaskViewSet(OwnedModelViewSet):
 
         by_status = {value: [] for value, _ in Task.Status.choices}
         for task in serialized:
-            by_status[task["status"]].append(task)
+            # `setdefault` e não `[...]`: um status fora do enum derrubava o
+            # quadro inteiro com KeyError → 500, e a tela ficava sem cartão
+            # nenhum para arrastar. Isso não é hipotético — o enum já teve
+            # cinco valores e hoje tem três, então qualquer linha gravada
+            # antes da redução (ou por um script) tem esse efeito. A tarefa
+            # órfã vai para "A fazer", que é onde o usuário consegue vê-la e
+            # arrastá-la de volta para o fluxo.
+            by_status.setdefault(task["status"], by_status[Task.Status.TODO]).append(task)
 
         return Response(
             {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import { useMutation } from '@/hooks/useFetch'
 import { Button, ErrorState, Field, Input, Modal, Textarea } from '@/components/ui'
+import ColorWheel from '@/components/ui/ColorWheel'
 import { cn } from '@/lib/utils'
 
 const PRESET_COLORS = [
@@ -28,6 +29,31 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
     )
   }, [open, category])
 
+  // Listener para submeter o formulário com a tecla Enter de qualquer lugar do modal
+  useEffect(() => {
+    if (!open) return
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        // Se estiver no Textarea, permite quebra de linha normal
+        if (e.target.tagName === 'TEXTAREA') return
+
+        e.preventDefault()
+        const formEl = document.getElementById('category-form')
+        if (formEl) {
+          if (formEl.requestSubmit) {
+            formEl.requestSubmit()
+          } else {
+            formEl.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+
   const { mutate, loading, error, setError } = useMutation(async (payload) =>
     isEditing
       ? api.patch(`/categories/${category.id}/`, payload)
@@ -40,7 +66,7 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
       const { data } = await mutate(form)
       onSaved?.(data)
     } catch {
-      /* erro exibido */
+      /* erro exibido no ErrorState */
     }
   }
 
@@ -55,13 +81,14 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} loading={loading}>
+          {/* Conectado ao form id="category-form" */}
+          <Button type="submit" form="category-form" loading={loading}>
             Salvar
           </Button>
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <ErrorState message={error} onRetry={() => setError(null)} />}
 
         <Field label="Nome">
@@ -89,6 +116,12 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
                 )}
               />
             ))}
+
+            <ColorWheel
+              value={form.color}
+              selected={!PRESET_COLORS.includes(form.color)}
+              onChange={(color) => setForm((f) => ({ ...f, color }))}
+            />
           </div>
         </Field>
 

@@ -23,6 +23,10 @@ export function useDocumentActions({ onChanged } = {}) {
   const done = useCallback(() => {
     refresh()
     onChanged?.()
+    // Mover, duplicar e excluir mudam o que TODAS as listagens mostram, não
+    // só a que abriu o menu. Sem este aviso, mover um item numa pasta
+    // deixava ele visível em Recentes e na busca até recarregar a página.
+    window.dispatchEvent(new Event('notefy:moved'))
   }, [refresh, onChanged])
 
   const buildMenu = useCallback(

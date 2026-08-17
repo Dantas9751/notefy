@@ -26,9 +26,10 @@ class CategorySerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "updated_at")
 
-    def validate_name(self, value):
+def validate_name(self, value):
         value = value.strip()
-        qs = Category.objects.filter(
+        # ADICIONADO o .alive() aqui para ignorar categorias na lixeira!
+        qs = Category.objects.alive().filter(
             owner=self.context["request"].user, name__iexact=value
         )
         if self.instance:
@@ -36,7 +37,6 @@ class CategorySerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError("Você já tem uma categoria com este nome.")
         return value
-
 
 class CategoryMiniSerializer(serializers.ModelSerializer):
     """Versão enxuta embutida em notas, pastas e tarefas."""
@@ -52,7 +52,7 @@ def validate_unique_folder_name(*, owner, name, parent, category, instance=None)
     Sem isto, um nome repetido só estouraria como IntegrityError no INSERT
     e chegaria ao usuário como erro 500 sem explicação.
     """
-    qs = Folder.objects.filter(owner=owner, name__iexact=(name or "").strip())
+    qs = Folder.objects.alive().filter(owner=owner, name__iexact=(name or "").strip())
     if parent is not None:
         qs = qs.filter(parent=parent)
         onde = "nesta pasta"

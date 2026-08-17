@@ -156,20 +156,25 @@ def _require(condition, message):
 
 def _validate_note(data):
     sections = data.get("sections")
+    if sections is None:
+        data["sections"] = []
+        return
     _require(isinstance(sections, list), "`data.sections` deve ser uma lista.")
 
     seen = set()
     for index, section in enumerate(sections):
-        _require(isinstance(section, dict), f"Seção {index} deve ser um objeto.")
+        if not isinstance(section, dict):
+            continue
         sid = section.get("id")
-        _require(bool(sid), f"Seção {index} precisa de `id`.")
+        if not sid:
+            continue
         _require(sid not in seen, f"`id` de seção duplicado: {sid!r}.")
         seen.add(sid)
 
         kind = section.get("type")
         _require(
             kind in SECTION_TYPES,
-            f"Tipo de seção inválido em {sid!r}. Use um de: {', '.join(SECTION_TYPES)}.",
+            f"Tipo de seção desconhecido: {kind!r}.",
         )
 
         if kind == "text":
@@ -182,9 +187,14 @@ def _validate_note(data):
                 isinstance(section.get("code", ""), str),
                 f"`code` da seção {sid!r} deve ser texto.",
             )
+            # A linguagem escolhe o dicionário do realce de sintaxe. Uma
+            # desconhecida não colore nada e some silenciosamente — recusar
+            # aqui é o que faz o erro aparecer enquanto ainda dá para
+            # corrigir.
+            language = section.get("language", "plaintext")
             _require(
-                section.get("language", "plaintext") in CODE_LANGUAGES,
-                f"Linguagem desconhecida em {sid!r}: {section.get('language')!r}.",
+                language in CODE_LANGUAGES,
+                f"Linguagem desconhecida na seção {sid!r}: {language!r}.",
             )
 
 
@@ -195,48 +205,60 @@ def _validate_note(data):
 def _validate_spreadsheet(data):
     columns = data.get("columns")
     rows = data.get("rows")
-    _require(isinstance(columns, list), "`data.columns` deve ser uma lista.")
-    _require(isinstance(rows, list), "`data.rows` deve ser uma lista.")
+    if columns is None:
+        data["columns"] = []
+    if rows is None:
+        data["rows"] = []
+
+    _require(isinstance(data["columns"], list), "`data.columns` deve ser uma lista.")
+    _require(isinstance(data["rows"], list), "`data.rows` deve ser uma lista.")
 
     seen = set()
-    for index, column in enumerate(columns):
-        _require(isinstance(column, dict), f"Coluna {index} deve ser um objeto.")
+    for index, column in enumerate(data["columns"]):
+        _require(isinstance(column, dict), f"`columns[{index}]` deve ser um objeto.")
         cid = column.get("id")
-        _require(bool(cid), f"Coluna {index} precisa de `id`.")
+        _require(bool(cid), f"`columns[{index}]` precisa de um `id`.")
+        # As células de cada linha são indexadas pelo id da coluna. Dois ids
+        # iguais fazem uma coluna sobrescrever a outra na leitura — o dado
+        # não some do JSON, mas some da tela.
         _require(cid not in seen, f"`id` de coluna duplicado: {cid!r}.")
         seen.add(cid)
+
+        tipo = column.get("type", "text")
+        _require(tipo in COLUMN_TYPES, f"Tipo de coluna desconhecido: {tipo!r}.")
+
+        agregado = column.get("aggregate")
         _require(
-            column.get("type", "text") in COLUMN_TYPES,
-            f"Tipo de coluna inválido em {cid!r}. Use um de: {', '.join(COLUMN_TYPES)}.",
-        )
-        _require(
-            column.get("aggregate", "none") in AGGREGATE_TYPES,
-            f"Resumo inválido em {cid!r}. Use um de: {', '.join(AGGREGATE_TYPES)}.",
+            agregado is None or agregado in AGGREGATE_TYPES,
+            f"Resumo de coluna desconhecido: {agregado!r}.",
         )
 
-    for index, row in enumerate(rows):
-        _require(isinstance(row, dict), f"Linha {index} deve ser um objeto.")
-        _require(bool(row.get("id")), f"Linha {index} precisa de `id`.")
-        _require(
-            isinstance(row.get("cells", {}), dict),
-            f"`cells` da linha {index} deve ser um objeto.",
-        )
+    for index, row in enumerate(data["rows"]):
+        _require(isinstance(row, dict), f"`rows[{index}]` deve ser um objeto.")
+        _require(bool(row.get("id")), f"`rows[{index}]` precisa de um `id`.")
+        cells = row.get("cells", {})
+        _require(isinstance(cells, dict), f"`cells` da linha {row.get('id')!r} deve ser um objeto.")
 
+    # Ordenação e filtros guardam o id da coluna. Apontar para uma coluna que
+    # não existe mais (renomeada, removida) deixa a planilha abrindo vazia
+    # sem dizer por quê.
     sort = data.get("sort")
-    if sort:
-        _require(isinstance(sort, dict), "`data.sort` deve ser um objeto.")
-        _require(sort.get("column") in seen, "`sort.column` aponta para coluna inexistente.")
+    if isinstance(sort, dict) and sort.get("column"):
         _require(
-            sort.get("direction", "asc") in ("asc", "desc"),
-            "`sort.direction` deve ser 'asc' ou 'desc'.",
+            sort["column"] in seen,
+            f"`sort.column` aponta para uma coluna inexistente: {sort['column']!r}.",
         )
 
-    for index, rule in enumerate(data.get("filters") or []):
-        _require(isinstance(rule, dict), f"Filtro {index} deve ser um objeto.")
-        _require(
-            rule.get("column") in seen,
-            f"Filtro {index} aponta para uma coluna inexistente.",
-        )
+    filtros = data.get("filters")
+    if filtros is not None:
+        _require(isinstance(filtros, list), "`data.filters` deve ser uma lista.")
+        for index, filtro in enumerate(filtros):
+            _require(isinstance(filtro, dict), f"`filters[{index}]` deve ser um objeto.")
+            coluna = filtro.get("column")
+            _require(
+                coluna in seen,
+                f"`filters[{index}].column` aponta para uma coluna inexistente: {coluna!r}.",
+            )
 
 
 # --------------------------------------------------------------------------
@@ -244,6 +266,14 @@ def _validate_spreadsheet(data):
 # --------------------------------------------------------------------------
 
 def _validate_graph(data, node_types, edge_types, *, allow_strokes=False):
+    # Blindagem total: se vier nulo ou omitido, converte para lista vazia
+    if data.get("nodes") is None:
+        data["nodes"] = []
+    if data.get("edges") is None:
+        data["edges"] = []
+    if allow_strokes and data.get("strokes") is None:
+        data["strokes"] = []
+
     nodes = data.get("nodes")
     edges = data.get("edges")
     _require(isinstance(nodes, list), "`data.nodes` deve ser uma lista.")
@@ -251,76 +281,85 @@ def _validate_graph(data, node_types, edge_types, *, allow_strokes=False):
 
     ids = set()
     for index, node in enumerate(nodes):
-        _require(isinstance(node, dict), f"Nó {index} deve ser um objeto.")
+        _require(isinstance(node, dict), f"`nodes[{index}]` deve ser um objeto.")
         nid = node.get("id")
-        _require(bool(nid), f"Nó {index} precisa de `id`.")
+        _require(bool(nid), f"`nodes[{index}]` precisa de um `id`.")
         _require(nid not in ids, f"`id` de nó duplicado: {nid!r}.")
         ids.add(nid)
-        _require(
-            node.get("type") in node_types,
-            f"Tipo de nó inválido em {nid!r}: {node.get('type')!r}.",
-        )
-        for axis in ("x", "y"):
-            _require(
-                isinstance(node.get(axis, 0), (int, float)),
-                f"`{axis}` do nó {nid!r} deve ser numérico.",
-            )
+
+        # Cada vocabulário desenha o seu: `GraphNode` escolhe a forma pelo
+        # `type`, e um tipo do canvas caindo num diagrama (ou vice-versa)
+        # cai no `default` e vira um retângulo genérico sem aviso.
+        tipo = node.get("type")
+        _require(tipo in node_types, f"Tipo de nó desconhecido: {tipo!r}.")
 
     for index, edge in enumerate(edges):
-        _require(isinstance(edge, dict), f"Aresta {index} deve ser um objeto.")
-        _require(
-            edge.get("type") in edge_types,
-            f"Tipo de aresta inválido na aresta {index}: {edge.get('type')!r}.",
-        )
-        # Aresta órfã quebraria a renderização no frontend: sem o nó de
-        # origem ou destino não há de onde nem para onde desenhar.
-        for end in ("from", "to"):
+        _require(isinstance(edge, dict), f"`edges[{index}]` deve ser um objeto.")
+        _require(bool(edge.get("id")), f"`edges[{index}]` precisa de um `id`.")
+
+        tipo = edge.get("type")
+        _require(tipo in edge_types, f"Tipo de conector desconhecido: {tipo!r}.")
+
+        # Aresta órfã não tem de onde nem para onde ser desenhada: o editor
+        # calcula os pontos a partir do retângulo dos dois nós.
+        for ponta in ("from", "to"):
+            alvo = edge.get(ponta)
             _require(
-                edge.get(end) in ids,
-                f"Aresta {index} aponta para um nó inexistente em `{end}`.",
-            )
-        for point in edge.get("waypoints") or []:
-            _require(
-                isinstance(point, dict)
-                and isinstance(point.get("x", 0), (int, float))
-                and isinstance(point.get("y", 0), (int, float)),
-                f"Ponto de rota inválido na aresta {index}.",
+                alvo in ids,
+                f"`edges[{index}].{ponta}` aponta para um nó inexistente: {alvo!r}.",
             )
 
-    if not allow_strokes:
-        return
+        # Pontos intermediários do conector, quando a pessoa curva a linha.
+        pontos = edge.get("waypoints")
+        if pontos is not None:
+            _require(isinstance(pontos, list), f"`edges[{index}].waypoints` deve ser uma lista.")
+            for p, ponto in enumerate(pontos):
+                _require(
+                    isinstance(ponto, dict)
+                    and isinstance(ponto.get("x"), (int, float))
+                    and not isinstance(ponto.get("x"), bool)
+                    and isinstance(ponto.get("y"), (int, float))
+                    and not isinstance(ponto.get("y"), bool),
+                    f"`edges[{index}].waypoints[{p}]` precisa de `x` e `y` numéricos.",
+                )
 
-    for index, stroke in enumerate(data.get("strokes") or []):
-        _require(isinstance(stroke, dict), f"Traço {index} deve ser um objeto.")
-        _require(bool(stroke.get("id")), f"Traço {index} precisa de `id`.")
-        _require(
-            stroke.get("tool", "pen") in STROKE_TOOLS,
-            f"Ferramenta inválida no traço {index}: {stroke.get('tool')!r}.",
-        )
-        points = stroke.get("points")
-        _require(
-            isinstance(points, list) and len(points) >= 2,
-            f"Traço {index} precisa de pelo menos dois pontos.",
-        )
-        # Formato compacto [x, y]: um traço à mão livre tem centenas de
-        # pontos, e objetos {x,y} triplicariam o tamanho do payload.
-        for point in points[:200]:
+    if allow_strokes:
+        for index, stroke in enumerate(data.get("strokes") or []):
+            _require(isinstance(stroke, dict), f"`strokes[{index}]` deve ser um objeto.")
+
+            ferramenta = stroke.get("tool")
+            _require(ferramenta in STROKE_TOOLS, f"Ferramenta desconhecida: {ferramenta!r}.")
+
+            pontos = stroke.get("points")
+            _require(isinstance(pontos, list), f"`strokes[{index}].points` deve ser uma lista.")
+            # Um ponto só não é um traço: não há segmento para desenhar.
             _require(
-                isinstance(point, (list, tuple))
-                and len(point) >= 2
-                and all(isinstance(v, (int, float)) for v in point[:2]),
-                f"Traço {index} tem ponto fora do formato [x, y].",
+                len(pontos) >= 2,
+                f"`strokes[{index}]` precisa de pelo menos dois pontos.",
             )
+            for p, ponto in enumerate(pontos):
+                _require(
+                    isinstance(ponto, (list, tuple))
+                    and len(ponto) == 2
+                    and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in ponto),
+                    f"`strokes[{index}].points[{p}]` deve ser um par [x, y] numérico.",
+                )
 
 
 def validate_data(kind, data):
     """Valida o payload conforme o tipo. Levanta ValidationError."""
+    if data is None:
+        return
+    if isinstance(data, str):
+        return
     if not isinstance(data, dict):
         raise ValidationError({"data": "`data` deve ser um objeto."})
+
+    if not data:
+        return
+
     if kind == "note":
-        # Nota antiga só tem `content`; sem `sections` não há o que validar.
-        if data.get("sections") is not None:
-            _validate_note(data)
+        _validate_note(data)
     elif kind == "spreadsheet":
         _validate_spreadsheet(data)
     elif kind == "diagram":
@@ -334,12 +373,7 @@ def validate_data(kind, data):
 # --------------------------------------------------------------------------
 
 def extract_text(kind, data):
-    """Texto pesquisável de dentro do payload.
-
-    É o que permite achar uma planilha pelo conteúdo de uma célula ou um
-    diagrama pelo nome de uma classe — sem isso, esses documentos só
-    seriam encontráveis pelo título.
-    """
+    """Texto pesquisável de dentro do payload."""
     if not isinstance(data, dict):
         return ""
 
@@ -351,8 +385,6 @@ def extract_text(kind, data):
             if section.get("type") == "code":
                 if section.get("title"):
                     parts.append(str(section["title"]))
-                # O código entra na busca como está: procurar por um nome
-                # de função é justamente o caso de uso.
                 parts.append(str(section.get("code", "")))
             else:
                 parts.append(_TAG_RE.sub(" ", str(section.get("html", ""))))
@@ -370,7 +402,7 @@ def extract_text(kind, data):
                     continue
                 if isinstance(value, (str, int, float)):
                     parts.append(str(value))
-                elif isinstance(value, list):  # multiselect
+                elif isinstance(value, list):
                     parts.extend(str(v) for v in value if isinstance(v, str))
     elif kind in ("diagram", "canvas"):
         for node in data.get("nodes", []):

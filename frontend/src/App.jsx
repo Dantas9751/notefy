@@ -18,6 +18,9 @@ import Calendar from '@/pages/Calendar'
 import Board from '@/pages/Board'
 import SearchPage from '@/pages/Search'
 import Settings from '@/pages/Settings'
+import Profile from '@/pages/Profile'
+import Trash from '@/pages/Trash'
+import Roadmap from '@/pages/Roadmap'
 import NotFound from '@/pages/NotFound'
 
 /**
@@ -109,6 +112,9 @@ function AppRoutes() {
         <Route path="board" element={<Board />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="profile" element={<Profile />} />
+        <Route path="trash" element={<Trash />} />
+        <Route path="roadmap" element={<Roadmap />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

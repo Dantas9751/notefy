@@ -5,6 +5,23 @@
 @layer base {
   :root {
     color-scheme: light;
+
+    /* Cor de destaque, em canais R G B separados para o Tailwind poder
+       aplicar opacidade (`accent-500/50`). Estes são os valores de fábrica
+       — o índigo original. Escolher outra cor nas Configurações injeta uma
+       regra `:root` numa <style> própria (ver lib/accent.js), que
+       sobrescreve estes valores; voltar ao padrão esvazia essa regra e
+       estes aqui voltam a valer. */
+    --accent-50: 238 242 255;
+    --accent-100: 224 231 255;
+    --accent-200: 199 210 254;
+    --accent-300: 165 180 252;
+    --accent-400: 129 140 248;
+    --accent-500: 99 102 241;
+    --accent-600: 79 70 229;
+    --accent-700: 67 56 202;
+    --accent-800: 55 48 163;
+    --accent-900: 49 46 129;
   }
 
   .dark {
@@ -49,6 +66,56 @@
   ::-webkit-scrollbar-thumb {
     @apply rounded-full border-[3px] border-solid border-transparent bg-ink-300 bg-clip-content dark:bg-ink-700;
   }
+}
+
+/* ---------------------------------------------------------------------
+   Lista suspensa do <select> nativo no tema escuro.
+
+   O Chrome pinta o popup com o background COMPUTADO do próprio elemento.
+   Os selects das barras de editor (linguagem do bloco de código, fonte,
+   tamanho) são `bg-transparent` de propósito, para se fundirem na barra —
+   e transparente ali significa a lista branca padrão do sistema. Com o
+   texto quase branco do tema escuro, as opções ficavam invisíveis.
+
+   Pintar a `<option>` resolve a lista sem devolver fundo ao campo fechado,
+   que é justamente o que se queria transparente.
+   --------------------------------------------------------------------- */
+.dark select option,
+.dark select optgroup {
+  background-color: #1a1816; /* ink-900 */
+  color: #f4f2f0; /* ink-100 */
+}
+
+/* ---------------------------------------------------------------------
+   Modo zen.
+
+   Some com tudo que não é o conteúdo: sidebar, cabeçalho da página e a
+   barra superior do mobile.
+
+   Um seletor descendente (`.zen .algo`) tem especificidade 0,2,0 e vence
+   as utilitárias do Tailwind (0,1,0) sem precisar de `!important`. Por
+   isso basta a classe `zen` no <html>: nenhuma página precisa saber que o
+   modo existe.
+   --------------------------------------------------------------------- */
+.zen .app-sidebar,
+.zen .app-topbar,
+.zen .app-page-header {
+  display: none;
+}
+
+/* O conteúdo respira mais quando está sozinho na tela. */
+.zen .app-page-body {
+  padding-top: 2.5rem;
+  padding-bottom: 4rem;
+}
+
+/* O botão de sair do zen precisa sobreviver ao próprio zen. */
+.zen .app-zen-exit {
+  display: inline-flex;
+}
+
+.app-zen-exit {
+  display: none;
 }
 
 @layer components {

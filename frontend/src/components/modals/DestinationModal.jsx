@@ -115,14 +115,15 @@ export default function DestinationModal({
         </Button>
       </div>
 
-      {options.length === 0 ? (
+{options.length === 0 ? (
         <EmptyState
           icon={FolderIcon}
           title="Nenhuma pasta ainda"
           description="Crie uma categoria e uma pasta antes de adicionar conteúdo."
         />
       ) : (
-        <ul className="max-h-72 space-y-0.5 overflow-y-auto">
+        /* O SEGREDO ESTÁ AQUI: p-1 e pr-3 (padding-right) para afastar da parede do scroll */
+        <ul className="max-h-72 space-y-1 overflow-y-auto p-1 pr-3">
           {filtered.map((option) => {
             const isCurrent = option.id === currentFolderId
             return (
@@ -132,10 +133,11 @@ export default function DestinationModal({
                   onClick={() => setSelected(option.id)}
                   onDoubleClick={() => onPick(option.id)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition',
+                    'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition',
                     'disabled:cursor-not-allowed disabled:opacity-40',
                     selected === option.id
-                      ? 'bg-accent-50 text-accent-700 ring-1 ring-accent-400 dark:bg-accent-500/15 dark:text-accent-300'
+                      /* ring-1 ring-inset desenha a borda para dentro, sem vazar */
+                      ? 'bg-accent-50 text-accent-700 ring-1 ring-inset ring-accent-400 dark:bg-accent-500/15 dark:text-accent-300'
                       : 'hover:bg-ink-50 dark:hover:bg-ink-800',
                   )}
                   style={{ paddingLeft: `${8 + option.depth * 14}px` }}
@@ -172,8 +174,7 @@ export default function DestinationModal({
             </li>
           )}
         </ul>
-      )}
-      
+      )}      
       <FolderFormModal
         open={showFolderModal}
         onClose={() => setShowFolderModal(false)}

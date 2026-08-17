@@ -10,15 +10,14 @@ apenas o `/admin`.
 
 ```
 notefy/
-├── backend/          Django 5 + DRF + PostgreSQL
+├── backend/          Django 5 + DRF + SQLite
 │   ├── core/         Modelos abstratos, paginação, permissões, viewset base
 │   ├── users/        Usuário (login por e-mail), JWT, preferências
 │   ├── organization/ Categorias e pastas hierárquicas
 │   ├── content/      Document: nota, arquivo, planilha, diagrama, canvas
 │   ├── planner/      Tarefas e checklists
 │   └── search/       Busca global unificada
-├── frontend/         React 18 + Vite + Tailwind + React Router + Axios
-└── docker-compose.yml   PostgreSQL para desenvolvimento
+└── frontend/         React 18 + Vite + Tailwind + React Router + Axios
 ```
 
 ## Os cinco tipos de conteúdo
@@ -115,17 +114,7 @@ pasta?" continua sendo uma query só.
 
 ## Como rodar
 
-### 1. Banco de dados
-
-```bash
-docker compose up -d
-```
-
-Sobe um PostgreSQL 16 em `localhost:5432` (banco `notefy`, usuário `banco`).
-Se preferir um Postgres já instalado, crie o banco manualmente e ajuste o
-`.env` do backend.
-
-### 2. Backend
+### 1. Backend
 
 ```bash
 cd backend && cp .env.example .env && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt && .venv/Scripts/python manage.py migrate && .venv/Scripts/python manage.py runserver
@@ -133,13 +122,21 @@ cd backend && cp .env.example .env && python -m venv .venv && .venv/Scripts/pip 
 
 API em `http://127.0.0.1:8000/api/` · documentação interativa em `/api/docs/`.
 
+O banco é um **SQLite** (`backend/db.sqlite3`), criado pelo `migrate`. Não há
+servidor de banco para instalar nem serviço para subir — é um arquivo, e é
+o que permite empacotar o Notefy como aplicativo de desktop.
+
+Para guardar o banco e os uploads em outro lugar (é o que o app empacotado
+faz, porque a pasta de instalação costuma ser somente leitura), aponte
+`NOTEFY_DATA_DIR` no `.env` para uma pasta gravável do usuário.
+
 Para criar um usuário administrador:
 
 ```bash
 cd backend && .venv/Scripts/python manage.py createsuperuser
 ```
 
-### 3. Frontend
+### 2. Frontend
 
 ```bash
 cd frontend && npm install && npm run dev
@@ -169,7 +166,7 @@ modelo. Cinco tabelas separadas obrigariam cada pasta a consultar cinco
 lugares, cada filtro a ser escrito cinco vezes e a busca a ter cinco ramos —
 e a interface a ter cinco tipos de card. O preço é um punhado de colunas que
 só valem para certos tipos (`file` para arquivos, `content` para notas, `data`
-para os editores visuais); no Postgres coluna nula não ocupa espaço.
+para os editores visuais); coluna nula praticamente não ocupa espaço.
 
 **O formato de `data` mora num lugar só.** `content/schemas.py` define o
 payload de planilha, diagrama e canvas, valida a estrutura e extrai texto para
@@ -178,10 +175,12 @@ para que as formas válidas não sejam constantes duplicadas que saem de
 sincronia.
 
 **Busca pelo conteúdo, não só pelo título.** O texto extraído de dentro do
-payload entra no índice, então uma planilha é encontrável por uma célula e um
-diagrama pelo nome de uma classe. Nome de arquivo também é indexado quebrado
-em palavras — o Postgres trata `relatorio_final.pdf` como um token único, e
-sem isso buscar "relatorio" não acharia nada.
+payload entra em `search_text`, então uma planilha é encontrável por uma célula
+e um diagrama pelo nome de uma classe. Nome de arquivo também entra quebrado em
+palavras, para que buscar "relatorio" ache `relatorio_final.pdf`. A ordenação
+usa um `CASE WHEN` sobre onde o termo bateu — título exato, começo do título,
+título, corpo —, de modo que a nota chamada "Prova" venha antes da que só cita
+a palavra.
 
 **Fórmulas sem `eval()`.** O avaliador da planilha é um parser recursivo
 descendente próprio (`frontend/src/lib/formula.js`). Um `eval()` executaria

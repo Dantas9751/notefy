@@ -1,17 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CheckSquare, ChevronRight, FolderOpen, Layers, Plus, Tag } from 'lucide-react'
+import { CheckSquare, ChevronRight, FolderOpen, Layers, Plus, Tag, Trash2, X, FolderPlus } from 'lucide-react'
+import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
+import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import DocumentCard from '@/components/DocumentCard'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
+import FolderFormModal from '@/components/modals/FolderFormModal'
 import { DOCUMENT_KINDS } from '@/lib/documents'
-import { TASK_PRIORITY, formatRelative } from '@/lib/utils'
+import { TASK_PRIORITY, formatRelative, cn } from '@/lib/utils'
 
 function greeting() {
   const hour = new Date().getHours()
@@ -22,7 +25,7 @@ function greeting() {
 
 function StatCard({ icon: Icon, label, value, to, color }) {
   return (
-    <Link to={to} className="card flex items-center gap-3 p-4">
+    <Link to={to} className="card flex items-center gap-3 p-4 transition hover:bg-ink-50 dark:hover:bg-ink-800/50">
       <div
         className="rounded-md p-2"
         style={color ? { backgroundColor: `${color}18`, color } : undefined}
@@ -39,15 +42,20 @@ function StatCard({ icon: Icon, label, value, to, color }) {
   )
 }
 
-/** Cartão de categoria com uma prévia das pastas que tem dentro. */
-function CategoryCard({ category }) {
+/** Cartão de categoria com suporte a seleção e clique direito. */
+function CategoryCard({ category, isSelected, onClick, onContextMenu }) {
   const folders = category.folders ?? []
   const preview = folders.slice(0, 4)
 
   return (
     <Link
       to={`/categories/${category.id}`}
-      className="card group flex flex-col p-4"
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      className={cn(
+        "card group flex flex-col p-4 transition overflow-hidden",
+        isSelected ? 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10' : 'hover:bg-ink-50 dark:hover:bg-ink-800/50'
+      )}
       style={{ borderTopColor: category.color, borderTopWidth: 3 }}
     >
       <div className="flex items-start gap-2.5">
@@ -97,31 +105,178 @@ function CategoryCard({ category }) {
 
 /**
  * Início — painel e porta de entrada da hierarquia.
- *
- * Junta as duas leituras: os números do acervo (quanto tem de cada tipo,
- * o que foi mexido, o que vence) e as categorias, que são o primeiro
- * nível da navegação categoria → pasta → item.
  */
 export default function Home() {
   const { user } = useAuth()
   const { categories, loading, refresh } = useWorkspace()
   const navigate = useNavigate()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  
   const [categoryModal, setCategoryModal] = useState(false)
+  const [folderModal, setFolderModal] = useState(null) // Para "Nova pasta" na categoria
+
+  // Estados de Multi-Seleção e Erro
+  const [selectedIds, setSelectedIds] = useState([])
+  const [actionError, setActionError] = useState(null)
+  const lastSelectedId = useRef(null)
+
+  // Estado para o Modal de Exclusão em Massa
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   const stats = useFetch('/documents/stats/')
   const recent = useFetch('/documents/recent/')
   const upcoming = useFetch('/tasks/', {
     params: { status: 'todo', ordering: 'starts_at', page_size: 6 },
   })
-  const { buildMenu, dialogs } = useDocumentActions({ onChanged: recent.refetch })
+  
+  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({ onChanged: recent.refetch })
 
-  const firstName = (user?.full_name || user?.email || '').split(' ')[0]
+  // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
+  const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
+    onDeleted: () => {
+      setSelectedIds([])
+      stats.refetch()
+      recent.refetch()
+      upcoming.refetch()
+      refresh()
+    },
+    onError: setActionError,
+  })
+
+  // Atalho Tecla ESC para limpar seleções
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSelectedIds([])
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    const onChanged = () => {
+      stats.refetch()
+      recent.refetch()
+      upcoming.refetch()
+      refresh()
+    }
+    window.addEventListener('notefy:moved', onChanged)
+    return () => window.removeEventListener('notefy:moved', onChanged)
+  }, [stats.refetch, recent.refetch, upcoming.refetch, refresh])
+
+  /* ------------------------------------------------------------------ */
+  /* Lógica de Cliques e Multi-Seleção                                  */
+  /* ------------------------------------------------------------------ */
+  const handleItemClick = (itemType, itemId, event) => {
+    const uniqueKey = `${itemType}:${itemId}`
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      setSelectedIds((prev) =>
+        prev.includes(uniqueKey) ? prev.filter((i) => i !== uniqueKey) : [...prev, uniqueKey]
+      )
+      lastSelectedId.current = uniqueKey
+    } else {
+      setSelectedIds([uniqueKey])
+      lastSelectedId.current = uniqueKey
+    }
+  }
+
+  const handleContextMenu = (itemType, item, event) => {
+    event.preventDefault()
+    const uniqueKey = `${itemType}:${item.id}`
+    
+    let currentSelected = selectedIds
+    if (!selectedIds.includes(uniqueKey)) {
+      currentSelected = [uniqueKey]
+      setSelectedIds([uniqueKey])
+      lastSelectedId.current = uniqueKey
+    }
+
+    const payload = itemType === 'category' ? { type: 'category', category: item } : { type: 'document', document: item }
+    openMenu(event, { ...payload, isMultiple: currentSelected.length > 1 })
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Lógica de Exclusão Blindada                                        */
+  /* ------------------------------------------------------------------ */
+  const deleteOne = async (selectionKey) => {
+    const [itemType, itemId] = selectionKey.split(':')
+    const endpoint = itemType === 'category' ? `/categories/${itemId}/` : `/documents/${itemId}/`
+
+    try {
+      await api.delete(endpoint)
+    } catch (err) {
+      if (err.response?.status === 404) return;
+      try {
+        await api.delete(`${endpoint}?force=true`)
+      } catch (forceErr) {
+        if (forceErr.response?.status === 404) return;
+        throw forceErr;
+      }
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return
+
+    const idsToDelete = [...selectedIds]
+    setActionError(null)
+    setIsDeletingBulk(true)
+
+    try {
+      for (const selectionKey of idsToDelete) {
+        await deleteOne(selectionKey)
+      }
+    } catch (err) {
+      setActionError(extractError(err))
+    } finally {
+      setSelectedIds([])
+      lastSelectedId.current = null
+      setBulkDeleteModalOpen(false)
+      setIsDeletingBulk(false)
+      
+      stats.refetch()
+      recent.refetch()
+      upcoming.refetch()
+      refresh()
+    }
+  }
+
+  const handleBulkDeleteWithDialog = () => {
+    if (selectedIds.length === 0) return
+
+    if (selectedIds.length === 1) {
+      const [itemType, itemId] = selectedIds[0].split(':')
+      
+      if (itemType === 'category') {
+        const cat = categories.find((c) => String(c.id) === String(itemId))
+        if (cat) {
+          setActionError(null)
+          requestDelete({ kind: 'category', id: cat.id, name: cat.name })
+          return
+        }
+      } else if (itemType === 'document') {
+        const doc = recent.data?.find((d) => String(d.id) === String(itemId))
+        if (doc) {
+          setActionError(null)
+          requestDelete({ kind: 'document', id: doc.id, name: doc.title })
+          return
+        }
+      }
+    }
+
+    setBulkDeleteModalOpen(true)
+  }
+
+  const firstName = (user?.full_name || user?.username || '').split(' ')[0]
   const byKind = stats.data?.by_kind ?? {}
   const totalFolders = categories.reduce((sum, c) => sum + (c.folder_count ?? 0), 0)
 
   return (
-    <>
+    <div className="pb-24">
       <PageHeader
         title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
         subtitle="Um resumo do seu espaço e as categorias onde tudo mora."
@@ -133,6 +288,8 @@ export default function Home() {
       />
 
       <PageBody className="space-y-8">
+        {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
+
         {/* Painel: quanto tem de cada coisa */}
         <section>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -147,16 +304,20 @@ export default function Home() {
             />
           </div>
 
-          {/* Quebra por tipo — inclui os zerados, para o usuário saber que
-              o formato existe mesmo sem ter criado nenhum ainda. */}
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => {
               const Icon = meta.icon
               const count = byKind[kind] ?? 0
               return (
-                <div
+                // `type` e nao `kind`: e o nome que a busca le da URL
+                // (`searchParams.getAll('type')`) e manda para a API. Com
+                // `kind` a navegacao funcionaria e o filtro nao aplicaria —
+                // silenciosamente.
+                <Link
                   key={kind}
-                  className="card flex items-center gap-2.5 p-3"
+                  to={`/search?type=${kind}`}
+                  title={`Ver ${meta.plural.toLowerCase()}`}
+                  className="card flex items-center gap-2.5 p-3 transition hover:bg-ink-50 dark:hover:bg-ink-800/50"
                   style={{ borderLeftColor: meta.accent, borderLeftWidth: 3 }}
                 >
                   <Icon size={16} className="shrink-0" style={{ color: meta.accent }} />
@@ -168,7 +329,7 @@ export default function Home() {
                       {count === 1 ? meta.label : meta.plural}
                     </p>
                   </div>
-                </div>
+                </Link>
               )
             })}
           </div>
@@ -186,9 +347,18 @@ export default function Home() {
             <ListSkeleton rows={2} />
           ) : categories.length ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {categories.map((category) => (
-                <CategoryCard key={category.id} category={category} />
-              ))}
+              {categories.map((category) => {
+                const isSelected = selectedIds.includes(`category:${category.id}`)
+                return (
+                  <CategoryCard
+                    key={category.id}
+                    category={category}
+                    isSelected={isSelected}
+                    onClick={(e) => handleItemClick('category', category.id, e)}
+                    onContextMenu={(e) => handleContextMenu('category', category, e)}
+                  />
+                )
+              })}
             </div>
           ) : (
             <EmptyState
@@ -225,14 +395,22 @@ export default function Home() {
               <ErrorState message={recent.error} onRetry={recent.refetch} />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {recent.data.slice(0, 6).map((doc) => (
-                  <DocumentCard
-                    key={doc.id}
-                    document={doc}
-                    showFolder
-                    onContextMenu={openMenu}
-                  />
-                ))}
+                {recent.data.slice(0, 6).map((doc) => {
+                  const isSelected = selectedIds.includes(`document:${doc.id}`)
+                  return (
+                    <div
+                      key={doc.id}
+                      onClickCapture={(e) => handleItemClick('document', doc.id, e)}
+                      onContextMenu={(e) => handleContextMenu('document', doc, e)}
+                      className={cn(
+                        'rounded-xl transition cursor-pointer overflow-hidden',
+                        isSelected && 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10'
+                      )}
+                    >
+                      <DocumentCard document={doc} showFolder />
+                    </div>
+                  )
+                })}
               </div>
             )}
           </section>
@@ -288,15 +466,103 @@ export default function Home() {
         )}
       </PageBody>
 
+      {/* Barra Flutuante de Ações em Massa */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
+          <span className="text-xs font-medium">
+            {selectedIds.length} selecionado(s)
+          </span>
+          <div className="h-4 w-px bg-ink-700" />
+          <button
+            onClick={handleBulkDeleteWithDialog}
+            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
+          >
+            <Trash2 size={14} /> Excluir
+          </button>
+          <button
+            onClick={() => setSelectedIds([])}
+            className="rounded p-1 text-ink-400 transition hover:text-white"
+            title="Limpar seleção"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Menu de Contexto */}
       <ContextMenu
         open={!!menu}
         x={menu?.x ?? 0}
         y={menu?.y ?? 0}
         onClose={closeMenu}
-        items={menu ? buildMenu(menu.payload.document) : []}
+        items={
+          menu?.payload?.isMultiple
+            ? [
+                {
+                  label: `Excluir (${selectedIds.length} selecionados)`,
+                  icon: Trash2,
+                  danger: true,
+                  onClick: handleBulkDeleteWithDialog,
+                },
+              ]
+            : menu?.payload?.type === 'category'
+              ? [
+                  {
+                    label: 'Nova pasta',
+                    icon: FolderPlus,
+                    onClick: () => setFolderModal({ categoryId: menu.payload.category.id }),
+                  },
+                  { separator: true },
+                  {
+                    label: 'Excluir',
+                    icon: Trash2,
+                    danger: true,
+                    onClick: () => {
+                      setActionError(null)
+                      requestDelete({
+                        kind: 'category',
+                        id: menu.payload.category.id,
+                        name: menu.payload.category.name,
+                      })
+                    },
+                  },
+                ]
+              : menu?.payload?.document
+                ? buildMenu(menu.payload.document)
+                : []
+        }
       />
-      {dialogs}
 
+      {/* Modais de Exclusão e Ações */}
+      {deleteDialogs}
+      {docActionDialogs}
+
+      <Modal
+        open={bulkDeleteModalOpen}
+        onClose={() => setBulkDeleteModalOpen(false)}
+        title="Excluir múltiplos itens"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              loading={isDeletingBulk}
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
+            >
+              Sim, excluir {selectedIds.length} itens
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-600 dark:text-ink-300">
+          Você está prestes a excluir <strong>{selectedIds.length}</strong> itens (e todo o seu conteúdo interno) de forma permanente.
+          Deseja continuar?
+        </p>
+      </Modal>
+
+      {/* Modais de Criação */}
       <CategoryFormModal
         open={categoryModal}
         onClose={() => setCategoryModal(false)}
@@ -306,6 +572,17 @@ export default function Home() {
           if (category?.id) navigate(`/categories/${category.id}`)
         }}
       />
-    </>
+
+      <FolderFormModal
+        open={!!folderModal}
+        categoryId={folderModal?.categoryId}
+        onClose={() => setFolderModal(null)}
+        onSaved={async (newFolder) => {
+          setFolderModal(null)
+          await refresh()
+          if (newFolder?.id) navigate(`/folders/${newFolder.id}`)
+        }}
+      />
+    </div>
   )
 }

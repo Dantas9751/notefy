@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models.functions import Lower
 
-from core.models import BaseModel
+from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator, icon_name_validator
 
 #: Profundidade máxima de aninhamento. Existe para proteger a UI (a sidebar
@@ -47,8 +47,17 @@ class Category(BaseModel):
         constraints = [
             # Case-insensitive: "Estudos" e "estudos" seriam duas tags
             # visualmente idênticas na sidebar — proibido.
+            #
+            # `deleted_at__isnull=True` restringe a regra ao que está VIVO.
+            # Com o soft delete, excluir "Estudos" só marca a data: a linha
+            # continua na tabela e, sem esta condição, seguia reservando o
+            # nome. Criar outra "Estudos" estourava IntegrityError por causa
+            # de uma categoria que o usuário já mandou para a lixeira.
             models.UniqueConstraint(
-                "owner", Lower("name"), name="unique_category_name_per_owner"
+                "owner",
+                Lower("name"),
+                name="unique_category_name_per_owner",
+                condition=models.Q(deleted_at__isnull=True),
             )
         ]
         indexes = [models.Index(fields=["owner", "position"])]
@@ -56,8 +65,23 @@ class Category(BaseModel):
     def __str__(self):
         return self.name
 
+    def delete(self, *args, **kwargs):
+        """Manda a categoria e tudo dentro dela para a lixeira.
 
-class FolderQuerySet(models.QuerySet):
+        A cascata do banco só existe no DELETE de verdade. Sem repeti-la
+        aqui, as pastas e os itens continuariam "vivos" e apareceriam na
+        busca e nas listagens depois de a categoria ter sumido da sidebar.
+        """
+        from content.models import Document
+
+        pastas = list(Folder.objects.filter(category=self).values_list("pk", flat=True))
+        if pastas:
+            Document.objects.filter(folder_id__in=pastas).delete()
+            Folder.objects.filter(pk__in=pastas).delete()
+        super().delete(*args, **kwargs)
+
+
+class FolderQuerySet(SoftDeleteQuerySet):
     def roots(self):
         return self.filter(parent__isnull=True)
 
@@ -124,17 +148,19 @@ class Folder(BaseModel):
         verbose_name_plural = "pastas"
         ordering = ("position", "name")
         constraints = [
+            # `deleted_at__isnull=True` em ambas: pasta na lixeira não pode
+            # continuar segurando o nome (ver a nota em Category.Meta).
             models.UniqueConstraint(
                 "owner", "parent", Lower("name"),
                 name="unique_folder_name_per_parent",
-                condition=models.Q(parent__isnull=False),
+                condition=models.Q(parent__isnull=False, deleted_at__isnull=True),
             ),
             # Pastas raiz são únicas DENTRO da categoria: "Provas" pode
             # existir em Biologia e em Cálculo ao mesmo tempo.
             models.UniqueConstraint(
                 "owner", "category", Lower("name"),
                 name="unique_root_folder_name_per_category",
-                condition=models.Q(parent__isnull=True),
+                condition=models.Q(parent__isnull=True, deleted_at__isnull=True),
             ),
             # Rede de segurança no nível do banco contra auto-referência
             # direta. Ciclos maiores são barrados em clean().
@@ -150,6 +176,18 @@ class Folder(BaseModel):
 
     def __str__(self):
         return self.name
+
+    def delete(self, *args, **kwargs):
+        """Leva a subárvore inteira para a lixeira junto."""
+        from content.models import Document
+
+        subarvore = list(
+            Folder.objects.descendants_of(self, include_self=True).values_list("pk", flat=True)
+        )
+        Document.objects.filter(folder_id__in=subarvore).delete()
+        # A própria pasta sai pelo super(); as descendentes, aqui.
+        Folder.objects.filter(pk__in=subarvore).exclude(pk=self.pk).delete()
+        super().delete(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # Hierarquia
@@ -167,7 +205,7 @@ class Folder(BaseModel):
     def clean(self):
         super().clean()
         self._validate_hierarchy()
-
+        
     def _validate_hierarchy(self):
         parent = self.parent
 

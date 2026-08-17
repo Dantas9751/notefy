@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { nodeRect } from '@/lib/graph'
 import { cn } from '@/lib/utils'
 
@@ -221,6 +222,101 @@ function Fragment({ node, rect, accent }) {
 }
 
 /* -------------------------------------------------------------------- */
+/* Edição no próprio nó                                                 */
+/* -------------------------------------------------------------------- */
+
+//: Como o texto se comporta em cada família de forma. O campo de edição
+//: precisa cair no mesmo lugar do texto desenhado; se ele aparecesse
+//: sempre no topo à esquerda, a frase pularia de posição ao confirmar.
+const TEXT_LAYOUT = {
+  sticky: { align: 'left', size: 12, pad: '14px 10px' },
+  note: { align: 'left', size: 10, pad: '10px' },
+  compartment: { align: 'center', size: 12, pad: '6px', weight: 600 },
+  bare: { align: 'left', size: 14, pad: '6px 2px' },
+  'bare-large': { align: 'left', size: 22, pad: '0 2px', weight: 600 },
+  group: { align: 'left', size: 11, pad: '6px 12px', weight: 600 },
+  package: { align: 'left', size: 10, pad: '2px 8px', weight: 500 },
+  actor: { align: 'center', size: 11, pad: '0', bottom: true },
+  boundary: { align: 'center', size: 10, pad: '0', bottom: true },
+  control: { align: 'center', size: 10, pad: '0', bottom: true },
+  entity: { align: 'center', size: 10, pad: '0', bottom: true },
+}
+
+const TEXT_PADRAO = { align: 'center', size: 11, pad: '6px' }
+
+/**
+ * Campo transparente sobre o nó.
+ *
+ * `foreignObject` é o que permite um `<textarea>` de verdade dentro do
+ * SVG — e um campo real traz cursor, seleção, acentuação e IME de graça,
+ * coisas que reimplementar em `<text>` custaria caro e ficaria pior.
+ *
+ * O `<textarea>` fica transparente e alinhado como o texto desenhado, de
+ * modo que editar pareça escrever no próprio desenho, não numa caixa
+ * flutuando por cima dele.
+ */
+function InlineText({ node, rect, shape, onCommit, onCancel }) {
+  const [valor, setValor] = useState(node.text ?? '')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.focus()
+    // Seleciona tudo: quem deu duplo clique quase sempre quer trocar o
+    // rótulo inteiro, não emendar no fim do texto existente.
+    el.select()
+  }, [])
+
+  const layout = TEXT_LAYOUT[shape] ?? TEXT_PADRAO
+
+  return (
+    <foreignObject x={0} y={0} width={rect.w} height={rect.h} style={{ overflow: 'visible' }}>
+      <textarea
+        ref={ref}
+        value={valor}
+        onChange={(event) => setValor(event.target.value)}
+        // O `<g>` do nó escuta pointerdown para arrastar; sem barrar aqui,
+        // clicar dentro do campo para posicionar o cursor moveria o nó.
+        onPointerDown={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onBlur={() => onCommit(valor)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            onCommit(valor)
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            onCancel()
+          }
+        }}
+        className="resize-none bg-transparent text-ink-900 outline-none dark:text-ink-50"
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 0,
+          padding: layout.pad,
+          textAlign: layout.align,
+          fontSize: layout.size,
+          fontWeight: layout.weight ?? 400,
+          lineHeight: 1.3,
+          // As formas cujo rótulo é desenhado ABAIXO do desenho (ator,
+          // fronteira, controle) editam ali embaixo também.
+          display: 'flex',
+          alignItems: layout.bottom ? 'flex-end' : layout.align === 'center' ? 'center' : 'flex-start',
+          // Um véu leve: sobre uma forma preenchida o texto puro some.
+          background: 'rgb(255 255 255 / 0.85)',
+          borderRadius: 4,
+          boxShadow: '0 0 0 1.5px rgb(99 102 241 / 0.9)',
+        }}
+      />
+    </foreignObject>
+  )
+}
+
+/* -------------------------------------------------------------------- */
 /* Nó                                                                   */
 /* -------------------------------------------------------------------- */
 
@@ -233,6 +329,12 @@ export default function GraphNode({
   onDoubleClick,
   onStartConnection,
   onResize,
+  //: Edição do rótulo acontece AQUI, no nó, e não num modal: num diagrama
+  //: o texto é parte do desenho, e um painel lateral obriga a pessoa a
+  //: olhar para longe do que está mudando.
+  editing,
+  onCommitText,
+  onCancelText,
 }) {
   const rect = nodeRect(node, palette)
   const preset = palette[node.type] ?? { shape: 'rect' }
@@ -619,7 +721,17 @@ export default function GraphNode({
 
       {body()}
 
-      {selected && (
+      {editing && (
+        <InlineText
+          node={node}
+          rect={rect}
+          shape={preset.shape}
+          onCommit={onCommitText}
+          onCancel={onCancelText}
+        />
+      )}
+
+      {selected && !editing && (
         <>
           {/* Alça de conexão — fica ACIMA da borda direita para não
               disputar espaço com a alça de redimensionar do meio. */}

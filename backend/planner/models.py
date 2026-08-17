@@ -4,12 +4,80 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
-from core.models import BaseModel
+from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator
 from organization.models import Category, Folder
 
 
-class TaskQuerySet(models.QuerySet):
+class Board(BaseModel):
+    """Um quadro Kanban.
+
+    As colunas continuam sendo o `status` da tarefa — o quadro não as
+    define. O que ele separa é o CONJUNTO de tarefas: "Faculdade" e "Casa"
+    têm cada um seu "A fazer", em vez de um único quadro misturando tudo.
+
+    Sempre existe um quadro padrão por usuário, e é ele que recebe qualquer
+    tarefa criada sem quadro explícito — inclusive as que vêm do
+    calendário. Sem essa garantia, uma tarefa poderia existir sem lugar
+    nenhum no Kanban e sumir da interface.
+    """
+
+    name = models.CharField("nome", max_length=120)
+    color = models.CharField(
+        "cor", max_length=7, blank=True, validators=[hex_color_validator]
+    )
+    #: O quadro que recebe tarefa sem destino. Único por usuário — a
+    #: unicidade é parcial (só entre os `True`) porque os outros quadros
+    #: são todos `False` e colidiriam entre si.
+    is_default = models.BooleanField("padrão", default=False)
+    position = models.PositiveIntegerField("posição", default=0)
+
+    class Meta:
+        verbose_name = "quadro"
+        verbose_name_plural = "quadros"
+        ordering = ("position", "name")
+        constraints = [
+            # As duas restritas ao que está VIVO: com o soft delete, um
+            # quadro excluído continua na tabela e, sem a condição, seguia
+            # reservando o nome — e o slot de padrão. Excluir "Pessoal" e
+            # criar outro "Pessoal" estourava IntegrityError.
+            models.UniqueConstraint(
+                "owner",
+                models.functions.Lower("name"),
+                name="unique_board_name_per_owner",
+                condition=models.Q(deleted_at__isnull=True),
+            ),
+            models.UniqueConstraint(
+                fields=["owner"],
+                condition=models.Q(is_default=True, deleted_at__isnull=True),
+                name="unique_default_board_per_owner",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def default_for(cls, owner):
+        """O quadro padrão do usuário, criando-o se ainda não existir.
+
+        Criar sob demanda em vez de exigir que exista: contas antigas, ou
+        criadas por caminhos que não passam pelo cadastro, continuam
+        funcionando sem precisar de manutenção manual.
+        """
+        board = cls.objects.filter(owner=owner, is_default=True).first()
+        if board is not None:
+            return board
+        board, _ = cls.objects.get_or_create(
+            owner=owner, name="Meu quadro", defaults={"is_default": True}
+        )
+        if not board.is_default:
+            board.is_default = True
+            board.save(update_fields=["is_default"])
+        return board
+
+
+class TaskQuerySet(SoftDeleteQuerySet):
     def open(self):
         return self.exclude(status=Task.Status.DONE)
 
@@ -30,7 +98,7 @@ class TaskQuerySet(models.QuerySet):
         )
 
     def with_relations(self):
-        return self.select_related("document", "folder").prefetch_related(
+        return self.select_related("document", "folder", "board").prefetch_related(
             "categories", "checklist"
         )
 
@@ -97,6 +165,17 @@ class Task(BaseModel):
         related_name="tasks",
         verbose_name="pasta",
     )
+    #: O quadro onde a tarefa aparece. Nulo só existe como estado
+    #: transitório: o save() abaixo resolve para o quadro padrão, porque
+    #: uma tarefa sem quadro não apareceria em Kanban nenhum.
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        verbose_name="quadro",
+    )
     categories = models.ManyToManyField(Category, blank=True, related_name="tasks")
 
     color = models.CharField(
@@ -141,7 +220,7 @@ class Task(BaseModel):
             raise ValidationError({"ends_at": "O fim não pode ser anterior ao início."})
         if self.ends_at and not self.starts_at:
             raise ValidationError({"starts_at": "Defina um início para poder definir um fim."})
-        for field in ("document", "folder"):
+        for field in ("document", "folder", "board"):
             related = getattr(self, field, None)
             if related and related.owner_id != self.owner_id:
                 raise ValidationError({field: "O item vinculado pertence a outro usuário."})
@@ -153,9 +232,16 @@ class Task(BaseModel):
             self.completed_at = timezone.now()
         elif self.status != self.Status.DONE:
             self.completed_at = None
+
+        # Toda tarefa nasce num quadro. Quem cria pelo calendário, pela
+        # pasta ou pela API sem informar `board` cai no padrão — assim não
+        # existe tarefa órfã, invisível em todos os Kanbans.
+        if self.board_id is None and self.owner_id:
+            self.board = Board.default_for(self.owner)
+
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
-            kwargs["update_fields"] = set(update_fields) | {"completed_at"}
+            kwargs["update_fields"] = set(update_fields) | {"completed_at", "board"}
         super().save(*args, **kwargs)
 
 

@@ -26,16 +26,22 @@ export default function FilterBar({
   onSortChange,
   sortOptions,
   extra,
+  //: A busca tem filtros que não cabem nesta barra (datas e chips de tipo).
+  //: Sem estes dois avisos o botão "Limpar" não aparecia quando só eles
+  //: estavam ativos, e quando aparecia deixava os dois para trás.
+  extraActive = false,
+  onClearExtra,
   className,
 }) {
   const { categoryList: categories } = useWorkspace()
 
-  const hasFilters = Boolean(query || status || category)
+  const hasFilters = Boolean(query || status || category || extraActive)
 
   const clearAll = () => {
     onQueryChange?.('')
     onStatusChange?.('')
     onCategoryChange?.('')
+    onClearExtra?.()
   }
 
   return (

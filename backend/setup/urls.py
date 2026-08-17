@@ -12,8 +12,9 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from content.views import DocumentViewSet
+from core.trash import TrashItemView, TrashView
 from organization.views import CategoryViewSet, FolderViewSet
-from planner.views import ChecklistItemViewSet, TaskViewSet
+from planner.views import BoardViewSet, ChecklistItemViewSet, TaskViewSet
 
 router = DefaultRouter()
 router.register("categories", CategoryViewSet, basename="category")
@@ -21,11 +22,14 @@ router.register("folders", FolderViewSet, basename="folder")
 # Uma rota só para nota, arquivo, planilha, diagrama e canvas — o `kind`
 # distingue, e filtros como ?kind=spreadsheet dão as visões por tipo.
 router.register("documents", DocumentViewSet, basename="document")
+router.register("boards", BoardViewSet, basename="board")
 router.register("tasks", TaskViewSet, basename="task")
 router.register("checklist-items", ChecklistItemViewSet, basename="checklist-item")
 
 api_urlpatterns = [
     *router.urls,
+    path("trash/", TrashView.as_view(), name="trash"),
+    path("trash/<str:tipo>/<uuid:item_id>/", TrashItemView.as_view(), name="trash-item"),
     path("", include("users.urls")),
     path("", include("search.urls")),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
@@ -37,6 +41,8 @@ urlpatterns = [
     path("api/", include(api_urlpatterns)),
 ]
 
-if settings.DEBUG:
-    # Em produção os uploads são servidos pelo nginx/S3, não pelo Django.
+if settings.DEBUG or settings.DESKTOP_MODE:
+    # Servidor web na frente do Django existe quando há deploy; no
+    # aplicativo de desktop não há nginx nem S3, e os uploads do usuário
+    # estão no disco dele — quem os entrega é o próprio Django.
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

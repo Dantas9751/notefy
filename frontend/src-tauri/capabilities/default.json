@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões da janela do Notefy: o padrão do Tauri mais o direito de executar o backend empacotado.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/notefy-server",
+          "sidecar": true,
+          "args": false
+        }
+      ]
+    }
+  ]
+}

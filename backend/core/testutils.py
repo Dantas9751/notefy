@@ -12,8 +12,8 @@ from organization.models import Category, Folder
 from users.models import User
 
 
-def make_user(email="user@ex.com", password="senha-forte-123", **extra):
-    return User.objects.create_user(email=email, password=password, **extra)
+def make_user(username="user", password="senha-forte-123", **extra):
+    return User.objects.create_user(username=username, password=password, **extra)
 
 
 def make_category(owner, name="Geral", **extra):

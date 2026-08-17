@@ -4,7 +4,9 @@ djangorestframework==3.16.1
 djangorestframework-simplejwt==5.5.1
 
 # ---- Banco de dados ----
-psycopg[binary]==3.2.10
+# Nenhuma dependência: o SQLite vem embutido na biblioteca padrão do
+# Python. É o que permite empacotar o backend num executável sem exigir
+# que a máquina do usuário tenha um servidor de banco instalado.
 
 # ---- API / infra ----
 django-cors-headers==4.9.0

@@ -5,7 +5,7 @@ from content.models import Document
 from organization.models import Category, Folder
 from organization.serializers import CategoryMiniSerializer, OwnedPrimaryKeyRelatedField
 
-from .models import ChecklistItem, Task
+from .models import Board, ChecklistItem, Task
 
 
 class ChecklistItemSerializer(serializers.ModelSerializer):
@@ -27,7 +27,35 @@ class ChecklistItemWriteSerializer(serializers.ModelSerializer):
         fields = ("id", "task", "text", "is_done", "position")
 
 
+class BoardSerializer(serializers.ModelSerializer):
+    """Quadro Kanban. `task_count` evita um request por quadro só para
+    mostrar quantas tarefas cada um tem no seletor."""
+
+    task_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Board
+        fields = ("id", "name", "color", "is_default", "position", "task_count")
+        read_only_fields = ("id", "is_default", "task_count")
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Dê um nome ao quadro.")
+        outros = Board.objects.filter(
+            owner=self.context["request"].user, name__iexact=value
+        )
+        if self.instance is not None:
+            outros = outros.exclude(pk=self.instance.pk)
+        if outros.exists():
+            raise serializers.ValidationError("Já existe um quadro com este nome.")
+        return value
+
+
 class TaskSerializer(serializers.ModelSerializer):
+    board = OwnedPrimaryKeyRelatedField(
+        queryset=Board.objects.all(), required=False, allow_null=True
+    )
     document = OwnedPrimaryKeyRelatedField(
         queryset=Document.objects.all(), required=False, allow_null=True
     )
@@ -44,6 +72,7 @@ class TaskSerializer(serializers.ModelSerializer):
     document_title = serializers.CharField(source="document.title", read_only=True, default=None)
     document_kind = serializers.CharField(source="document.kind", read_only=True, default=None)
     folder_name = serializers.CharField(source="folder.name", read_only=True, default=None)
+    board_name = serializers.CharField(source="board.name", read_only=True, default=None)
     is_overdue = serializers.BooleanField(read_only=True)
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
 
@@ -53,7 +82,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "id", "title", "description", "status", "priority", "priority_label",
             "starts_at", "ends_at", "all_day", "reminder_at", "completed_at",
             "recurrence_rule", "document", "document_title", "document_kind",
-            "folder", "folder_name",
+            "folder", "folder_name", "board", "board_name",
             "categories", "categories_detail", "checklist", "color", "position",
             "is_overdue", "created_at", "updated_at",
         )
@@ -90,7 +119,7 @@ class TaskCalendarSerializer(serializers.ModelSerializer):
         model = Task
         fields = (
             "id", "title", "start", "end", "allDay", "status", "priority",
-            "color", "is_overdue", "folder", "document",
+            "color", "is_overdue", "folder", "document", "board",
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))

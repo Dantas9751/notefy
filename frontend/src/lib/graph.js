@@ -425,9 +425,95 @@ export function strokePath(points) {
   return `${d} L ${last[0]} ${last[1]}`
 }
 
-/** Distância de um ponto ao traço — usada pela borracha. */
-export function strokeHitsPoint(stroke, point, tolerance) {
-  return stroke.points.some(
-    ([x, y]) => Math.hypot(x - point.x, y - point.y) <= tolerance + (stroke.width ?? 3),
-  )
+/* --------------------------------------------------------------------- */
+/* Borracha                                                              */
+/*                                                                       */
+/* A borracha apaga só o que passa debaixo dela, como a do Paint: o traço */
+/* atingido no meio vira dois pedaços, e as pontas que sobraram continuam */
+/* existindo. Apagar o traço inteiro seria "excluir objeto", que é outra  */
+/* ferramenta e outra intenção.                                          */
+/* --------------------------------------------------------------------- */
+
+/** Distância de um ponto ao segmento AB — não à reta infinita que o contém. */
+function distanceToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax
+  const dy = by - ay
+  const lengthSq = dx * dx + dy * dy
+  if (lengthSq === 0) return Math.hypot(px - ax, py - ay)
+
+  // Projeta o ponto no segmento e prende o resultado entre as duas pontas.
+  let t = ((px - ax) * dx + (py - ay) * dy) / lengthSq
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
+/**
+ * Insere pontos intermediários nos trechos que passam perto da borracha.
+ *
+ * O traço é gravado por amostragem do ponteiro: um movimento rápido deixa
+ * amostras distantes, e um corte no meio de um trecho longo não teria
+ * ponto nenhum para remover. Só o trecho vizinho é subdividido — densificar
+ * o traço inteiro incharia o payload sem necessidade.
+ */
+function densifyNear(points, center, reach) {
+  const step = Math.max(reach / 2, 1)
+  const out = []
+
+  for (let i = 0; i < points.length; i += 1) {
+    out.push(points[i])
+    const next = points[i + 1]
+    if (!next) break
+
+    const [x1, y1] = points[i]
+    const [x2, y2] = next
+    const length = Math.hypot(x2 - x1, y2 - y1)
+    if (length <= step) continue
+    if (distanceToSegment(center.x, center.y, x1, y1, x2, y2) > reach) continue
+
+    const parts = Math.ceil(length / step)
+    for (let k = 1; k < parts; k += 1) {
+      out.push([
+        Math.round(x1 + ((x2 - x1) * k) / parts),
+        Math.round(y1 + ((y2 - y1) * k) / parts),
+      ])
+    }
+  }
+
+  return out
+}
+
+/**
+ * Devolve o que sobra de um traço depois de passar a borracha.
+ *
+ * O retorno é uma lista: vazia se o traço sumiu por inteiro, com um item
+ * se só as pontas foram aparadas, e com vários se o corte foi no meio.
+ * Quando nada é tocado, devolve o próprio traço — sem objeto novo, para
+ * que o React não redesenhe o que não mudou.
+ */
+export function eraseFromStroke(stroke, center, radius) {
+  const reach = radius + (stroke.width ?? 3) / 2
+  const points = densifyNear(stroke.points, center, reach)
+
+  const pieces = []
+  let piece = []
+
+  for (const point of points) {
+    const erased = Math.hypot(point[0] - center.x, point[1] - center.y) <= reach
+    if (erased) {
+      // Um ponto solto não desenha nada; só vale como pedaço a partir de dois.
+      if (piece.length >= 2) pieces.push(piece)
+      piece = []
+    } else {
+      piece.push(point)
+    }
+  }
+  if (piece.length >= 2) pieces.push(piece)
+
+  if (pieces.length === 1 && pieces[0].length === stroke.points.length) return [stroke]
+
+  return pieces.map((pts, index) => ({
+    ...stroke,
+    id: index === 0 ? stroke.id : `${stroke.id}x${index}${Math.random().toString(36).slice(2, 6)}`,
+    points: pts,
+  }))
 }

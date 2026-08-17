@@ -328,11 +328,35 @@ function CellInput({ column, value, onCommit, onCancel }) {
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => onCommit(draft)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          onCommit(draft)
+        if (e.key === 'Escape') {
+          onCancel()
+          return
         }
-        if (e.key === 'Escape') onCancel()
+
+        // Toda navegação grava antes de sair: sair de uma célula sem
+        // gravar o que foi digitado perde trabalho silenciosamente.
+        const irPara = (direcao) => {
+          e.preventDefault()
+          onCommit(draft, direcao)
+        }
+
+        if (e.key === 'Enter') return irPara(e.shiftKey ? 'up' : 'down')
+        if (e.key === 'Tab') return irPara(e.shiftKey ? 'left' : 'right')
+        if (e.key === 'ArrowUp') return irPara('up')
+        if (e.key === 'ArrowDown') return irPara('down')
+
+        // Esquerda/direita só saem da célula quando o cursor já está na
+        // ponta do texto — no meio de uma palavra, a seta tem que andar o
+        // cursor, que é o que se espera de um campo de texto.
+        const alvo = e.currentTarget
+        const naPonta =
+          alvo.selectionStart === alvo.selectionEnd &&
+          (e.key === 'ArrowLeft'
+            ? alvo.selectionStart === 0
+            : alvo.selectionStart === alvo.value.length)
+
+        if (e.key === 'ArrowLeft' && naPonta) return irPara('left')
+        if (e.key === 'ArrowRight' && naPonta) return irPara('right')
       }}
       className={cn(
         'h-full w-full border-0 bg-transparent px-2 text-sm focus:outline-none',
@@ -461,6 +485,43 @@ export default function SpreadsheetEditor({ data, onChange }) {
     })
 
   const addRow = () => update({ rows: [...rows, { id: uid('r'), cells: {} }] })
+
+  /**
+   * Move a edição para a célula vizinha.
+   *
+   * `visibleRows` e não `rows`: com filtro ou ordenação ativa, a ordem da
+   * tela não é a do array, e descer pelo array levaria a uma linha que o
+   * usuário não está vendo.
+   *
+   * Descer na última linha CRIA a próxima. É o que permite preencher uma
+   * planilha inteira sem tirar a mão do teclado — e é o comportamento que
+   * qualquer um espera de Enter numa planilha.
+   */
+  const navigateCell = (direction, visibleRows) => {
+    if (!editing) return
+    const rowIndex = visibleRows.findIndex((r) => r.id === editing.rowId)
+    const colIndex = columns.findIndex((c) => c.id === editing.colId)
+    if (rowIndex === -1 || colIndex === -1) return
+
+    let nextRow = rowIndex
+    let nextCol = colIndex
+    if (direction === 'up') nextRow -= 1
+    else if (direction === 'down') nextRow += 1
+    else if (direction === 'left') nextCol -= 1
+    else if (direction === 'right') nextCol += 1
+
+    if (nextRow >= visibleRows.length) {
+      const novo = { id: uid('r'), cells: {} }
+      update({ rows: [...rows, novo] })
+      setEditing({ rowId: novo.id, colId: editing.colId })
+      return
+    }
+
+    // Bater na borda não faz nada: sair da grade seria perder a edição sem
+    // o usuário ter pedido.
+    if (nextRow < 0 || nextCol < 0 || nextCol >= columns.length) return
+    setEditing({ rowId: visibleRows[nextRow].id, colId: columns[nextCol].id })
+  }
 
   const addColumn = () =>
     update({
@@ -834,9 +895,10 @@ export default function SpreadsheetEditor({ data, onChange }) {
                           <CellInput
                             column={column}
                             value={raw}
-                            onCommit={(value) => {
+                            onCommit={(value, direcao) => {
                               setCell(row.id, column.id, value)
-                              if (column.type !== 'multiselect') setEditing(null)
+                              if (direcao) navigateCell(direcao, shown)
+                              else if (column.type !== 'multiselect') setEditing(null)
                             }}
                             onCancel={() => setEditing(null)}
                           />

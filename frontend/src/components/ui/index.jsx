@@ -228,10 +228,20 @@ export function ColorDot({ color, size = 8 }) {
   )
 }
 
-export function Field({ label, error, hint, children }) {
+/**
+ * `action` é um controle opcional alinhado à direita do rótulo — um "+"
+ * para criar a opção que falta, por exemplo. Fica FORA do `<label>`: um
+ * botão dentro dele herdaria o comportamento de ativação do rótulo.
+ */
+export function Field({ label, error, hint, action, children }) {
   return (
     <div>
-      {label && <label className="label">{label}</label>}
+      {(label || action) && (
+        <div className="flex items-end justify-between gap-2">
+          {label && <label className="label">{label}</label>}
+          {action}
+        </div>
+      )}
       {children}
       {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
       {hint && !error && <p className="mt-1 text-xs text-ink-400">{hint}</p>}

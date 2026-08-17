@@ -11,8 +11,8 @@ from .models import MAX_FOLDER_DEPTH, Category, Folder
 class FolderHierarchyTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.user = User.objects.create_user(email="a@ex.com", password="senha-forte-123")
-        cls.other = User.objects.create_user(email="b@ex.com", password="senha-forte-123")
+        cls.user = User.objects.create_user(username="a", password="senha-forte-123")
+        cls.other = User.objects.create_user(username="b", password="senha-forte-123")
         cls.category = Category.objects.create(owner=cls.user, name="Biologia")
         cls.other_category = Category.objects.create(owner=cls.other, name="Deles")
 
@@ -173,7 +173,16 @@ class FolderHierarchyTests(TestCase):
         self.assertEqual(grandchild.path, f"{child.pk}/{grandchild.pk}/")
 
     def test_deleting_parent_cascades_to_subfolders(self):
+        """A cascata agora é suave: some da navegação, fica na lixeira."""
         root = self.make("Raiz")
         self.make("Filha", parent=root)
         root.delete()
-        self.assertEqual(Folder.objects.count(), 0)
+        self.assertEqual(Folder.objects.alive().count(), 0)
+        self.assertEqual(Folder.objects.trashed().count(), 2)
+
+    def test_hard_delete_removes_the_subtree_for_good(self):
+        root = self.make("Raiz")
+        filha = self.make("Filha", parent=root)
+        root.delete()
+        Folder.objects.trashed().hard_delete()
+        self.assertFalse(Folder.objects.filter(pk__in=[root.pk, filha.pk]).exists())

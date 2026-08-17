@@ -26,7 +26,13 @@ class OwnedModelViewSet(viewsets.ModelViewSet):
         # request para gerar o schema.
         if getattr(self, "swagger_fake_view", False) or not self.request:
             return super().get_queryset().none()
-        return super().get_queryset().filter(owner=self.request.user)
+        qs = super().get_queryset().filter(owner=self.request.user)
+        # A lixeira fica fora de TODA listagem por padrão. Filtrar aqui, e
+        # não em cada view, é o que garante que nenhum endpoint novo esqueça
+        # e volte a mostrar item excluído na busca, na pasta ou no quadro.
+        if hasattr(qs, "alive"):
+            qs = qs.alive()
+        return qs
 
     def perform_create(self, serializer):
         self._save(serializer, owner=self.request.user)

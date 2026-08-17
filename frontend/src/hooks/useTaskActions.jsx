@@ -13,6 +13,18 @@ import ConfirmDialog from '@/components/modals/ConfirmDialog'
 export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
   const [deleting, setDeleting] = useState(null)
 
+  /**
+   * Recarrega a tela que abriu o menu E avisa as outras.
+   *
+   * Roadmap e calendário mostram a mesma tarefa por outro ângulo, e o
+   * `onChanged` só alcança quem passou o callback. Concluir uma tarefa no
+   * quadro tirava ela do roadmap apenas depois de um recarregamento.
+   */
+  const avisar = useCallback(() => {
+    onChanged?.()
+    window.dispatchEvent(new CustomEvent('notefy:task-changed'))
+  }, [onChanged])
+
   const buildMenu = useCallback(
     (task) => {
       const done = task.status === 'done'
@@ -28,7 +40,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
           icon: CalendarX2,
           onClick: async () => {
             await api.post(`/tasks/${task.id}/schedule/`, { starts_at: null })
-            onChanged?.()
+            avisar()
           },
         },
         { separator: true },
@@ -37,7 +49,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
           icon: done ? RotateCcw : Check,
           onClick: async () => {
             await api.post(`/tasks/${task.id}/toggle/`)
-            onChanged?.()
+            avisar()
           },
         },
         {
@@ -48,7 +60,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
         },
       ].filter(Boolean)
     },
-    [onChanged, onEdit, onSchedule],
+    [avisar, onEdit, onSchedule],
   )
 
   const dialogs = (
@@ -63,7 +75,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
       onClose={() => setDeleting(null)}
       onConfirm={async () => {
         await api.delete(`/tasks/${deleting.id}/`)
-        onChanged?.()
+        avisar()
       }}
     />
   )

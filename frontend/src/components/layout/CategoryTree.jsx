@@ -17,10 +17,6 @@ const EXPANDED_KEY = 'notefy.expanded'
 
 /**
  * Estado de expansão persistido.
- *
- * Guardado em localStorage para que a sidebar reabra exatamente como o
- * usuário deixou — reabrir tudo a cada F5 é fricção pura em hierarquias
- * profundas. Categorias e pastas dividem o mesmo conjunto, com prefixo.
  */
 function loadExpanded() {
   try {
@@ -61,8 +57,6 @@ function useDropTarget(target, onDrop, onHover) {
   const handlers = {
     onDragOver: (event) => {
       if (!hasItemPayload(event)) return
-      // O payload só é legível no drop; durante o hover confiamos no MIME
-      // e deixamos a checagem fina para o momento de soltar.
       event.preventDefault()
       event.dataTransfer.dropEffect = 'move'
       if (!over) {
@@ -87,7 +81,7 @@ function useDropTarget(target, onDrop, onHover) {
   return { over, handlers }
 }
 
-function FolderRow({ node, depth, categoryId, state, actions }) {
+function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSelectIds }) {
   const hasChildren = node.children?.length > 0
   const isOpen = state.expanded.has(`f:${node.id}`)
   const accent = node.color || node.category_detail?.color
@@ -97,8 +91,34 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
     state.ensureOpen(`f:${node.id}`),
   )
 
+  const selectionKey = `folder:${node.id}`
+  const isSelected = selectedIds?.includes(selectionKey)
+
+  const handleSelection = (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      e.preventDefault() 
+      if (isSelected) {
+        onSelectIds(selectedIds.filter((id) => id !== selectionKey))
+      } else {
+        onSelectIds([...selectedIds, selectionKey])
+      }
+    } else {
+      onSelectIds([selectionKey])
+    }
+  }
+
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    let currentSelected = selectedIds || []
+    if (!currentSelected.includes(selectionKey)) {
+      currentSelected = [selectionKey]
+      onSelectIds([selectionKey])
+    }
+    actions.onContextMenu(e, { type: 'folder', node, categoryId, isMultiple: currentSelected.length > 1 })
+  }
+
   return (
-    <li>
+    <li className="select-none">
       <div
         {...handlers}
         draggable
@@ -113,18 +133,21 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
             path: node.path,
           })
         }
-        onContextMenu={(event) => actions.onContextMenu(event, { type: 'folder', node, categoryId })}
+        onContextMenu={handleContextMenu}
         className={cn(
-          'group flex items-center gap-0.5 rounded-md pr-1 transition',
-          'hover:bg-ink-100 dark:hover:bg-ink-800/70',
-          over && 'bg-accent-100 ring-1 ring-accent-400 dark:bg-accent-500/20',
+          'group flex items-center gap-0.5 rounded-md pr-1 transition outline-none',
+          isSelected ? 'bg-accent-50 dark:bg-accent-500/15' : 'hover:bg-ink-100 dark:hover:bg-ink-800/70',
+          over && 'ring-1 ring-inset ring-accent-400',
         )}
         style={{ paddingLeft: `${8 + depth * 12}px` }}
       >
         <button
-          onClick={() => state.toggle(`f:${node.id}`)}
+          onClick={(e) => {
+            e.stopPropagation()
+            state.toggle(`f:${node.id}`)
+          }}
           className={cn(
-            'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200',
+            'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200 outline-none',
             !hasChildren && 'invisible',
           )}
           aria-label={isOpen ? 'Recolher' : 'Expandir'}
@@ -138,10 +161,17 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
 
         <NavLink
           to={`/folders/${node.id}`}
+          onMouseDown={(e) => {
+            // AQUI ESTÁ A MÁGICA: Impede o highlight azul ANTES dele nascer
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+              e.preventDefault()
+            }
+          }}
+          onClick={handleSelection}
           className={({ isActive }) =>
             cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-1 text-sm transition',
-              isActive
+              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-1 text-sm transition outline-none focus:outline-none focus:ring-0',
+              isActive || isSelected
                 ? 'font-medium text-accent-700 dark:text-accent-300'
                 : 'text-ink-600 dark:text-ink-300',
             )
@@ -164,11 +194,12 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
         <button
           onClick={(e) => {
             e.preventDefault()
+            e.stopPropagation()
             actions.onCreateFolder({ parent: node, categoryId })
           }}
           title="Nova subpasta"
           aria-label={`Nova subpasta em ${node.name}`}
-          className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100"
+          className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100 outline-none"
         >
           <Plus size={13} />
         </button>
@@ -184,6 +215,8 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
               categoryId={categoryId}
               state={state}
               actions={actions}
+              selectedIds={selectedIds}
+              onSelectIds={onSelectIds}
             />
           ))}
         </ul>
@@ -192,7 +225,7 @@ function FolderRow({ node, depth, categoryId, state, actions }) {
   )
 }
 
-function CategoryRow({ category, state, actions }) {
+function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
   const isOpen = state.expanded.has(`c:${category.id}`)
   const folders = category.folders ?? []
 
@@ -201,21 +234,27 @@ function CategoryRow({ category, state, actions }) {
     state.ensureOpen(`c:${category.id}`),
   )
 
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    onSelectIds([]) 
+    actions.onContextMenu(e, { type: 'category', category })
+  }
+
   return (
-    <li>
+    <li className="select-none">
       <div
         {...handlers}
-        onContextMenu={(event) => actions.onContextMenu(event, { type: 'category', category })}
+        onContextMenu={handleContextMenu}
         className={cn(
-          'group flex items-center gap-0.5 rounded-md pl-1 pr-1 transition',
+          'group flex items-center gap-0.5 rounded-md pl-1 pr-1 transition outline-none',
           'hover:bg-ink-100 dark:hover:bg-ink-800/70',
-          over && 'bg-accent-100 ring-1 ring-accent-400 dark:bg-accent-500/20',
+          over && 'bg-accent-100 ring-1 ring-inset ring-accent-400 dark:bg-accent-500/20',
         )}
       >
         <button
           onClick={() => state.toggle(`c:${category.id}`)}
           className={cn(
-            'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200',
+            'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200 outline-none',
             !folders.length && 'invisible',
           )}
           aria-label={isOpen ? 'Recolher' : 'Expandir'}
@@ -229,9 +268,22 @@ function CategoryRow({ category, state, actions }) {
 
         <NavLink
           to={`/categories/${category.id}`}
+          onMouseDown={(e) => {
+            // AQUI TAMBÉM: Mata o highlight fantasma na Categoria
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+              e.preventDefault()
+            }
+          }}
+          onClick={(e) => {
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+              e.preventDefault()
+              return
+            }
+            onSelectIds([])
+          }} 
           className={({ isActive }) =>
             cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 text-sm transition',
+              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 text-sm transition outline-none focus:outline-none focus:ring-0',
               isActive
                 ? 'font-medium text-accent-700 dark:text-accent-300'
                 : 'text-ink-700 dark:text-ink-200',
@@ -254,7 +306,7 @@ function CategoryRow({ category, state, actions }) {
           }}
           title="Nova pasta"
           aria-label={`Nova pasta em ${category.name}`}
-          className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100"
+          className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100 outline-none"
         >
           <FolderPlus size={13} />
         </button>
@@ -270,19 +322,21 @@ function CategoryRow({ category, state, actions }) {
               categoryId={category.id}
               state={state}
               actions={actions}
+              selectedIds={selectedIds}
+              onSelectIds={onSelectIds}
             />
           ))}
         </ul>
       )}
 
-      {isOpen && folders.length === 0 && (
+      {folders.length === 0 && (
         <p className="py-1 pl-8 text-[11px] text-ink-400">Nenhuma pasta aqui.</p>
       )}
     </li>
   )
 }
 
-export default function CategoryTree({ categories, actions }) {
+export default function CategoryTree({ categories, selectedIds = [], onSelectIds, actions }) {
   const state = useExpanded()
 
   if (!categories.length) {
@@ -296,7 +350,14 @@ export default function CategoryTree({ categories, actions }) {
   return (
     <ul className="space-y-0.5">
       {categories.map((category) => (
-        <CategoryRow key={category.id} category={category} state={state} actions={actions} />
+        <CategoryRow 
+          key={category.id} 
+          category={category} 
+          state={state} 
+          actions={actions}
+          selectedIds={selectedIds}
+          onSelectIds={onSelectIds}
+        />
       ))}
     </ul>
   )

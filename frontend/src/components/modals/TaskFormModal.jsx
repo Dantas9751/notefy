@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
-import { useMutation } from '@/hooks/useFetch'
+import { useFetch, useMutation } from '@/hooks/useFetch'
 import { useWorkspace, flattenFolders } from '@/context/WorkspaceContext'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
 import { TASK_PRIORITY, TASK_STATUS } from '@/lib/utils'
@@ -16,6 +16,7 @@ function toLocalInput(iso) {
 }
 
 const EMPTY = {
+  board: '',
   title: '',
   description: '',
   status: 'todo',
@@ -33,7 +34,9 @@ export default function TaskFormModal({
   onSaved,
   task,
   defaultDate,
+  defaultEndDate,
   defaultStatus,
+  defaultBoardId,
 }) {
   const { categories } = useWorkspace()
   const [form, setForm] = useState(EMPTY)
@@ -60,10 +63,18 @@ export default function TaskFormModal({
             // do calendário, não há coluna, então fica "a fazer" (o
             // default de EMPTY) e a data escolhida é que a posiciona.
             status: defaultStatus ?? EMPTY.status,
+            board: defaultBoardId ?? '',
             starts_at: defaultDate ? toLocalInput(defaultDate) : '',
+            // Vem preenchido quando a pessoa arrastou por vários dias no
+            // calendário: a tarefa já nasce com duração, e é isso que faz
+            // o roadmap desenhar uma barra em vez de um risco.
+            ends_at: defaultEndDate ? toLocalInput(defaultEndDate) : '',
           },
     )
-  }, [open, task, defaultDate, defaultStatus])
+  }, [open, task, defaultDate, defaultEndDate, defaultStatus, defaultBoardId])
+
+  const boards = useFetch('/boards/', { enabled: open })
+  const boardList = boards.data?.results ?? []
 
   const { mutate, loading, error, setError } = useMutation(async (payload) => {
     const body = {
@@ -73,6 +84,8 @@ export default function TaskFormModal({
       starts_at: payload.starts_at ? new Date(payload.starts_at).toISOString() : null,
       ends_at: payload.ends_at ? new Date(payload.ends_at).toISOString() : null,
       folder: payload.folder || null,
+      // Vazio vira null e o backend resolve para o quadro padrao.
+      board: payload.board || null,
       document: payload.document || null,
     }
     return isEditing ? api.patch(`/tasks/${task.id}/`, body) : api.post('/tasks/', body)
@@ -127,6 +140,19 @@ export default function TaskFormModal({
               ))}
             </Select>
           </Field>
+          <Field label="Quadro">
+            <Select value={form.board} onChange={set('board')}>
+              {/* Sem opcao vazia: toda tarefa vive num quadro, e deixar
+                  "nenhum" sugeriria um estado que nao existe. */}
+              {boardList.map((board) => (
+                <option key={board.id} value={board.id}>
+                  {board.name}
+                  {board.is_default ? ' (padrão)' : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
           <Field label="Prioridade">
             <Select value={form.priority} onChange={set('priority')}>
               {Object.entries(TASK_PRIORITY).map(([value, { label }]) => (
@@ -164,7 +190,7 @@ export default function TaskFormModal({
 
         <Field label="Pasta">
           <Select value={form.folder} onChange={set('folder')}>
-            <option value="">— Sem pasta —</option>
+            <option value="">Sem pasta</option>
             {flattenFolders(categories).map((node) => (
               <option key={node.id} value={node.id}>
                 {' '.repeat(node._depth * 3)}
