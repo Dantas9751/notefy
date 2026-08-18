@@ -11,7 +11,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
-from content.views import DocumentViewSet
+from content.views import DocumentViewSet, FavoritesView
 from core.trash import TrashItemView, TrashView
 from organization.views import CategoryViewSet, FolderViewSet
 from planner.views import BoardViewSet, ChecklistItemViewSet, TaskViewSet
@@ -28,6 +28,7 @@ router.register("checklist-items", ChecklistItemViewSet, basename="checklist-ite
 
 api_urlpatterns = [
     *router.urls,
+    path("favorites/", FavoritesView.as_view(), name="favorites"),
     path("trash/", TrashView.as_view(), name="trash"),
     path("trash/<str:tipo>/<uuid:item_id>/", TrashItemView.as_view(), name="trash-item"),
     path("", include("users.urls")),

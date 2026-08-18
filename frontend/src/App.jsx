@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { UIProvider } from '@/context/UIContext'
 import { WorkspaceProvider } from '@/context/WorkspaceContext'
+import { TabsProvider } from '@/context/TabsContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
 
@@ -21,6 +22,7 @@ import Settings from '@/pages/Settings'
 import Profile from '@/pages/Profile'
 import Trash from '@/pages/Trash'
 import Roadmap from '@/pages/Roadmap'
+import FavoritesView from '@/pages/FavoritesView'
 import NotFound from '@/pages/NotFound'
 
 /**
@@ -85,7 +87,9 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <WorkspaceProvider>
-              <AppLayout />
+              <TabsProvider>
+                <AppLayout />
+              </TabsProvider>
             </WorkspaceProvider>
           </ProtectedRoute>
         }
@@ -113,6 +117,7 @@ function AppRoutes() {
         <Route path="calendar" element={<Calendar />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="favorites" element={<FavoritesView />} />
         <Route path="trash" element={<Trash />} />
         <Route path="roadmap" element={<Roadmap />} />
       </Route>

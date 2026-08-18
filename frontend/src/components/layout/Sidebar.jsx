@@ -15,6 +15,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Star,
   Settings,
   Tag,
   Trash2,
@@ -39,6 +40,7 @@ import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 const NAV_ITEMS = [
   { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
   { to: '/recent', label: 'Recentes', icon: Clock },
+  { to: '/favorites', label: 'Favoritos', icon: Star },
   { to: '/files', label: 'Arquivos', icon: Paperclip },
   { to: '/search', label: 'Buscar', icon: Search }, 
   { to: '/board', label: 'Quadro', icon: Kanban },
@@ -619,6 +621,10 @@ export default function Sidebar() {
           setFolderModal(null)
           refresh()
           setMobileSidebarOpen(false)
+          // `refresh()` só atualiza a árvore da sidebar. Quem está com uma
+          // pasta ou a busca aberta ao lado depende deste aviso — que os
+          // mesmos modais no AppLayout já disparavam, e aqui faltava.
+          window.dispatchEvent(new Event('notefy:moved'))
         }}
       />
 
@@ -629,6 +635,7 @@ export default function Sidebar() {
         onSaved={() => {
           setCategoryModal(null)
           refresh()
+          window.dispatchEvent(new Event('notefy:moved'))
         }}
       />
 

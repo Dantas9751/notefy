@@ -29,6 +29,26 @@ export function useDocumentActions({ onChanged } = {}) {
     window.dispatchEvent(new Event('notefy:moved'))
   }, [refresh, onChanged])
 
+  /**
+   * Liga/desliga a estrela. Mesmo PATCH e mesmo evento que o
+   * `<FavoriteButton />` usa, para as duas portas nunca divergirem.
+   */
+  const toggleFavorite = useCallback(
+    async (doc) => {
+      const endpoint = `/documents/${doc.id}/`
+      const novo = !doc.is_favorite
+      await api.patch(endpoint, { is_favorite: novo })
+      window.dispatchEvent(
+        new CustomEvent('notefy:favorites-changed', {
+          detail: { endpoint, is_favorite: novo },
+        }),
+      )
+      done()
+      return novo
+    },
+    [done],
+  )
+
   const buildMenu = useCallback(
     (doc) =>
       documentMenuItems(doc, {
@@ -79,5 +99,5 @@ export function useDocumentActions({ onChanged } = {}) {
     </>
   )
 
-  return { buildMenu, dialogs }
+  return { buildMenu, dialogs, toggleFavorite }
 }

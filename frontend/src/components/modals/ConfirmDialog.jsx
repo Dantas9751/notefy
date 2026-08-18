@@ -20,6 +20,13 @@ export default function ConfirmDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // O erro vivia até a próxima confirmação: fechar e reabrir o diálogo
+  // trazia de volta a mensagem da tentativa anterior, como se a nova já
+  // tivesse falhado. Some junto com o popup.
+  useEffect(() => {
+    if (!open) setError(null)
+  }, [open])
+
   const handleConfirm = async () => {
     setLoading(true)
     setError(null)

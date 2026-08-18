@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Copy, ExternalLink, FolderInput, Paperclip, Pin, Trash2 } from 'lucide-react'
+import { Copy, ExternalLink, FolderInput, Paperclip, Trash2 } from 'lucide-react'
 import { Badge, ColorDot } from '@/components/ui'
 import FavoriteButton from '@/components/FavoriteButton'
 import { DOCUMENT_STATUS, documentPath, kindMeta } from '@/lib/documents'
@@ -57,7 +57,6 @@ export default function DocumentCard({
         <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900 group-hover:text-accent-700 dark:text-ink-100 dark:group-hover:text-accent-300">
           {doc.title}
         </h3>
-        {doc.is_pinned && <Pin size={13} className="shrink-0 text-ink-400" />}
         <FavoriteButton
           endpoint={`/documents/${doc.id}/`}
           value={doc.is_favorite}

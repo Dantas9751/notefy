@@ -148,7 +148,6 @@ class Document(BaseModel):
         "ícone", max_length=64, blank=True, validators=[icon_name_validator]
     )
     is_favorite = models.BooleanField("favorito", default=False)
-    is_pinned = models.BooleanField("fixado", default=False)
     is_archived = models.BooleanField("arquivado", default=False)
     position = models.FloatField("posição", default=0)
 
@@ -206,7 +205,9 @@ class Document(BaseModel):
     class Meta:
         verbose_name = "documento"
         verbose_name_plural = "documentos"
-        ordering = ("-is_pinned", "-updated_at")
+        # Favoritar já fixa: a estrela é o único conceito de destaque do
+        # item, então ela também manda na ordem dentro da pasta.
+        ordering = ("-is_favorite", "-updated_at")
         constraints = [
             models.CheckConstraint(
                 condition=~models.Q(attached_to=models.F("id")),

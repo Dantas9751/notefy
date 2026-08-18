@@ -11,6 +11,16 @@ from .models import User, UserPreferences
 
 
 class UserPreferencesSerializer(serializers.ModelSerializer):
+    # Os limites moram aqui e não no model: assim um valor fora da faixa
+    # volta como 400 com a mensagem do campo, em vez de estourar no banco.
+    canvas_pen_size = serializers.IntegerField(min_value=1, max_value=20, required=False)
+    canvas_highlighter_opacity = serializers.IntegerField(
+        min_value=10, max_value=80, required=False
+    )
+    canvas_eraser_radius = serializers.IntegerField(
+        min_value=10, max_value=80, required=False
+    )
+
     class Meta:
         model = UserPreferences
         fields = (
@@ -20,6 +30,9 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "accent_color",
             "editor_font_size",
             "week_starts_on_monday",
+            "canvas_pen_size",
+            "canvas_highlighter_opacity",
+            "canvas_eraser_radius",
         )
 
 

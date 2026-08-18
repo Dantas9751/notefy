@@ -94,9 +94,16 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
   const selectionKey = `folder:${node.id}`
   const isSelected = selectedIds?.includes(selectionKey)
 
+  // Só Ctrl/Cmd marca vários. O Shift saiu: na sidebar a lista é uma árvore
+  // (pastas aninhadas, nós fechados no meio), então "tudo entre A e B" não
+  // tem um significado que a pessoa consiga prever olhando a tela.
   const handleSelection = (e) => {
-    if (e.ctrlKey || e.metaKey || e.shiftKey) {
-      e.preventDefault() 
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      // `preventDefault` segura o foco no link, e o `:focus-visible` global
+      // (index.css) desenha um anel com offset em volta da pasta — o realce
+      // solto que não vem da seleção. Sem foco, sem anel.
+      e.currentTarget.blur()
       if (isSelected) {
         onSelectIds(selectedIds.filter((id) => id !== selectionKey))
       } else {

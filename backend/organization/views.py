@@ -309,7 +309,7 @@ class FolderViewSet(OwnedModelViewSet):
             .filter(is_archived=False)
             .loose()
             .with_relations()
-            .order_by("-is_pinned", "-updated_at")
+            .order_by("-is_favorite", "-updated_at")
         )
         tasks = folder.tasks.alive().with_relations().order_by("position", "-priority")
 

@@ -99,6 +99,7 @@
    --------------------------------------------------------------------- */
 .zen .app-sidebar,
 .zen .app-topbar,
+.zen .app-tabs,
 .zen .app-page-header {
   display: none;
 }

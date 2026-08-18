@@ -14,6 +14,7 @@ import {
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
+import { useTabState } from '@/context/TabsContext'
 import {
   Badge,
   Button,
@@ -65,6 +66,11 @@ export default function DocumentEditor({ mode, kind: routeKind }) {
 
   const kind = doc?.kind ?? routeKind ?? 'note'
   const meta = kindMeta(kind)
+
+  // A rota carrega um id; quem sabe o nome é quem carregou o documento.
+  // `dirty` vira o ponto de "não salvo" na aba — o que dá ao usuário o
+  // aviso que ele perdeu ao parar de olhar para esta tela.
+  useTabState({ title: doc?.title, dirty })
 
   useEffect(() => {
     if (data) {
@@ -188,6 +194,13 @@ export default function DocumentEditor({ mode, kind: routeKind }) {
         e.preventDefault()
         if (dirty) save()
       }
+      // Ctrl+Shift+F alterna a estrela do item aberto. Passa pelo mesmo
+      // `patch` do botão do cabeçalho, então o autosave e o indicador
+      // visual seguem o caminho que já existia.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        patch({ is_favorite: !doc.is_favorite })
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -196,7 +209,10 @@ export default function DocumentEditor({ mode, kind: routeKind }) {
   const handleDelete = async () => {
     await api.delete(`/documents/${id}/`)
     refreshTree()
-    navigate(meta.route, { replace: true })
+    // A pasta é para onde se quer voltar depois de excluir. `meta.route`
+    // (`/notes`, `/sheets`...) não é rota de nada — só existem `/new` e
+    // `/:id` abaixo dela — e deixava a tela em branco.
+    navigate(doc.folder ? `/folders/${doc.folder}` : '/', { replace: true })
   }
 
   const handleAttach = async (event) => {

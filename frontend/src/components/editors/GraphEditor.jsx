@@ -6,12 +6,14 @@ import {
   Highlighter,
   Maximize,
   Minus,
+  Moon,
   MousePointer2,
   Palette,
   PenLine,
   Plus,
   Slash,
   Square,
+  Sun,
   Trash2,
   Triangle,
   Type,
@@ -35,6 +37,7 @@ import {
   toWorld,
   uid,
 } from '@/lib/graph'
+import api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import GraphNode from './GraphNode'
 
@@ -84,10 +87,90 @@ export default function GraphEditor({ kind, data, onChange }) {
   // uma forma ou o texto.
   const [tool, setTool] = useState('select')
   const [inkColor, setInkColor] = useState('#1a1816')
-  const [inkWidth, setInkWidth] = useState(3)
+  // Espessura POR FERRAMENTA. Antes só a caneta tinha escolha e marcador e
+  // marca-texto ficavam presos no valor da constante — quem queria um
+  // marca-texto fino não tinha como pedir. Cada ferramenta lembra a sua.
+  const [inkWidths, setInkWidths] = useState(() => ({
+    pen: STROKE_TOOLS.pen.width,
+    marker: STROKE_TOOLS.marker.width,
+    highlighter: STROKE_TOOLS.highlighter.width,
+  }))
+  // Percentual, como vem das preferências. Vira fração na hora de desenhar.
+  const [inkOpacity, setInkOpacity] = useState(
+    Math.round(STROKE_TOOLS.highlighter.opacity * 100),
+  )
+  const [eraserRadius, setEraserRadius] = useState(ERASER_TOLERANCE)
   const [drawing, setDrawing] = useState(null)
   //: Retângulo elástico enquanto o usuário arrasta para desenhar a forma.
   const [rubber, setRubber] = useState(null)
+
+  /* ------------------------------------------------------------------ */
+  /* Preferências das ferramentas de traço                              */
+  /*                                                                    */
+  /* Ficam na conta, não no documento: é preferência de ferramenta, e    */
+  /* quem gosta de caneta fina quer caneta fina no próximo quadro        */
+  /* também. Só o canvas usa — o diagrama não desenha à mão livre.       */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!isCanvas) return
+    let vivo = true
+    api
+      .get('/me/preferences/')
+      .then(({ data: prefs }) => {
+        if (!vivo) return
+        setInkWidths((atual) => ({ ...atual, pen: prefs.canvas_pen_size ?? atual.pen }))
+        if (prefs.canvas_highlighter_opacity) setInkOpacity(prefs.canvas_highlighter_opacity)
+        if (prefs.canvas_eraser_radius) setEraserRadius(prefs.canvas_eraser_radius)
+      })
+      .catch(() => {
+        // Preferência é conforto, não requisito: falhar aqui deixa os
+        // padrões da constante valendo e o desenho continua funcionando.
+      })
+    return () => {
+      vivo = false
+    }
+  }, [isCanvas])
+
+  // Grava com atraso: os controles são slider e botão, e salvar a cada
+  // pixel arrastado geraria uma requisição por quadro de animação.
+  const primeiroSalvamento = useRef(true)
+  useEffect(() => {
+    if (!isCanvas) return undefined
+    if (primeiroSalvamento.current) {
+      primeiroSalvamento.current = false
+      return undefined
+    }
+    const timer = setTimeout(() => {
+      api
+        .patch('/me/preferences/', {
+          canvas_pen_size: inkWidths.pen,
+          canvas_highlighter_opacity: inkOpacity,
+          canvas_eraser_radius: eraserRadius,
+        })
+        .catch(() => {})
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [isCanvas, inkWidths.pen, inkOpacity, eraserRadius])
+
+  /* ------------------------------------------------------------------ */
+  /* Tema do quadro                                                     */
+  /*                                                                    */
+  /* Mora no payload porque é propriedade DAQUELE desenho: dois canvas   */
+  /* abertos podem ter temas diferentes, e nenhum deles mexe na sidebar  */
+  /* nem nas notas. Ausente = "system", que é como todo quadro salvo     */
+  /* antes desta feature se comporta.                                   */
+  /* ------------------------------------------------------------------ */
+  const boardTheme = data?.theme ?? 'system'
+
+  const trocarTema = () => {
+    // Ciclo curto de dois estados a partir do que está VALENDO na tela:
+    // partir de "system" alternando para o oposto do que se vê evita o
+    // clique que aparentemente não faz nada.
+    const vendoEscuro =
+      boardTheme === 'dark' ||
+      (boardTheme === 'system' && document.documentElement.classList.contains('dark'))
+    update({ theme: vendoEscuro ? 'light' : 'dark' })
+  }
 
   const isStrokeTool = tool in STROKE_TOOLS
   const isShapeTool = DRAWABLE_SHAPES.includes(tool)
@@ -253,9 +336,12 @@ export default function GraphEditor({ kind, data, onChange }) {
       id: uid('s'),
       tool,
       color: inkColor,
-      // Marca-texto e marcador têm espessura própria; a caneta usa a
-      // escolhida na barra.
-      width: tool === 'pen' ? inkWidth : STROKE_TOOLS[tool].width,
+      width: inkWidths[tool] ?? STROKE_TOOLS[tool].width,
+      // A opacidade passa a viajar NO traço. Antes era lida da constante na
+      // hora de desenhar, então mudar a preferência reescreveria o passado:
+      // todos os marca-textos já feitos mudariam de cor junto.
+      opacity:
+        tool === 'highlighter' ? inkOpacity / 100 : STROKE_TOOLS[tool].opacity,
       points: [[Math.round(world.x), Math.round(world.y)]],
     })
   }
@@ -271,7 +357,7 @@ export default function GraphEditor({ kind, data, onChange }) {
     const remaining = []
 
     for (const stroke of strokes) {
-      const pieces = eraseFromStroke(stroke, world, ERASER_TOLERANCE)
+      const pieces = eraseFromStroke(stroke, world, eraserRadius)
       // `eraseFromStroke` devolve o próprio traço quando não encostou nele.
       if (pieces.length !== 1 || pieces[0] !== stroke) changed = true
       remaining.push(...pieces)
@@ -513,17 +599,20 @@ export default function GraphEditor({ kind, data, onChange }) {
               ))}
             </div>
 
-            {tool === 'pen' && (
+            {/* Espessura vale para as três ferramentas de traço, cada uma
+                com o próprio valor. A borracha não tem espessura: ela tem
+                raio, logo abaixo. */}
+            {['pen', 'marker', 'highlighter'].includes(tool) && (
               <div className="mt-2 flex items-center gap-1.5 px-1">
                 <span className="text-[10px] text-ink-400">Espessura</span>
                 {STROKE_WIDTHS.map((width) => (
                   <button
                     key={width}
-                    onClick={() => setInkWidth(width)}
+                    onClick={() => setInkWidths((atual) => ({ ...atual, [tool]: width }))}
                     aria-label={`Espessura ${width}`}
                     className={cn(
                       'flex h-5 w-5 items-center justify-center rounded transition',
-                      inkWidth === width ? 'bg-accent-100 dark:bg-accent-500/25' : 'hover:bg-ink-100 dark:hover:bg-ink-800',
+                      inkWidths[tool] === width ? 'bg-accent-100 dark:bg-accent-500/25' : 'hover:bg-ink-100 dark:hover:bg-ink-800',
                     )}
                   >
                     <span
@@ -533,6 +622,42 @@ export default function GraphEditor({ kind, data, onChange }) {
                   </button>
                 ))}
               </div>
+            )}
+
+            {tool === 'highlighter' && (
+              <label className="mt-2 flex items-center gap-2 px-1">
+                <span className="shrink-0 text-[10px] text-ink-400">Opacidade</span>
+                <input
+                  type="range"
+                  min={10}
+                  max={80}
+                  value={inkOpacity}
+                  onChange={(e) => setInkOpacity(Number(e.target.value))}
+                  aria-label="Opacidade do marca-texto"
+                  className="h-1 flex-1 accent-accent-600"
+                />
+                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
+                  {inkOpacity}%
+                </span>
+              </label>
+            )}
+
+            {tool === 'eraser' && (
+              <label className="mt-2 flex items-center gap-2 px-1">
+                <span className="shrink-0 text-[10px] text-ink-400">Raio</span>
+                <input
+                  type="range"
+                  min={10}
+                  max={80}
+                  value={eraserRadius}
+                  onChange={(e) => setEraserRadius(Number(e.target.value))}
+                  aria-label="Raio da borracha"
+                  className="h-1 flex-1 accent-accent-600"
+                />
+                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
+                  {eraserRadius}px
+                </span>
+              </label>
             )}
           </>
         )}
@@ -601,8 +726,20 @@ export default function GraphEditor({ kind, data, onChange }) {
         </p>
       </div>
 
-      {/* Área de desenho */}
-      <div className="relative min-w-0 flex-1">
+      {/* Área de desenho.
+
+          A classe de tema fica AQUI, no contêiner do quadro: o `darkMode`
+          do Tailwind foi configurado para obedecer ao `.dark`/`.light` mais
+          próximo, então todos os utilitários `dark:` daqui para dentro
+          passam a seguir o quadro. Em "system" não estampamos nada e o
+          `<html>` continua mandando, como sempre. */}
+      <div
+        className={cn(
+          'relative min-w-0 flex-1',
+          boardTheme === 'dark' && 'dark',
+          boardTheme === 'light' && 'light',
+        )}
+      >
         <svg
           ref={svgRef}
           className={cn(
@@ -673,7 +810,7 @@ export default function GraphEditor({ kind, data, onChange }) {
                 strokeWidth={stroke.width}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity={STROKE_TOOLS[stroke.tool]?.opacity ?? 1}
+                opacity={stroke.opacity ?? STROKE_TOOLS[stroke.tool]?.opacity ?? 1}
               />
             ))}
             {drawing?.points?.length > 1 && (
@@ -684,7 +821,7 @@ export default function GraphEditor({ kind, data, onChange }) {
                 strokeWidth={drawing.width}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity={STROKE_TOOLS[drawing.tool]?.opacity ?? 1}
+                opacity={drawing.opacity ?? STROKE_TOOLS[drawing.tool]?.opacity ?? 1}
               />
             )}
 
@@ -799,6 +936,17 @@ export default function GraphEditor({ kind, data, onChange }) {
 
         {/* Controles de zoom */}
         <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-md border border-ink-200 bg-white/95 p-0.5 shadow-subtle backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
+          <button
+            onClick={trocarTema}
+            aria-label="Tema do quadro"
+            title={`Tema do quadro: ${
+              { light: 'claro', dark: 'escuro', system: 'segue o app' }[boardTheme]
+            }`}
+            className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+          >
+            {boardTheme === 'dark' ? <Moon size={14} /> : <Sun size={14} />}
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-ink-200 dark:bg-ink-700" />
           <button onClick={() => zoomBy(0.9)} aria-label="Diminuir zoom" className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
             <Minus size={14} />
           </button>

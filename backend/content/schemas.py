@@ -114,6 +114,13 @@ CANVAS_EDGE_TYPES = ("line", "arrow", "dashed", "double_arrow", "curve")
 #: Ferramentas de desenho à mão livre.
 STROKE_TOOLS = ("pen", "marker", "highlighter", "eraser")
 
+#: Tema do QUADRO (canvas e diagrama), independente do tema do app.
+#: Fica no payload, não em coluna: é propriedade daquele desenho, e
+#: `data` já é JSONField — nenhuma migração para isto.
+#: Ausente significa "system": quadros salvos antes desta feature
+#: continuam válidos e seguem o app, como sempre seguiram.
+THEME_CHOICES = ("light", "dark", "system")
+
 
 def empty_data_for(kind):
     """Payload inicial de um documento recém-criado."""
@@ -133,7 +140,12 @@ def empty_data_for(kind):
             "frozen_columns": 1,
         }
     if kind == "diagram":
-        return {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
+        return {
+            "nodes": [],
+            "edges": [],
+            "viewport": {"x": 0, "y": 0, "zoom": 1},
+            "theme": "system",
+        }
     if kind == "canvas":
         return {
             "nodes": [],
@@ -141,6 +153,7 @@ def empty_data_for(kind):
             "strokes": [],
             "viewport": {"x": 0, "y": 0, "zoom": 1},
             "background": "grid",
+            "theme": "system",
         }
     return {}
 

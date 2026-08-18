@@ -110,6 +110,17 @@ class UserPreferences(models.Model):
     editor_font_size = models.PositiveSmallIntegerField(default=16)
     week_starts_on_monday = models.BooleanField(default=True)
 
+    # Desenho à mão livre do canvas. Ficam aqui, e não no payload do
+    # documento, porque são preferência de FERRAMENTA: quem gosta de caneta
+    # fina quer caneta fina no próximo quadro também, não só naquele.
+    # Os limites são validados no serializer (MinValue/MaxValue), não aqui,
+    # para a mensagem de erro chegar ao cliente em vez de virar 500.
+    canvas_pen_size = models.PositiveSmallIntegerField(default=3)
+    #: Percentual (10-80). Guardado inteiro para não depender de float no
+    #: SQLite; o frontend divide por 100 na hora de desenhar.
+    canvas_highlighter_opacity = models.PositiveSmallIntegerField(default=35)
+    canvas_eraser_radius = models.PositiveSmallIntegerField(default=20)
+
     class Meta:
         verbose_name = "preferências"
         verbose_name_plural = "preferências"

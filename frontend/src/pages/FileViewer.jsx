@@ -4,9 +4,11 @@ import { ArrowLeft, ChevronRight, Download, Settings2, Star, Trash2 } from 'luci
 import api from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
+import { useTabState } from '@/context/TabsContext'
 import { Badge, Button, ErrorState, Modal, Spinner } from '@/components/ui'
 import DocumentMetaModal from '@/components/modals/DocumentMetaModal'
-import { formatBytes, formatDate } from '@/lib/utils'
+import TextFilePreview, { ehArquivoDeTexto } from '@/components/TextFilePreview'
+import { cn, formatBytes, formatDate } from '@/lib/utils'
 
 /**
  * Visualização de um arquivo.
@@ -26,6 +28,8 @@ export default function FileViewer() {
   const [showMeta, setShowMeta] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  useTabState({ title: doc?.title })
 
   const patch = async (changes) => {
     setSaving(true)
@@ -77,6 +81,11 @@ export default function FileViewer() {
       case 'video':
         return <video controls src={doc.file_url} className="max-h-full max-w-full rounded-lg" />
       default:
+        // `.txt`, `.md`, `.csv` e código caem aqui: o servidor classifica
+        // o primeiro grupo como "documento" (junto com .docx, que não é
+        // texto) e o resto como "outro". Quem sabe distinguir é o MIME.
+        if (ehArquivoDeTexto(doc)) return <TextFilePreview doc={doc} />
+
         return (
           <div className="flex flex-col items-center gap-3 text-center">
             <p className="text-sm text-ink-500 dark:text-ink-400">
@@ -174,7 +183,16 @@ export default function FileViewer() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center p-4">{preview()}</div>
+      {/* Imagem e vídeo se centralizam no espaço; texto o preenche, senão
+          o `h-full` do bloco não teria altura para esticar. */}
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 p-4',
+          ehArquivoDeTexto(doc) ? 'items-stretch' : 'items-center justify-center',
+        )}
+      >
+        {preview()}
+      </div>
 
       <DocumentMetaModal
         open={showMeta}

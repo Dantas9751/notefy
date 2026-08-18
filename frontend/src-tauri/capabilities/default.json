@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões da janela do Notefy: o padrão do Tauri mais o direito de executar o backend empacotado.",
-  "windows": ["main"],
+  "description": "Permissões das janelas do Notefy: o padrão do Tauri, o direito de executar o backend empacotado e o de destacar uma aba em janela própria.",
+  "windows": ["main", "notefy-*"],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     {
       "identifier": "shell:allow-execute",
       "allow": [

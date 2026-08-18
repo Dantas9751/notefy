@@ -1,7 +1,14 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
-  darkMode: 'class',
+  // O tema segue o `.dark` mais próximo, e um `.light` no meio do caminho
+  // cancela. É o que permite ao canvas/diagrama ter tema próprio: o quadro
+  // carrega `.light` ou `.dark` e todos os utilitários `dark:` de dentro
+  // dele passam a obedecer o quadro, não o `<html>`.
+  //
+  // `:where()` tem especificidade zero, então nenhuma regra existente muda
+  // de peso — sem `.light` na árvore o comportamento é idêntico ao de antes.
+  darkMode: ['variant', '&:where(.dark, .dark *):not(:where(.light, .light *))'],
   theme: {
     extend: {
       fontFamily: {

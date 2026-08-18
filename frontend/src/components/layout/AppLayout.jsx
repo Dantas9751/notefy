@@ -6,6 +6,8 @@ import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { cn } from '@/lib/utils'
 import Sidebar from './Sidebar'
+import TabBar from './TabBar'
+import { conectarJanelas } from '@/lib/desktop'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
@@ -63,6 +65,11 @@ export default function AppLayout() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [navigate, toggleZen])
+
+  // 4. Uma janela destacada mexe no mesmo acervo. Repetir aqui os avisos
+  // que já circulam dentro do app faz a outra janela se atualizar sozinha
+  // — favoritar numa aparece na outra, sem nenhuma tela saber disso.
+  useEffect(() => conectarJanelas(), [])
 
   // Lógica dinâmica rigorosa para o menu de contexto com base na rota atual
   const getContextMenuItems = () => {
@@ -205,6 +212,8 @@ export default function AppLayout() {
           <Maximize2 size={13} />
           Sair do zen
         </button>
+
+        <TabBar />
 
         <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
           <Outlet />

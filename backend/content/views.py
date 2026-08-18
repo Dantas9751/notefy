@@ -5,10 +5,14 @@ from django.db.models import Count
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters import rest_framework as filters
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.views import OwnedModelViewSet
 
@@ -22,6 +26,7 @@ from .schemas import (
     DIAGRAM_EDGE_TYPES,
     DIAGRAM_NODE_TYPES,
     STROKE_TOOLS,
+    THEME_CHOICES,
     empty_data_for,
 )
 from .serializers import (
@@ -48,7 +53,7 @@ class DocumentFilter(filters.FilterSet):
         model = Document
         fields = (
             "kind", "status", "folder", "category", "file_kind",
-            "is_favorite", "is_pinned", "is_archived",
+            "is_favorite", "is_archived",
         )
 
     def filter_folder_tree(self, queryset, name, value):
@@ -70,7 +75,7 @@ class DocumentViewSet(OwnedModelViewSet):
     filterset_class = DocumentFilter
     search_fields = ("title", "search_text")
     ordering_fields = ("title", "created_at", "updated_at", "status", "word_count", "position")
-    ordering = ("-is_pinned", "-updated_at")
+    ordering = ("-is_favorite", "-updated_at")
     # JSON para os editores, multipart para upload de arquivo.
     parser_classes = (JSONParser, MultiPartParser, FormParser)
 
@@ -145,6 +150,9 @@ class DocumentViewSet(OwnedModelViewSet):
                     "node_types": list(DIAGRAM_NODE_TYPES),
                     "edge_types": list(DIAGRAM_EDGE_TYPES),
                 },
+                # Vale para os dois editores visuais; fica fora deles para
+                # não repetir a mesma lista duas vezes.
+                "themes": list(THEME_CHOICES),
                 "canvas": {
                     "node_types": list(CANVAS_NODE_TYPES),
                     "edge_types": list(CANVAS_EDGE_TYPES),
@@ -204,7 +212,10 @@ class DocumentViewSet(OwnedModelViewSet):
         original.pk = uuid.uuid4()
         original._state.adding = True
         original.title = f"{original.title} (cópia)"
-        original.is_pinned = False
+        # A cópia nasce sem estrela: favoritar é uma escolha sobre AQUELE
+        # item, e herdá-la faria a duplicata disputar o topo da pasta com o
+        # original sem ninguém ter pedido.
+        original.is_favorite = False
         original.save()
         return Response(self.get_serializer(original).data, status=status.HTTP_201_CREATED)
 
@@ -294,3 +305,65 @@ class DocumentViewSet(OwnedModelViewSet):
         document.attachments.update(folder=folder)
 
         return Response(self.get_serializer(document).data)
+
+
+class FavoritesView(APIView):
+    """Tudo que o usuário marcou com a estrela, num lugar só.
+
+    Documentos e pastas — Task não tem `is_favorite`, então não entra. Criar
+    o campo lá seria uma migração que esta feature não pede; quando existir,
+    basta somar mais um bloco a `itens`.
+
+    A forma do resultado copia a da busca global (`type`, `id`, `title`,
+    `subtitle`, `url`) para a tela poder reaproveitar o mesmo cartão.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        # Imports locais: `organization` e `search` já importam `content`, e
+        # trazê-los para o topo fecharia o ciclo. Mesmo recurso que
+        # `organization.views._document_count` usa.
+        from organization.models import Folder
+        from search.views import _DOCUMENT_UI
+
+        itens = []
+
+        documentos = (
+            Document.objects.alive()
+            .filter(owner=request.user, is_favorite=True)
+            .select_related("folder", "folder__category")[:50]
+        )
+        for doc in documentos:
+            meta = _DOCUMENT_UI.get(doc.kind, ("file", "/notes"))
+            itens.append(
+                {
+                    "type": doc.kind,
+                    "id": str(doc.id),
+                    "title": doc.title,
+                    "subtitle": doc.folder.name if doc.folder else "",
+                    "url": f"{meta[1]}/{doc.id}",
+                    "updated_at": doc.updated_at.isoformat(),
+                }
+            )
+
+        pastas = (
+            Folder.objects.alive()
+            .filter(owner=request.user, is_favorite=True)
+            .select_related("category")[:20]
+        )
+        for pasta in pastas:
+            itens.append(
+                {
+                    "type": "folder",
+                    "id": str(pasta.id),
+                    "title": pasta.name,
+                    "subtitle": pasta.category.name if pasta.category else "",
+                    "url": f"/folders/{pasta.id}",
+                    "updated_at": pasta.updated_at.isoformat(),
+                }
+            )
+
+        itens.sort(key=lambda i: i["updated_at"], reverse=True)
+        return Response({"count": len(itens), "results": itens})
