@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileUp, Paperclip, Trash2, X, Folder as FolderIcon } from 'lucide-react'
+import { Download, FileUp, Paperclip, Trash2, X, Folder as FolderIcon } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
+import { exportBatchAsZip } from '@/components/ExportMenu'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
+import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
 import { useWorkspace } from '@/context/WorkspaceContext'
@@ -12,6 +14,7 @@ import { Button, EmptyState, ErrorState, ListSkeleton, Select, Modal } from '@/c
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FilterBar from '@/components/filters/FilterBar'
 import DestinationModal from '@/components/modals/DestinationModal'
+import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 import DocumentCard from '@/components/DocumentCard'
 import { hasFilePayload } from '@/lib/dnd'
 import { documentPath } from '@/lib/documents'
@@ -55,7 +58,11 @@ export default function Files() {
     },
   })
 
-  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({ onChanged: refetch })
+  const renomear = useRenomear({ onRenamed: refetch })
+  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({
+    onChanged: refetch,
+    onRename: (doc) => renomear.abrir(doc.id),
+  })
   const { refresh } = useWorkspace()
 
   // Mesma seleção do FolderDetail: a ordem das chaves é a ordem em que a
@@ -67,6 +74,8 @@ export default function Files() {
   )
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
+
+  useF2(renomear, selectedIds)
 
   // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
@@ -93,6 +102,14 @@ export default function Files() {
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef(null)
 
+  const { iniciar: iniciarUpload, Modal: ModalDeConflito } = useUploadComConflitos({
+    onEnviado: () => {
+      refetch()
+      refresh()
+    },
+    onErro: setUploadError,
+  })
+
   const chooseDestination = (chosen) => {
     if (!chosen.length) return
     setUploadError(null)
@@ -103,18 +120,12 @@ export default function Files() {
     const chosen = pending ?? []
     setPending(null)
     if (!chosen.length) return
-    try {
-      const body = new FormData()
-      chosen.forEach((file) => body.append('files', file))
-      body.append('folder', folderId)
-      await api.post('/documents/upload/', body)
-      refetch()
-      refresh()
-    } catch (err) {
-      setUploadError(extractError(err))
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+    setUploadError(null)
+    // A lista da pasta de destino não está carregada nesta tela — o
+    // próprio hook busca `/folders/{id}/contents/` para decidir o
+    // conflito de nomes.
+    iniciarUpload(chosen, folderId)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   /* ------------------------------------------------------------------ */
@@ -195,6 +206,28 @@ export default function Files() {
     setBulkDeleteModalOpen(true)
   }
 
+  /** Baixa os selecionados como ZIP, cada um no próprio formato. */
+  const handleBulkExport = async () => {
+    if (selectedIds.length === 0) return
+
+    // Arquivos já trazem `file_url` na lista — diferente de notas e
+    // planilhas, o payload da lista basta para baixar o binário.
+    const selecionados = files.filter((doc) => isSelected(`document:${doc.id}`))
+
+    if (!selecionados.length) {
+      setActionError('Nada para exportar na seleção.')
+      return
+    }
+
+    setActionError(null)
+
+    try {
+      await exportBatchAsZip(selecionados)
+    } catch (err) {
+      setActionError(extractError(err))
+    }
+  }
+
   return (
     <div
       onDragEnter={(event) => {
@@ -232,7 +265,7 @@ export default function Files() {
         title="Arquivos"
         subtitle={
           data
-            ? `${data.count} arquivo(s) — envie novos e escolha a pasta de destino.`
+            ? `${data.count} arquivo(s)`
             : 'Carregando...'
         }
         actions={
@@ -314,6 +347,17 @@ export default function Files() {
                     <DocumentCard
                       document={doc}
                       showFolder
+                      selecionado={selecionado}
+                      renomeando={renomear.estaEditando(doc.id)}
+                      onRename={() => renomear.abrir(doc.id)}
+                      erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                      camposDeRenomear={propsDoCampo({
+                        valorAtual: doc.title,
+                        endpoint: `/documents/${doc.id}/`,
+                        campo: 'title',
+                        gravar: renomear.gravar,
+                        fechar: renomear.fechar,
+                      })}
                       className={cn(
                         selecionado &&
                           'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
@@ -353,7 +397,7 @@ export default function Files() {
             description={
               hasFilters
                 ? 'Tente outro termo ou remova os filtros.'
-                : 'Use “Importar arquivo” ou arraste arquivos para cá — depois é só escolher a pasta.'
+                : 'Use “Importar arquivo” ou arraste arquivos para cá. Depois é só escolher a pasta.'
             }
             action={
               !hasFilters && (
@@ -401,6 +445,8 @@ export default function Files() {
         onPick={sendTo}
       />
 
+      {ModalDeConflito}
+
       <ContextMenu
         open={!!menu}
         x={menu?.x ?? 0}
@@ -409,6 +455,12 @@ export default function Files() {
         items={
           menu?.payload?.isMultiple
             ? [
+                {
+                  label: `Exportar (${selectedIds.length}) como .zip`,
+                  icon: Download,
+                  onClick: handleBulkExport,
+                },
+                { separator: true },
                 {
                   label: `Excluir (${selectedIds.length} selecionados)`,
                   icon: Trash2,

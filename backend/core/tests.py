@@ -1034,3 +1034,32 @@ class DocumentDerivedFieldTests(APITestCase):
         results = self.client.get("/api/search/", {"q": "osmose", "type": "note"}).data["results"]
         self.assertEqual(results[0]["title"], "Osmose")
         self.assertGreater(results[0]["score"], results[1]["score"])
+
+
+class SoftDeleteRetentionTests(APITestCase):
+    """A data da lixeira é o relógio da faxina — remarcá-la adia a limpeza."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.category = make_category(self.user)
+        self.folder = make_folder(self.user, category=self.category)
+
+    def test_bulk_delete_preserves_deleted_at_of_already_trashed(self):
+        antigo = make_document(self.user, folder=self.folder, title="Antigo")
+        antigo.delete()
+        marcado_em = Document.objects.get(pk=antigo.pk).deleted_at
+
+        # Apagar a categoria arrasta os documentos dela em massa. O que já
+        # estava na lixeira não pode voltar a ter 30 dias pela frente.
+        self.category.delete()
+
+        antigo.refresh_from_db()
+        self.assertEqual(antigo.deleted_at, marcado_em)
+
+    def test_bulk_delete_still_trashes_live_items(self):
+        vivo = make_document(self.user, folder=self.folder, title="Vivo")
+
+        self.category.delete()
+
+        vivo.refresh_from_db()
+        self.assertIsNotNone(vivo.deleted_at)

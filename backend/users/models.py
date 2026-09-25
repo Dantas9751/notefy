@@ -4,6 +4,8 @@ import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+
+from .cripto import cifrar, decifrar
 from django.utils import timezone
 
 
@@ -120,6 +122,47 @@ class UserPreferences(models.Model):
     #: SQLite; o frontend divide por 100 na hora de desenhar.
     canvas_highlighter_opacity = models.PositiveSmallIntegerField(default=35)
     canvas_eraser_radius = models.PositiveSmallIntegerField(default=20)
+
+    # ------------------------------------------------------------------
+    # Inteligência Artificial — configurada pelo usuário nas Configurações.
+    # A chave fica no banco local do usuário (o app é desktop, SQLite
+    # local), nunca no frontend. O serializer a expõe só como write-only:
+    # o GET devolve `ai_key_set` (booleano) em vez da chave.
+    # ------------------------------------------------------------------
+
+    class AIProvider(models.TextChoices):
+        OPENAI = "openai", "OpenAI"
+        ANTHROPIC = "anthropic", "Anthropic"
+        OLLAMA = "ollama", "Ollama (local)"
+        CUSTOM = "custom", "Personalizado (compatível com OpenAI)"
+
+    #: Vazio = IA desativada. Sem chave o backend recusa as chamadas.
+    ai_provider = models.CharField(
+        "provedor de IA", max_length=16, choices=AIProvider.choices, blank=True, default=""
+    )
+    #: A chave CIFRADA, como vai para o disco. Quem lê e escreve usa a
+    #: propriedade `ai_key` logo abaixo e nunca vê este campo — é por
+    #: isso que `providers.py` e `views.py` não mudaram uma linha.
+    #:
+    #: `max_length` maior: o Fernet cresce o texto (base64 + cabeçalho +
+    #: HMAC), e uma chave de 200 caracteres passava de 512 cifrada.
+    ai_key_cifrada = models.CharField(
+        "chave de IA (cifrada)", max_length=1024, blank=True, default="", db_column="ai_key"
+    )
+    #: Modelo opcional — vazio usa o padrão do provedor.
+    ai_model = models.CharField("modelo de IA", max_length=64, blank=True, default="")
+    #: Só para `custom` (e para apontar o Ollama fora do padrão): a URL
+    #: base da API compatível com OpenAI, terminando ou não em `/v1`.
+    ai_base_url = models.URLField("URL base da IA", max_length=300, blank=True, default="")
+
+    @property
+    def ai_key(self):
+        """A chave em texto puro. Cifra e decifra ficam invisíveis daqui."""
+        return decifrar(self.ai_key_cifrada)
+
+    @ai_key.setter
+    def ai_key(self, valor):
+        self.ai_key_cifrada = cifrar(valor or "")
 
     class Meta:
         verbose_name = "preferências"

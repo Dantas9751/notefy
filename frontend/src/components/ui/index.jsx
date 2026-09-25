@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import { cn, readableTextColor } from '@/lib/utils'
@@ -257,9 +257,14 @@ export function Select({ className, children, ...props }) {
   )
 }
 
-export function Input({ className, ...props }) {
-  return <input className={cn('input', className)} {...props} />
-}
+/**
+ * `forwardRef` porque no React 18 componente de função não recebe `ref`
+ * como prop, e quem abre um campo dentro de um modal precisa focá-lo na
+ * mão: o `Modal` foca o painel ao abrir e desfaz qualquer `autoFocus`.
+ */
+export const Input = forwardRef(function Input({ className, ...props }, ref) {
+  return <input ref={ref} className={cn('input', className)} {...props} />
+})
 
 export function Textarea({ className, ...props }) {
   return <textarea className={cn('input resize-y', className)} {...props} />

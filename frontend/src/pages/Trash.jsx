@@ -114,11 +114,10 @@ export default function Trash() {
     <>
       <PageHeader
         title="Lixeira"
-        subtitle={
-          itens.length
-            ? `${itens.length} item(ns). Nada aqui aparece nas buscas ou nas pastas.`
-            : 'O que você exclui fica aqui até você esvaziar.'
-        }
+        // Só a contagem. O prazo de retenção já está no aviso âmbar logo
+        // abaixo, e a frase do estado vazio é palavra por palavra a mesma
+        // do `EmptyState` — subtítulo carrega dado, não instrução.
+        subtitle={itens.length ? `${itens.length} item(ns)` : undefined}
         actions={
           itens.length > 0 && (
             <Button

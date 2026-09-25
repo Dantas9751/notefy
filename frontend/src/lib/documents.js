@@ -1,8 +1,16 @@
 import {
+  CalendarDays,
+  Clock,
   FileText,
+  Folder,
+  Home,
+  Kanban,
   LayoutDashboard,
+  Map,
   Paperclip,
   Table2,
+  Tag,
+  Trash2,
   Workflow,
 } from 'lucide-react'
 
@@ -60,7 +68,65 @@ export const DOCUMENT_KINDS = {
 /** Tipos que o usuário cria dentro do app (arquivo entra por upload). */
 export const CREATABLE_KINDS = ['note', 'spreadsheet', 'diagram', 'canvas']
 
-export const kindMeta = (kind) => DOCUMENT_KINDS[kind] ?? DOCUMENT_KINDS.note
+/**
+ * Metadados das páginas que abrem como aba: dashboard, categoria, pasta e
+ * as telas de gestão (quadro, calendário, recentes...). O `TabBar` usa
+ * isto para desenhar a aba com o ícone certo — antes de existirem, abrir
+ * uma categoria como aba mostrava o ícone de nota, porque o kind não
+ * existia no mapa de documentos.
+ */
+export const PAGE_KINDS = {
+  home: {
+    label: 'Início',
+    icon: Home,
+    route: '/',
+    accent: '#6366F1',
+  },
+  category: {
+    label: 'Categoria',
+    icon: Tag,
+    route: '/categories',
+    accent: '#8B5CF6',
+  },
+  folder: {
+    label: 'Pasta',
+    icon: Folder,
+    route: '/folders',
+    accent: '#F59E0B',
+  },
+  board: {
+    label: 'Quadro',
+    icon: Kanban,
+    route: '/board',
+    accent: '#10B981',
+  },
+  calendar: {
+    label: 'Calendário',
+    icon: CalendarDays,
+    route: '/calendar',
+    accent: '#EC4899',
+  },
+  recent: {
+    label: 'Recentes',
+    icon: Clock,
+    route: '/recent',
+    accent: '#0EA5E9',
+  },
+  trash: {
+    label: 'Lixeira',
+    icon: Trash2,
+    route: '/trash',
+    accent: '#64748B',
+  },
+  roadmap: {
+    label: 'Roadmap',
+    icon: Map,
+    route: '/roadmap',
+    accent: '#8B5CF6',
+  },
+}
+
+export const kindMeta = (kind) => DOCUMENT_KINDS[kind] ?? PAGE_KINDS[kind] ?? DOCUMENT_KINDS.note
 
 /** Rota do editor de um documento. Arquivo abre em visualização. */
 export function documentPath(doc) {

@@ -25,3 +25,8 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 # Sobe o backend empacotado como processo filho.
 tauri-plugin-shell = "2"
+# Abre o "Salvar como" nativo. Só o lado Rust é usado: quem grava o arquivo
+# e o comando `salvar_arquivo` em lib.rs, e nao o plugin `fs` a partir do
+# JavaScript — este ultimo exigiria abrir o escopo de escrita para todo o
+# disco, ja que o caminho so e conhecido depois que o usuario escolhe.
+tauri-plugin-dialog = "2"

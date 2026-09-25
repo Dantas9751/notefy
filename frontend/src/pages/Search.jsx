@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { CheckSquare, Folder as FolderIcon, SearchX, Trash2, X, ExternalLink } from 'lucide-react'
+import { CheckSquare, Folder as FolderIcon, SearchX, Trash2, X, ExternalLink, Sparkles } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
+import { useDocumentActions } from '@/hooks/useDocumentActions'
+import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import { runIA } from '@/lib/ai'
 import FilterBar from '@/components/filters/FilterBar'
 import { DOCUMENT_KINDS } from '@/lib/documents'
 import { cn, formatRelative } from '@/lib/utils'
@@ -46,6 +49,16 @@ export default function SearchPage() {
 
   const debouncedQuery = useDebounced(query, 350)
 
+  // ----------------------------------------------------------------
+  // Resposta da IA embutida na busca (Ctrl+Enter).
+  //
+  // Os trechos vêm dos resultados que já estão na tela: a IA responde
+  // sobre o que VOCÊ tem, não sobre o mundo. Sem resultados não há
+  // pergunta a fazer.
+  // ----------------------------------------------------------------
+  const [respostaIA, setRespostaIA] = useState(null)
+  const [perguntandoIA, setPerguntandoIA] = useState(false)
+
   // Reflete o estado dos filtros na URL
   useEffect(() => {
     const next = new URLSearchParams()
@@ -57,6 +70,11 @@ export default function SearchPage() {
     setSearchParams(next, { replace: true })
   }, [debouncedQuery, types, category, dateFrom, dateTo, setSearchParams])
 
+  // Quanto a busca traz por tipo. O "carregar mais" sobe este número e
+  // refaz a consulta — o servidor mescla os três tipos em memória, então
+  // pedir a "próxima página" por tipo emendaria errado.
+  const [limite, setLimite] = useState(20)
+
   const { data, loading, error, refetch } = useFetch('/search/', {
     params: {
       q: debouncedQuery || undefined,
@@ -64,8 +82,15 @@ export default function SearchPage() {
       category: category || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
+      limit: limite,
     },
   })
+
+  // Trocar o termo ou o filtro recomeça do topo: manter um limite alto
+  // de uma busca anterior faria a nova abrir com 200 resultados.
+  useEffect(() => {
+    setLimite(20)
+  }, [debouncedQuery, types, category, dateFrom, dateTo])
 
   const toggleType = (type) =>
     setTypes((prev) => (prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]))
@@ -80,8 +105,13 @@ export default function SearchPage() {
     [results],
   )
 
+  // Antes do `useMultiSelect`: o efeito do F2 logo abaixo lê daqui.
+  const renomear = useRenomear({ onRenamed: refetch })
+
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
+
+  useF2(renomear, selectedIds, ['note', 'file', 'spreadsheet', 'diagram', 'canvas'])
 
   // Hook de exclusão em cascata (Usado apenas para exclusão ÚNICA)
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
@@ -94,6 +124,14 @@ export default function SearchPage() {
     onError: setActionError,
   })
 
+  // Menu completo de documentos (Duplicar, Mover, Exportar, Criar a
+  // partir de...): o resultado da busca é um resumo — o hook precisa do
+  // documento inteiro (kind, folder), então busca na hora do clique.
+  const { buildMenu, dialogs: acoesDialogs } = useDocumentActions({
+    onChanged: refetch,
+    onRename: (doc) => renomear.abrir(doc.id),
+  })
+
   // A busca também precisa ouvir: excluir numa pasta com esta tela montada
   // deixava um resultado fantasma na lista até recarregar a página.
   useEffect(() => {
@@ -102,9 +140,54 @@ export default function SearchPage() {
     return () => window.removeEventListener('notefy:moved', onMoved)
   }, [refetch])
 
-  const abrirMenu = (item, event) => {
+  /**
+   * Pergunta à IA usando os resultados como fonte.
+   *
+   * O documento em contexto é o primeiro resultado; os títulos dos
+   * demais vão no texto, para a resposta poder apontar onde procurar.
+   */
+  const perguntarIA = async () => {
+    const pergunta = query.trim()
+    if (!pergunta || perguntandoIA) return
+    setPerguntandoIA(true)
+    setRespostaIA({ pergunta, texto: '', erro: null })
+    try {
+      const documentos = results.filter((r) => r.type !== 'folder' && r.type !== 'task')
+      const lista = documentos
+        .slice(0, 8)
+        .map((r) => `- ${r.title}`)
+        .join('\n')
+      const { text } = await runIA({
+        task: 'busca.responder',
+        documentId: documentos[0]?.id,
+        input: `Pergunta: ${pergunta}\n\nItens encontrados na busca:\n${lista || '(nenhum)'}`,
+      })
+      setRespostaIA({ pergunta, texto: text, erro: null })
+    } catch (e) {
+      setRespostaIA({ pergunta, texto: '', erro: e.message })
+    } finally {
+      setPerguntandoIA(false)
+    }
+  }
+
+  const abrirMenu = async (item, event) => {
     const total = handleContextMenu(`${item.type}:${item.id}`)
-    openMenu(event, { item, isMultiple: total > 1 })
+    if (total > 1) {
+      openMenu(event, { isMultiple: true })
+      return
+    }
+    // Documento: busca o inteiro para o menu ter todas as ações. Pasta e
+    // tarefa seguem com o menu próprio (não são deriváveis).
+    if (DOCUMENT_KINDS[item.type]) {
+      try {
+        const { data: doc } = await api.get(`/documents/${item.id}/`)
+        openMenu(event, { doc, item })
+        return
+      } catch {
+        // Item sumiu entre renderizar e clicar: menu básico ainda funciona.
+      }
+    }
+    openMenu(event, { item })
   }
 
   /**
@@ -212,13 +295,25 @@ export default function SearchPage() {
     <>
       <PageHeader
         title="Busca global"
-        subtitle="Procure em notas, arquivos, planilhas, diagramas, canvas, pastas e tarefas ao mesmo tempo."
+        // Sem subtítulo: ele listava "notas, arquivos, planilhas,
+        // diagramas, canvas, pastas e tarefas" — exatamente os chips de
+        // filtro logo abaixo, que além de dizer o mesmo são clicáveis. O
+        // Início também não tem frase explicativa; as duas telas
+        // precisavam ter o mesmo cabeçalho.
       >
         <div className="mt-4 space-y-3">
           <FilterBar
             query={query}
             onQueryChange={setQuery}
-            placeholder="Buscar em tudo..."
+            onQueryKeyDown={(e) => {
+              // Ctrl+Enter transforma a busca em pergunta: a IA responde
+              // usando os itens encontrados como fonte.
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                perguntarIA()
+              }
+            }}
+            placeholder="Buscar em tudo... (Ctrl+Enter pergunta ao Laviel)"
             category={category}
             onCategoryChange={setCategory}
             extraActive={Boolean(dateFrom || dateTo || types.length)}
@@ -280,6 +375,32 @@ export default function SearchPage() {
       <PageBody className="pb-24">
         {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
 
+        {/* Resposta da IA sobre os resultados (Ctrl+Enter na busca). */}
+        {respostaIA && (
+          <div className="mb-4 rounded-lg border border-accent-200 bg-accent-50/60 p-3 dark:border-accent-500/30 dark:bg-accent-500/10">
+            <div className="mb-1.5 flex items-center gap-2">
+              <Sparkles size={14} className="text-accent-600" />
+              <span className="flex-1 truncate text-xs font-medium text-accent-800 dark:text-accent-200">
+                {respostaIA.pergunta}
+              </span>
+              <button
+                onClick={() => setRespostaIA(null)}
+                className="rounded p-0.5 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200"
+                title="Fechar"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            {respostaIA.erro ? (
+              <p className="text-sm text-red-600 dark:text-red-400">{respostaIA.erro}</p>
+            ) : (
+              <p className="whitespace-pre-wrap text-sm text-ink-700 dark:text-ink-200">
+                {respostaIA.texto || (perguntandoIA ? 'Pensando...' : '')}
+              </p>
+            )}
+          </div>
+        )}
+
         {error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : loading ? (
@@ -332,9 +453,25 @@ export default function SearchPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium text-ink-900 dark:text-ink-100">
-                            {item.title}
-                          </p>
+                          {renomear.estaEditando(item.id) ? (
+                            // Mesmo campo da grade de cartões, no mesmo
+                            // lugar do texto: a busca é justamente onde
+                            // se acha o item com nome ruim.
+                            <input
+                              {...propsDoCampo({
+                                valorAtual: item.title,
+                                endpoint: `/documents/${item.id}/`,
+                                campo: 'title',
+                                gravar: renomear.gravar,
+                                fechar: renomear.fechar,
+                              })}
+                              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm font-medium outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+                            />
+                          ) : (
+                            <p className="titulo truncate text-[15px]">
+                              {item.title}
+                            </p>
+                          )}
                           <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
                             {meta.label}
                           </Badge>
@@ -354,6 +491,20 @@ export default function SearchPage() {
                 )
               })}
             </ul>
+
+            {/* O servidor diz se sobrou coisa; antes o teto era 20 por
+                tipo e não havia como chegar no resultado 21. */}
+            {data?.has_more && (
+              <div className="mt-4 flex justify-center">
+                <Button
+                  variant="secondary"
+                  loading={loading}
+                  onClick={() => setLimite((n) => n + 40)}
+                >
+                  Carregar mais ({results.length} de {data.total})
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <EmptyState
@@ -407,52 +558,85 @@ export default function SearchPage() {
                   onClick: handleBulkDeleteWithDialog,
                 },
               ]
-            : [
-                // Ir para pasta (acima de Abrir, se não for pasta)
-                ...(menu?.payload?.item?.type !== 'folder'
-                  ? [
-                      {
-                        label: 'Ir para pasta',
-                        icon: FolderIcon,
-                        onClick: async () => {
-                          const item = menu.payload.item;
-                          try {
-                            const endpoint = item.type === 'task'
-                              ? `/tasks/${item.id}/`
-                              : `/documents/${item.id}/`;
-                            const response = await api.get(endpoint);
-                            const folderId = response.data.folder;
-                            if (folderId) {
-                              navigate(`/folders/${folderId}`);
-                            } else {
-                              alert('Este item não pertence a nenhuma pasta.');
-                            }
-                          } catch (error) {
-                            console.error('Erro ao buscar a pasta:', error);
-                          }
-                        },
+            : menu?.payload?.doc
+              ? (() => {
+                  const item = menu.payload.item;
+                  // Mesmo menu das outras telas (buildMenu) + o atalho de
+                  // buscar a pasta do item, que é específico da busca.
+                  return [
+                    {
+                      label: 'Ir para pasta',
+                      icon: FolderIcon,
+                      onClick: async () => {
+                        try {
+                          const response = await api.get(`/documents/${item.id}/`);
+                          if (response.data.folder) navigate(`/folders/${response.data.folder}`);
+                        } catch (error) {
+                          console.error('Erro ao buscar a pasta:', error);
+                        }
                       },
-                      { separator: true },
-                    ]
-                  : []),
-                {
-                  label: 'Abrir',
-                  icon: ExternalLink,
-                  onClick: () => navigate(menu.payload.item.url),
-                },
-                { separator: true },
-                {
-                  label: 'Excluir',
-                  icon: Trash2,
-                  danger: true,
-                  onClick: handleBulkDeleteWithDialog,
-                },
-              ]
+                    },
+                    { separator: true },
+                    ...buildMenu(menu.payload.doc),
+                  ];
+                })()
+              : [
+                  // Ir para pasta (acima de Abrir, se não for pasta)
+                  ...(menu?.payload?.item?.type !== 'folder'
+                    ? [
+                        {
+                          label: 'Ir para pasta',
+                          icon: FolderIcon,
+                          onClick: async () => {
+                            const item = menu.payload.item;
+                            // Aviso e erro vão para o `actionError` desta
+                            // tela, que já é desenhado no topo da lista.
+                            // O `alert` daqui abria a caixa cinza do
+                            // sistema — no aplicativo ela aparece fora do
+                            // tema, com o título do executável. E o erro
+                            // só ia para o console: para quem clicou, o
+                            // menu fechava e nada acontecia.
+                            setActionError(null);
+                            try {
+                              const endpoint = item.type === 'task'
+                                ? `/tasks/${item.id}/`
+                                : `/documents/${item.id}/`;
+                              const response = await api.get(endpoint);
+                              const folderId = response.data.folder;
+                              if (folderId) {
+                                navigate(`/folders/${folderId}`);
+                              } else {
+                                setActionError('Este item não pertence a nenhuma pasta.');
+                              }
+                            } catch (error) {
+                              setActionError(extractError(error));
+                            }
+                          },
+                        },
+                        { separator: true },
+                      ]
+                    : []),
+                  {
+                    label: 'Abrir',
+                    icon: ExternalLink,
+                    onClick: () => navigate(menu.payload.item.url),
+                  },
+                  { separator: true },
+                  {
+                    label: 'Excluir',
+                    icon: Trash2,
+                    danger: true,
+                    onClick: handleBulkDeleteWithDialog,
+                  },
+                ]
         }
       />
 
       {/* Modais de Exclusão */}
       {deleteDialogs}
+
+      {/* Diálogos das ações de documento (mover, excluir, IA...) */}
+      {acoesDialogs}
 
       <Modal
         open={bulkDeleteModalOpen}

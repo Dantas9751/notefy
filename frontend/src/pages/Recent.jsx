@@ -12,6 +12,7 @@ import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import DocumentCard from '@/components/DocumentCard'
 import FilterBar from '@/components/filters/FilterBar'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
+import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { documentPath } from '@/lib/documents'
 import { cn } from '@/lib/utils'
 
@@ -53,10 +54,18 @@ export default function Recent() {
     [documents],
   )
 
+  // Antes do `useMultiSelect`: o efeito do F2 logo abaixo lê daqui.
+  const renomear = useRenomear({ onRenamed: refetch })
+
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
 
-  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({ onChanged: refetch })
+  useF2(renomear, selectedIds)
+
+  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({
+    onChanged: refetch,
+    onRename: (doc) => renomear.abrir(doc.id),
+  })
 
   // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
@@ -192,6 +201,17 @@ export default function Recent() {
                   <DocumentCard
                     document={doc}
                     showFolder
+                    selecionado={selecionado}
+                    renomeando={renomear.estaEditando(doc.id)}
+                    onRename={() => renomear.abrir(doc.id)}
+                    erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                    camposDeRenomear={propsDoCampo({
+                      valorAtual: doc.title,
+                      endpoint: `/documents/${doc.id}/`,
+                      campo: 'title',
+                      gravar: renomear.gravar,
+                      fechar: renomear.fechar,
+                    })}
                     className={cn(
                       selecionado &&
                         'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',

@@ -25,6 +25,19 @@ export default {
           'sans-serif',
         ],
         mono: ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        // Serifada para TÍTULOS. É o que mais separa uma interface
+        // desenhada de uma gerada: com uma família só, a hierarquia
+        // depende de peso e tamanho, e tudo acaba parecendo o mesmo
+        // bloco em três tamanhos. Stack do sistema pela mesma razão da
+        // sans — nenhuma requisição de rede.
+        serif: [
+          'Iowan Old Style',
+          'Palatino Linotype',
+          'Palatino',
+          'Georgia',
+          'Times New Roman',
+          'serif',
+        ],
       },
       colors: {
         // Cinzas levemente quentes — o cinza puro do Tailwind fica frio
@@ -32,6 +45,7 @@ export default {
         ink: {
           50: '#faf9f8',
           100: '#f4f2f0',
+          150: '#efedea',
           200: '#e9e6e2',
           300: '#d7d2cc',
           400: '#a8a29b',
@@ -64,14 +78,24 @@ export default {
       fontSize: {
         // Corpo de texto ligeiramente maior e com entrelinha generosa.
         base: ['0.9375rem', { lineHeight: '1.7' }],
+        // Números do painel: grandes e com entrelinha travada, para o
+        // valor pesar sozinho sem precisar de caixa em volta.
+        numero: ['1.75rem', { lineHeight: '1', letterSpacing: '-0.02em' }],
       },
+      // Raios curtos. O `rounded-lg` em tudo é assinatura de template:
+      // quanto maior o arredondamento uniforme, mais a tela parece um
+      // conjunto de pílulas. Só o que de fato flutua (menu, modal) fica
+      // mais macio.
       borderRadius: {
-        DEFAULT: '0.375rem',
-        md: '0.5rem',
-        lg: '0.625rem',
-        xl: '0.875rem',
+        DEFAULT: '0.25rem',
+        md: '0.3125rem',
+        lg: '0.375rem',
+        xl: '0.625rem',
       },
       boxShadow: {
+        // `subtle` existe ainda para quem já a usa, mas o cartão deixou
+        // de aplicá-la: borda de fio + sombra em TODA superfície tira a
+        // profundidade de quem realmente flutua.
         subtle: '0 1px 2px 0 rgb(0 0 0 / 0.04)',
         card: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
         pop: '0 10px 30px -12px rgb(0 0 0 / 0.18), 0 4px 12px -6px rgb(0 0 0 / 0.08)',

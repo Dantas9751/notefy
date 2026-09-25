@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileUp, FolderPlus, Plus } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
+import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 
 /**
  * O único lugar de onde nasce conteúdo.
@@ -31,6 +31,16 @@ export default function CreateMenu({
   const [folderModal, setFolderModal] = useState(null)
   const [error, setError] = useState(null)
   const [uploading, setUploading] = useState(false)
+
+  //: O aviso de nome duplicado também vale aqui: o envio pode partir do
+  //: menu +, não só do arrastar-e-soltar das pastas.
+  const { iniciar: iniciarUpload, Modal: ModalDeConflito } = useUploadComConflitos({
+    onEnviado: (pasta) => {
+      refresh()
+      navigate(`/folders/${pasta}`)
+    },
+    onErro: setError,
+  })
 
   const start = (kind) => {
     setOpen(false)
@@ -58,27 +68,14 @@ export default function CreateMenu({
     setUploading(true)
     setError(null)
 
-    try {
-      const body = new FormData()
+    // O conflito de nomes é decidido pelo próprio hook (busca a pasta
+    // de destino quando precisa); o spinner daqui cobre o processo.
+    await iniciarUpload(files, folderId)
 
-      files.forEach((file) => {
-        body.append('files', file)
-      })
+    setUploading(false)
 
-      body.append('folder', folderId)
-
-      await api.post('/documents/upload/', body)
-
-      refresh()
-      navigate(`/folders/${folderId}`)
-    } catch (err) {
-      setError(extractError(err))
-    } finally {
-      setUploading(false)
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
@@ -230,6 +227,8 @@ export default function CreateMenu({
           {error}
         </p>
       )}
+
+      {ModalDeConflito}
 
       <DestinationModal
         open={!!destination}

@@ -13,6 +13,11 @@ export function useFetch(url, { params, enabled = true, deps = [] } = {}) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState(null)
+  // O status vem separado da mensagem porque quem chama às vezes precisa
+  // DECIDIR, não só mostrar: um 404 num documento aberto significa que ele
+  // foi para a lixeira, e a tela certa ali é outra — não a de "tentar de
+  // novo", que repetiria o mesmo 404 para sempre.
+  const [errorStatus, setErrorStatus] = useState(null)
   const controllerRef = useRef(null)
 
   const paramsKey = JSON.stringify(params ?? {})
@@ -28,12 +33,14 @@ export function useFetch(url, { params, enabled = true, deps = [] } = {}) {
 
     setLoading(true)
     setError(null)
+    setErrorStatus(null)
     try {
       const response = await api.get(url, { params, signal: controller.signal })
       setData(response.data)
     } catch (err) {
       if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return
       setError(extractError(err))
+      setErrorStatus(err.response?.status ?? null)
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
@@ -45,7 +52,7 @@ export function useFetch(url, { params, enabled = true, deps = [] } = {}) {
     return () => controllerRef.current?.abort()
   }, [run])
 
-  return { data, loading, error, refetch: run, setData }
+  return { data, loading, error, errorStatus, refetch: run, setData }
 }
 
 /** Estado de submissão para POST/PATCH/DELETE. */

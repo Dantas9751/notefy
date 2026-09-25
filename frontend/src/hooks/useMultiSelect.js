@@ -12,6 +12,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
  * `keys` precisa chegar NA ORDEM EM QUE A TELA DESENHA os itens — é a ordem
  * do array que define o que está "entre" a âncora e o alvo do Shift.
  */
+/**
+ * Apaga a seleção de TEXTO que o navegador faz sozinho.
+ *
+ * Shift+clique estende a seleção de texto da página, e o `::selection` do
+ * tema a pinta com o mesmo tom de destaque do cartão marcado — duas
+ * coisas diferentes com a mesma cor.
+ *
+ * Vale só para as listas cujos itens NÃO são arrastáveis, como a busca:
+ * o Chromium já aplica `user-select: none` em tudo que tem
+ * `draggable="true"`, e as grades de pastas e documentos são todas
+ * arrastáveis. Medido no navegador, não deduzido.
+ *
+ * Roda no clique, e não em `mousedown`, porque é ali que o hook age — a
+ * seleção chega a existir por um instante, mas não sobrevive ao clique.
+ */
+function limparSelecaoDeTexto() {
+  const selecao = window.getSelection?.()
+  // `isCollapsed` evita mexer numa seleção que a pessoa fez de propósito
+  // antes de segurar Ctrl, e o try protege navegadores que recusam
+  // `removeAllRanges` dentro de um contentEditable sem foco.
+  if (!selecao || selecao.isCollapsed) return
+  try {
+    selecao.removeAllRanges()
+  } catch {
+    /* seleção já inválida — nada a limpar */
+  }
+}
+
 export function useMultiSelect(keys) {
   const [selected, setSelected] = useState([])
   const anchor = useRef(null)
@@ -97,6 +125,7 @@ export function useMultiSelect(keys) {
       if (event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
+        limparSelecaoDeTexto()
         selectRange(key)
         return
       }
@@ -104,6 +133,7 @@ export function useMultiSelect(keys) {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
         event.stopPropagation()
+        limparSelecaoDeTexto()
         toggle(key)
         return
       }

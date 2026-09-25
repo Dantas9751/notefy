@@ -12,14 +12,17 @@ const COLORS = [
 ]
 
 /**
- * Propriedades de um item: onde mora, status e cor.
+ * Propriedades de um item: onde mora, etiquetas, status e cor.
  *
- * Não há campo de categoria — ela vem da pasta. Mostrar a categoria como
- * algo editável aqui sugeriria que item e pasta poderiam discordar.
+ * "Onde mora" e "etiquetas" são coisas diferentes de propósito. A pasta
+ * dá a categoria de MORADIA — um item mora num lugar só. As etiquetas
+ * são transversais: a mesma nota é "Cálculo III" (onde está) e também
+ * "prova" e "revisar" (o que ela é). Antes só existia a primeira, e
+ * marcar uma nota como "revisar" exigia movê-la de pasta.
  */
 export default function DocumentMetaModal({ open, onClose, document: doc, onSave, saving }) {
   const { categories } = useWorkspace()
-  const [form, setForm] = useState({ folder: '', status: 'draft', color: '' })
+  const [form, setForm] = useState({ folder: '', status: 'draft', color: '', categories: [] })
   const [picking, setPicking] = useState(false)
 
   useEffect(() => {
@@ -28,6 +31,9 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
       folder: doc.folder ?? '',
       status: doc.status ?? 'draft',
       color: doc.color ?? '',
+      // A API devolve `categories_detail` (objetos) e aceita `categories`
+      // (ids). O formulário guarda ids, que é o que o PATCH manda.
+      categories: (doc.categories_detail ?? []).map((c) => c.id),
     })
   }, [open, doc])
 
@@ -75,6 +81,46 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
               )}
               <FolderInput size={14} className="shrink-0 text-ink-400" />
             </button>
+          </Field>
+
+          <Field
+            label="Etiquetas"
+            hint="Atravessam as pastas: a mesma nota pode ser “prova” e “revisar”."
+          >
+            <div className="flex flex-wrap gap-1.5">
+              {categories.length === 0 && (
+                <p className="text-xs text-ink-400">
+                  Nenhuma categoria criada ainda.
+                </p>
+              )}
+              {categories.map((categoria) => {
+                const marcada = form.categories.includes(categoria.id)
+                return (
+                  <button
+                    key={categoria.id}
+                    type="button"
+                    aria-pressed={marcada}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        categories: marcada
+                          ? f.categories.filter((id) => id !== categoria.id)
+                          : [...f.categories, categoria.id],
+                      }))
+                    }
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition',
+                      marcada
+                        ? 'border-accent-400 bg-accent-50 text-accent-800 dark:bg-accent-500/20 dark:text-accent-200'
+                        : 'border-ink-200 text-ink-500 hover:border-ink-300 dark:border-ink-700 dark:text-ink-400',
+                    )}
+                  >
+                    <ColorDot color={categoria.color} size={6} />
+                    {categoria.name}
+                  </button>
+                )
+              })}
+            </div>
           </Field>
 
           <Field label="Status">

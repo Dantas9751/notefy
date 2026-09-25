@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { buscarArquivo } from '@/lib/fileMedia'
 import { Spinner } from '@/components/ui'
 import { formatBytes } from '@/lib/utils'
 
@@ -116,22 +117,16 @@ export default function TextFilePreview({ doc }) {
     setHtml(null)
     setErro(null)
 
-    // Só o caminho, não a URL absoluta: em desenvolvimento o servidor de
-    // mídia é outra porta, e buscar lá seria requisição entre origens. O
-    // mesmo caminho relativo funciona no navegador e no aplicativo.
-    const caminho = new URL(doc.file_url, window.location.href).pathname
-
-    fetch(caminho)
-      .then((resposta) => {
-        if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`)
-        return resposta.text()
-      })
-      .then(async (conteudo) => {
+    // A sessão do app (autorização + origem certa do backend) vale
+    // também para o texto: `fetch` puro quebrava no desktop, onde não
+    // existe proxy para o servidor de mídia.
+    buscarArquivo(doc.file_url, 'text')
+      .then(async ({ data }) => {
         if (!ativo) return
-        setTexto(conteudo)
+        setTexto(data)
         if (separador) return
         const { highlightCode } = await import('@/lib/highlight')
-        if (ativo) setHtml(highlightCode(conteudo, linguagem))
+        if (ativo) setHtml(highlightCode(data, linguagem))
       })
       .catch(() => {
         if (ativo) setErro('Não foi possível ler o arquivo.')
@@ -145,7 +140,7 @@ export default function TextFilePreview({ doc }) {
   if (grandeDemais) {
     return (
       <p className="text-sm text-ink-500 dark:text-ink-400">
-        Arquivo de {formatBytes(doc.size)} — grande demais para pré-visualizar. Baixe para
+        Arquivo de {formatBytes(doc.size)}, grande demais para pré-visualizar. Baixe para
         abrir no seu editor.
       </p>
     )
@@ -200,7 +195,7 @@ export default function TextFilePreview({ doc }) {
         </div>
         <p className="shrink-0 pt-2 text-[11px] text-ink-400">
           {corpo.length} linha(s)
-          {corpo.length > visiveis.length && ` — mostrando as ${TETO_LINHAS_CSV} primeiras`}
+          {corpo.length > visiveis.length && `, mostrando as ${TETO_LINHAS_CSV} primeiras`}
         </p>
       </div>
     )

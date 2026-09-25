@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { ChevronRight, Folder as FolderIcon, Plus, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { usePersistedSet } from '@/hooks/usePersistedSet'
 
 const EXPANDED_KEY = 'notefy.expandedFolders'
 
@@ -12,26 +12,8 @@ const EXPANDED_KEY = 'notefy.expandedFolders'
  * usuário deixou — reabrir a árvore inteira a cada F5 é fricção pura em
  * hierarquias profundas.
  */
-function loadExpanded() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? '[]'))
-  } catch {
-    return new Set()
-  }
-}
-
 export function useExpandedFolders() {
-  const [expanded, setExpanded] = useState(loadExpanded)
-
-  const toggle = useCallback((id) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      localStorage.setItem(EXPANDED_KEY, JSON.stringify([...next]))
-      return next
-    })
-  }, [])
-
+  const { values: expanded, toggle } = usePersistedSet(EXPANDED_KEY)
   return { expanded, toggle }
 }
 

@@ -9,6 +9,12 @@ djangorestframework-simplejwt==5.5.1
 # que a máquina do usuário tenha um servidor de banco instalado.
 
 # ---- API / infra ----
+# waitress serve o backend dentro do aplicativo empacotado
+# (desktop_server.py). O runserver do Django e de desenvolvimento:
+# recarrega arquivos e imprime avisos que nao fazem sentido num app de
+# desktop. Sem esta linha o PyInstaller nao embute o servidor e o
+# executavel morre no arranque.
+waitress==3.0.2
 django-cors-headers==4.9.0
 django-filter==25.2
 drf-spectacular==0.28.0
@@ -22,3 +28,9 @@ Pillow==11.3.0
 # instalar, o que importa para rodar em Windows sem cerimônia.
 xhtml2pdf==0.2.17
 Pygments==2.20.0
+
+# ---- Inteligência Artificial ----
+# Cliente HTTP para as chamadas aos provedores de IA (OpenAI, Anthropic,
+# Ollama). httpx porque suporta streaming SSE, que é o formato das
+# respostas geradas.
+httpx==0.28.1

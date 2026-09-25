@@ -1,12 +1,14 @@
 """Tarefas — alimentam tanto o calendário quanto o quadro Kanban."""
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator
 from organization.models import Category, Folder
+
+from . import recorrencia
 
 
 class Board(BaseModel):
@@ -84,6 +86,22 @@ class TaskQuerySet(SoftDeleteQuerySet):
     def scheduled(self):
         """Tarefas que têm lugar no calendário."""
         return self.filter(starts_at__isnull=False)
+
+    def filtrar_prazo(self, lookup, valor):
+        """Filtra pelo PRAZO da tarefa: o fim, ou o início quando não há fim.
+
+        É a única definição de prazo do backend. "Atrasada" e a janela que
+        as notificações pedem (`due_after`/`due_before`) passam por aqui,
+        para as duas nunca discordarem sobre quando uma tarefa vence.
+
+        `lookup` é o do ORM (`"lt"`, `"gte"`...). Em Q e não em
+        `annotate(Coalesce(...))`: dois filtros de prazo na mesma
+        consulta anotariam o mesmo nome duas vezes.
+        """
+        return self.filter(
+            models.Q(**{f"ends_at__{lookup}": valor})
+            | models.Q(ends_at__isnull=True, **{f"starts_at__{lookup}": valor})
+        )
 
     def in_range(self, start, end):
         """Tarefas que se sobrepõem à janela [start, end).
@@ -226,9 +244,32 @@ class Task(BaseModel):
                 raise ValidationError({field: "O item vinculado pertence a outro usuário."})
 
     def save(self, *args, **kwargs):
+        # A regra de repetição é normalizada e conferida AQUI, e não no
+        # `clean()`, porque `Task.save()` não chama `full_clean()` — o
+        # `clean()` nunca rodava pela API, que é quem escreve o campo.
+        #
+        # No `save()` ela guarda o invariante para todo mundo: o
+        # importador de backup, um comando de management e o shell criam
+        # tarefa por `objects.create()`, e os três passavam direto. Uma
+        # regra que ninguém sabe expandir é uma repetição que nunca
+        # acontece, e o usuário só descobriria pela ausência.
+        #
+        # O serializer continua chamando a MESMA função antes disto —
+        # não por redundância, mas porque só de lá sai um 400 com o
+        # motivo; daqui sairia um 500.
+        self.recurrence_rule = recorrencia.validar(self.recurrence_rule)
+
         # `completed_at` é derivado do status — nunca enviado pelo cliente,
         # o que impede que o histórico de conclusão seja forjado.
-        if self.status == self.Status.DONE and self.completed_at is None:
+        #
+        # Esta é também a ÚNICA passagem que todo caminho de conclusão
+        # atravessa: o `toggle`, o arrastar do Kanban e o PATCH do
+        # formulário chamam `save()`, e nenhum deles chama os outros.
+        # Por isso a repetição nasce daqui e não de cada view — um
+        # `queryset.update()` fugiria de um signal, e três chamadas
+        # espalhadas divergiriam na primeira mudança.
+        concluiu_agora = self.status == self.Status.DONE and self.completed_at is None
+        if concluiu_agora:
             self.completed_at = timezone.now()
         elif self.status != self.Status.DONE:
             self.completed_at = None
@@ -242,7 +283,75 @@ class Task(BaseModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             kwargs["update_fields"] = set(update_fields) | {"completed_at", "board"}
-        super().save(*args, **kwargs)
+        # Gravar a conclusão e criar a próxima ocorrência é UM fato, não
+        # dois: sem a transação, um erro ao montar a repetição deixava a
+        # tarefa concluída e a série encerrada em silêncio — e o usuário
+        # só perceberia na semana seguinte, quando nada aparecesse.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if concluiu_agora and self.recurrence_rule:
+                self.gerar_proxima()
+
+    def gerar_proxima(self):
+        """Cria a ocorrência seguinte de uma tarefa que se repete.
+
+        A repetição nasce ao CONCLUIR, e não por um relógio que varre o
+        banco: é a mecânica do Todoist e do Things, e é a única que
+        funciona num app de desktop que pode passar uma semana fechado.
+        Quem termina "estudar toda segunda" com dois dias de atraso quer
+        a próxima uma semana depois desta, não três cópias vencidas
+        esperando na caixa.
+
+        Devolve a nova tarefa, ou `None` se a série acabou (`UNTIL`) ou
+        se não havia data de onde partir.
+        """
+        if not self.starts_at:
+            # Sem data não há o que adiantar: a regra não tem âncora, e
+            # criar a cópia agora só faria uma tarefa idêntica.
+            return None
+
+        proximo_inicio = recorrencia.proxima(self.starts_at, self.recurrence_rule)
+        if proximo_inicio is None:
+            return None
+
+        deslocamento = proximo_inicio - self.starts_at
+        proxima = Task(
+            owner=self.owner,
+            title=self.title,
+            description=self.description,
+            status=self.Status.TODO,
+            priority=self.priority,
+            starts_at=proximo_inicio,
+            # Fim e lembrete andam junto com o início: a tarefa mantém a
+            # duração e a antecedência do aviso que tinha.
+            ends_at=self.ends_at + deslocamento if self.ends_at else None,
+            all_day=self.all_day,
+            reminder_at=self.reminder_at + deslocamento if self.reminder_at else None,
+            recurrence_rule=self.recurrence_rule,
+            document=self.document,
+            folder=self.folder,
+            board=self.board,
+            color=self.color,
+            position=self.position,
+        )
+        proxima.save()
+
+        # M2M só depois do pk. As mesmas etiquetas: a repetição é a mesma
+        # tarefa noutra data, e reetiquetar toda semana seria o trabalho
+        # que a recorrência existe para tirar.
+        proxima.categories.set(self.categories.all())
+
+        # O checklist volta DESMARCADO. Copiá-lo concluído entregaria uma
+        # tarefa que já nasce pronta; não copiá-lo apagaria os passos que
+        # a pessoa escreveu uma vez para repetir sempre.
+        itens = [
+            ChecklistItem(task=proxima, text=item.text, position=item.position)
+            for item in self.checklist.all()
+        ]
+        if itens:
+            ChecklistItem.objects.bulk_create(itens)
+
+        return proxima
 
 
 class ChecklistItem(models.Model):

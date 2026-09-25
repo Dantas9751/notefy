@@ -31,6 +31,8 @@ export default function FilterBar({
   //: estavam ativos, e quando aparecia deixava os dois para trás.
   extraActive = false,
   onClearExtra,
+  //: Tecla extra no campo de busca (a busca usa para o Ctrl+Enter da IA).
+  onQueryKeyDown,
   className,
 }) {
   const { categoryList: categories } = useWorkspace()
@@ -54,6 +56,7 @@ export default function FilterBar({
         <input
           value={query ?? ''}
           onChange={(e) => onQueryChange?.(e.target.value)}
+          onKeyDown={onQueryKeyDown}
           placeholder={placeholder}
           className="input pl-9"
           type="search"

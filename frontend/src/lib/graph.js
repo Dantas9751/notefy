@@ -100,6 +100,9 @@ export const DIAGRAM_GROUPS = [
       cylinder: { label: 'Cilindro', w: 140, h: 90, shape: 'cylinder' },
       cloud: { label: 'Nuvem', w: 170, h: 100, shape: 'cloud' },
       hexagon: { label: 'Hexágono', w: 160, h: 80, shape: 'hexagon' },
+      // Mesmo nó do canvas. Um print do slide ao lado do fluxograma é o
+      // que explica de onde ele veio.
+      image: { label: 'Imagem', w: 220, h: 160, shape: 'image' },
     },
   },
 ]
@@ -423,6 +426,61 @@ export function strokePath(points) {
   }
   const last = points[points.length - 1]
   return `${d} L ${last[0]} ${last[1]}`
+}
+
+/**
+ * Contorno fechado de um traço de PINCEL.
+ *
+ * A caneta é uma linha uniforme: mesma espessura do começo ao fim, como
+ * um traço de lápis. O pincel não — ele afina nas pontas e ondula
+ * levemente no corpo, como um gesto de pincelada. É a diferença visual
+ * entre as duas ferramentas: sem isto, marcador e caneta só mudavam de
+ * espessura e o usuário não sabia qual estava usando.
+ *
+ * A largura em cada amostra é o produto de duas modulações:
+ *   - afunilado: `min(t, 1-t)/0.2` encolhe o traço nos ~20% finais de
+ *     cada ponta, em vez de cortar seco;
+ *   - onda: um seno lento sobre a distância percorrida dá a "pele" do
+ *     pincel, leve o bastante para não parecer tremido.
+ */
+export function brushPath(points, width) {
+  if (points.length < 2) return ''
+  const n = points.length
+
+  const compr = [0]
+  for (let i = 1; i < n; i += 1) {
+    compr.push(
+      compr[i - 1] +
+        Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]),
+    )
+  }
+  const total = compr[n - 1] || 1
+
+  const esquerda = []
+  const direita = []
+  for (let i = 0; i < n; i += 1) {
+    const anterior = points[Math.max(0, i - 1)]
+    const proximo = points[Math.min(n - 1, i + 1)]
+    const dx = proximo[0] - anterior[0]
+    const dy = proximo[1] - anterior[1]
+    const len = Math.hypot(dx, dy) || 1
+
+    const t = compr[i] / total
+    const naPonta = Math.min(t, 1 - t) / 0.2
+    const afunilado = Math.min(1, naPonta)
+    const onda = 1 + 0.09 * Math.sin(compr[i] * 0.05 + 1.7)
+    const raio = (width * 0.5) * (0.28 + 0.72 * afunilado) * onda
+
+    const px = (-dy / len) * raio
+    const py = (dx / len) * raio
+    esquerda.push([points[i][0] + px, points[i][1] + py])
+    direita.push([points[i][0] - px, points[i][1] - py])
+  }
+
+  let d = `M ${esquerda[0][0]} ${esquerda[0][1]}`
+  for (let i = 1; i < n; i += 1) d += ` L ${esquerda[i][0]} ${esquerda[i][1]}`
+  for (let i = n - 1; i >= 0; i -= 1) d += ` L ${direita[i][0]} ${direita[i][1]}`
+  return `${d} Z`
 }
 
 /* --------------------------------------------------------------------- */

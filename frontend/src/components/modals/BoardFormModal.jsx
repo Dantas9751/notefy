@@ -3,9 +3,7 @@ import api from '@/lib/api'
 import { useMutation } from '@/hooks/useFetch'
 import { Button, ErrorState, Field, Input, Modal } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
-import { cn } from '@/lib/utils'
-
-const PRESET_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+import { cn, PRESET_COLORS } from '@/lib/utils'
 
 const EMPTY = { name: '', color: PRESET_COLORS[0] }
 

@@ -3,7 +3,14 @@
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from .schemas import empty_data_for, extract_text, validate_data
+from .schemas import (
+    MAX_COLUNAS_TABELA,
+    MAX_ITENS_SECAO,
+    empty_data_for,
+    extract_text,
+    secao_tem_conteudo,
+    validate_data,
+)
 
 
 class NoteSectionSchemaTests(SimpleTestCase):
@@ -52,6 +59,123 @@ class NoteSectionSchemaTests(SimpleTestCase):
         data = empty_data_for("note")
         self.assertEqual(len(data["sections"]), 1)
         self.assertEqual(data["sections"][0]["type"], "text")
+
+
+class ChecklistSectionTests(SimpleTestCase):
+    def sections(self, *items):
+        return {"sections": list(items)}
+
+    def bloco(self, *itens, sid="s1"):
+        return {"id": sid, "type": "checklist", "items": list(itens)}
+
+    def test_checklist_is_accepted(self):
+        validate_data("note", self.sections(
+            self.bloco({"id": "i1", "text": "Ler o capítulo 3", "done": True})
+        ))
+
+    def test_done_is_coerced_to_bool(self):
+        """O editor manda `checked` do DOM; nem sempre chega booleano.
+
+        Gravado como string, `if item.done` seria verdadeiro até para
+        `"false"` — e o item apareceria riscado sem ninguém o ter
+        marcado.
+        """
+        data = self.sections(self.bloco({"id": "i1", "text": "a", "done": "sim"}))
+        validate_data("note", data)
+        self.assertIs(data["sections"][0]["items"][0]["done"], True)
+
+        data = self.sections(self.bloco({"id": "i1", "text": "a"}))
+        validate_data("note", data)
+        self.assertIs(data["sections"][0]["items"][0]["done"], False)
+
+    def test_item_without_id_gets_one(self):
+        data = self.sections(self.bloco({"text": "sem id"}))
+        validate_data("note", data)
+        self.assertTrue(data["sections"][0]["items"][0]["id"])
+
+    def test_item_that_is_not_an_object_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(self.bloco("só um texto")))
+
+    def test_text_must_be_a_string(self):
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(self.bloco({"id": "i1", "text": 42})))
+
+    def test_absurd_item_count_is_rejected(self):
+        itens = [{"id": f"i{n}", "text": "x"} for n in range(MAX_ITENS_SECAO + 1)]
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(self.bloco(*itens)))
+
+    def test_checklist_text_is_searchable(self):
+        texto = extract_text("note", self.sections(
+            self.bloco(
+                {"id": "i1", "text": "Comprar caderno", "done": True},
+                {"id": "i2", "text": "Revisar integrais", "done": False},
+            )
+        ))
+        # Concluído ou não, o item tem que ser encontrável.
+        self.assertIn("Comprar caderno", texto)
+        self.assertIn("Revisar integrais", texto)
+
+
+class TableSectionTests(SimpleTestCase):
+    def sections(self, *items):
+        return {"sections": list(items)}
+
+    def bloco(self, *linhas, sid="s1"):
+        return {"id": sid, "type": "table", "rows": list(linhas)}
+
+    def test_table_is_accepted(self):
+        validate_data("note", self.sections(
+            self.bloco(["Método", "Custo"], ["Bubble", "O(n²)"])
+        ))
+
+    def test_ragged_rows_are_allowed(self):
+        """Linha curta não é erro — o editor completa na hora de desenhar.
+
+        Recusar aqui quebraria o gesto de adicionar uma coluna, que
+        acontece linha a linha.
+        """
+        validate_data("note", self.sections(self.bloco(["a", "b"], ["c"])))
+
+    def test_row_that_is_not_a_list_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(self.bloco("a,b")))
+
+    def test_non_string_cell_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(self.bloco([1, 2])))
+
+    def test_absurd_column_count_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            validate_data("note", self.sections(
+                self.bloco([""] * (MAX_COLUNAS_TABELA + 1))
+            ))
+
+    def test_table_cells_are_searchable(self):
+        texto = extract_text("note", self.sections(
+            self.bloco(["Autor", "Obra"], ["Machado", "Dom Casmurro"])
+        ))
+        for termo in ("Autor", "Machado", "Dom Casmurro"):
+            self.assertIn(termo, texto)
+
+
+class SecaoTemConteudoTests(SimpleTestCase):
+    def test_reconhece_conteudo_de_cada_tipo(self):
+        self.assertTrue(secao_tem_conteudo({"type": "text", "html": "<p>a</p>"}))
+        self.assertTrue(secao_tem_conteudo({"type": "code", "code": "x = 1"}))
+        self.assertTrue(
+            secao_tem_conteudo({"type": "checklist", "items": [{"text": "a"}]})
+        )
+        self.assertTrue(secao_tem_conteudo({"type": "table", "rows": [["a"]]}))
+
+    def test_seção_vazia_ou_estranha_nao_conta(self):
+        self.assertFalse(secao_tem_conteudo({"type": "text", "html": ""}))
+        self.assertFalse(secao_tem_conteudo({"type": "checklist", "items": [{"text": ""}]}))
+        self.assertFalse(secao_tem_conteudo({"type": "table", "rows": [["", ""]]}))
+        # Uma seção que não é dict derrubava o `.get` com AttributeError.
+        self.assertFalse(secao_tem_conteudo("texto solto"))
+        self.assertFalse(secao_tem_conteudo(None))
 
 
 class SpreadsheetSchemaTests(SimpleTestCase):

@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CalendarPlus, Kanban, Pencil, Plus, Star, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CalendarClock,
+  CalendarPlus,
+  Kanban,
+  Pencil,
+  Plus,
+  Repeat,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
@@ -12,6 +22,8 @@ import TaskFormModal from '@/components/modals/TaskFormModal'
 import BoardFormModal from '@/components/modals/BoardFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import TaskScheduler from '@/components/TaskScheduler'
+import { idDeInstancia } from '@/lib/desktop'
+import { descrever as descreverRecorrencia } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS, cn, formatRelative } from '@/lib/utils'
 
 /** MIME próprio: soltar uma tarefa não pode ser confundido com soltar texto. */
@@ -45,10 +57,17 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
         dragging && 'opacity-40',
         selecionada && 'ring-2 ring-accent-500 bg-accent-50/60 dark:bg-accent-500/10',
       )}
-      style={task.color ? { borderLeftColor: task.color, borderLeftWidth: 3 } : undefined}
     >
-      <p className="text-sm font-medium leading-snug text-ink-800 dark:text-ink-100">
-        {task.title}
+      {/* Ponto no lugar da tarja de 3px: numa coluna de cartões a tarja
+          repetida vira uma faixa contínua na lateral e some como sinal. */}
+      <p className="flex items-baseline gap-1.5 text-sm font-medium leading-snug text-ink-800 dark:text-ink-100">
+        {task.color && (
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: task.color }}
+          />
+        )}
+        <span className="min-w-0 flex-1">{task.title}</span>
       </p>
 
       {task.description && (
@@ -65,6 +84,18 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
           <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
             {task.document_title}
           </Badge>
+        )}
+        {/* Sem este sinal, concluir uma tarefa faz outra aparecer do nada
+            no fim da coluna e parece bug. Com ele, é o comportamento que
+            a pessoa pediu. */}
+        {task.recurrence_rule && (
+          <span
+            title={`Repete: ${descreverRecorrencia(task.recurrence_rule)}`}
+            className="inline-flex items-center gap-0.5 text-[11px] text-ink-400"
+          >
+            <Repeat size={10} />
+            {descreverRecorrencia(task.recurrence_rule)}
+          </span>
         )}
 
         {/* O botão de data no próprio cartão liga o quadro à agenda: dá
@@ -104,12 +135,16 @@ export default function Board() {
   const [boardId, setBoardId] = useState('')
   const [boardModal, setBoardModal] = useState(null)
   const [confirmBoard, setConfirmBoard] = useState(null)
+  const [confirmBulk, setConfirmBulk] = useState(false)
 
   const debouncedQuery = useDebounced(query, 350)
   const { menu, openMenu, closeMenu } = useContextMenu()
 
   // A lista de quadros vem antes das tarefas: é ela que diz qual é o
   // padrão, e o padrão é o quadro que abre quando ninguém escolheu nada.
+  // Identidade desta instância, para separar o próprio aviso do alheio.
+  const instanciaRef = useRef(idDeInstancia())
+
   const boards = useFetch('/boards/')
   const boardList = boards.data?.results ?? []
   const defaultBoard = boardList.find((b) => b.is_default) ?? boardList[0] ?? null
@@ -133,6 +168,19 @@ export default function Board() {
     onEdit: (task) => setModal({ task }),
     onSchedule: (task) => setScheduling(task),
   })
+
+  // Mudança vinda de FORA (calendário ao lado no painel, roadmap, menu de
+  // uma tarefa em outra tela) recarrega o quadro. O aviso que este quadro
+  // mesmo emitiu é ignorado: ele já chamou `refetch` na hora, e reagir ao
+  // próprio evento dobrava toda requisição de tarefa.
+  useEffect(() => {
+    const aoMudar = (evento) => {
+      if (evento.detail?.origem === instanciaRef.current) return
+      refetch()
+    }
+    window.addEventListener('notefy:task-changed', aoMudar)
+    return () => window.removeEventListener('notefy:task-changed', aoMudar)
+  }, [refetch])
 
   useEffect(() => {
     const limpar = () => setDraggingIds([])
@@ -159,6 +207,27 @@ export default function Board() {
     handleContextMenu: menuSelecao,
   } = useMultiSelect(selectableKeys)
 
+  // Delete pede confirmação em vez de apagar direto: aqui a seleção pode
+  // ter dezenas de cartões e não há desfazer para tarefa. `Backspace` fica
+  // de fora — no Windows ele é "voltar", e o gesto de sair da página não
+  // pode virar exclusão em massa.
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const digitando =
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) ||
+        event.target.isContentEditable
+      if (digitando || event.key !== 'Delete') return
+      if (selecionadas.length === 0) return
+      // Com um diálogo aberto o quadro está atrás dele: a seleção continua
+      // viva, mas a tecla pertence a quem está na frente.
+      if (modal || scheduling || boardModal || confirmBoard) return
+      event.preventDefault()
+      setConfirmBulk(true)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selecionadas.length, modal, scheduling, boardModal, confirmBoard])
+
   /** Ids que um arraste iniciado neste cartão deve carregar. */
   const loteDoArraste = (taskId) =>
     isSelected(`task:${taskId}`)
@@ -167,7 +236,11 @@ export default function Board() {
 
   /** Avisa roadmap e calendário de que alguma tarefa mudou. */
   const notificarTarefa = (detail) =>
-    window.dispatchEvent(new CustomEvent('notefy:task-changed', { detail }))
+    window.dispatchEvent(
+      new CustomEvent('notefy:task-changed', {
+        detail: { ...detail, origem: instanciaRef.current },
+      }),
+    )
 
   /**
    * O menu de contexto serve três alvos: cartão, fundo de coluna e chip de
@@ -249,11 +322,51 @@ export default function Board() {
           onClick: () => moveTo(ids, coluna.status),
         })),
         { separator: true },
+        {
+          label: `Excluir ${ids.length} selecionadas`,
+          icon: Trash2,
+          danger: true,
+          onClick: () => setConfirmBulk(true),
+        },
         { label: 'Limpar seleção', icon: X, onClick: limparSelecao },
       ]
     }
 
     return buildMenu(payload.task)
+  }
+
+  /**
+   * Exclui a seleção inteira.
+   *
+   * `allSettled` e não `all`: com `all` a primeira falha abandona as
+   * outras promessas já em voo, e o quadro ficaria mostrando um estado que
+   * ninguém sabe qual é — parte apagada, parte não. Aqui todas terminam e
+   * o relatório diz quantas escaparam. Um `DELETE` por tarefa em vez de
+   * uma rota em lote: são poucas dezenas de cartões, e o endpoint novo
+   * seria uma migração de API para economizar requisições que o usuário
+   * não sente.
+   */
+  const deleteMany = async (ids) => {
+    setError(null)
+    const resultados = await Promise.allSettled(
+      ids.map((taskId) => api.delete(`/tasks/${taskId}/`)),
+    )
+    // 404 é sucesso: a tarefa já não está lá, que é exatamente o pedido.
+    const falhas = resultados.filter(
+      (r) => r.status === 'rejected' && r.reason?.response?.status !== 404,
+    )
+
+    limparSelecao()
+    refetch()
+    boards.refetch()
+    notificarTarefa({ taskIds: ids })
+
+    if (falhas.length) {
+      setError(
+        `${falhas.length} de ${ids.length} não foram excluídas. ` +
+          extractError(falhas[0].reason),
+      )
+    }
   }
 
   const moveTo = async (ids, status) => {
@@ -412,7 +525,7 @@ export default function Board() {
                       className="h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: meta.accent }}
                     />
-                    <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-500 dark:text-ink-400">
+                    <h2 className="secao">
                       {column.label}
                     </h2>
                     <span className="text-[11px] tabular-nums text-ink-400">
@@ -468,6 +581,57 @@ export default function Board() {
           </div>
         )}
       </PageBody>
+
+      {/* Barra flutuante da seleção.
+          O menu de contexto já tinha as ações em lote, mas exigia
+          descobrir o botão direito; quem selecionou cinco cartões e
+          apertou Delete não achava nada. Fica sobre o rodapé, some sozinha
+          quando a seleção esvazia. */}
+      {selecionadas.length > 0 && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-ink-200 bg-white/95 py-1.5 pl-4 pr-1.5 shadow-pop backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
+            <span className="text-xs font-medium text-ink-600 dark:text-ink-300">
+              {selecionadas.length} selecionada{selecionadas.length === 1 ? '' : 's'}
+            </span>
+
+            <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-ink-700" />
+
+            {columns.map((coluna) => (
+              <button
+                key={coluna.status}
+                onClick={() =>
+                  moveTo(
+                    selecionadas.map((chave) => parseKey(chave).id),
+                    coluna.status,
+                  )
+                }
+                className="rounded-full px-2.5 py-1 text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
+              >
+                {coluna.label}
+              </button>
+            ))}
+
+            <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-ink-700" />
+
+            <button
+              onClick={() => setConfirmBulk(true)}
+              title="Excluir selecionadas (Delete)"
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs text-red-600 transition hover:bg-red-50 dark:hover:bg-red-500/10"
+            >
+              <Trash2 size={13} />
+              Excluir
+            </button>
+            <button
+              onClick={limparSelecao}
+              title="Limpar seleção (Esc)"
+              aria-label="Limpar seleção"
+              className="rounded-full p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <TaskFormModal
         open={!!modal}
@@ -525,6 +689,21 @@ export default function Board() {
           boards.refetch()
           refetch()
         }}
+      />
+
+      <ConfirmDialog
+        open={confirmBulk}
+        title="Excluir tarefas"
+        message={
+          <>
+            <strong>{selecionadas.length}</strong> tarefa
+            {selecionadas.length === 1 ? '' : 's'} será
+            {selecionadas.length === 1 ? '' : 'ão'} removida
+            {selecionadas.length === 1 ? '' : 's'} permanentemente.
+          </>
+        }
+        onClose={() => setConfirmBulk(false)}
+        onConfirm={() => deleteMany(selecionadas.map((chave) => parseKey(chave).id))}
       />
 
       <ContextMenu

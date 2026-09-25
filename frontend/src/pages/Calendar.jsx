@@ -81,6 +81,15 @@ export default function Calendar() {
     backlog.refetch()
   }
 
+  // A mesma tarefa aparece no Quadro, no Início e aqui. Sem este par —
+  // anunciar o que mudou e ouvir o que mudou fora — arrastar para um dia
+  // no calendário deixava o Quadro mostrando a tarefa ainda sem data, e
+  // concluir no Quadro deixava o evento aqui.
+  useEffect(() => {
+    window.addEventListener('notefy:task-changed', reload)
+    return () => window.removeEventListener('notefy:task-changed', reload)
+  })
+
   const { menu, openMenu, closeMenu } = useContextMenu()
   const { buildMenu, dialogs } = useTaskActions({
     onChanged: reload,
@@ -152,6 +161,8 @@ export default function Calendar() {
 
     await api.post(`/tasks/${taskId}/schedule/`, { starts_at: target.toISOString() })
     reload()
+    // Era o único lugar que mexia em tarefa sem avisar ninguém.
+    window.dispatchEvent(new CustomEvent('notefy:task-changed'))
   }
 
   // Indexa por dia uma vez, em vez de filtrar a lista inteira em cada
@@ -213,11 +224,11 @@ export default function Calendar() {
           <div className="mb-4 rounded-lg border border-dashed border-ink-200 p-3 dark:border-ink-700">
             <div className="mb-2 flex items-center gap-1.5">
               <Inbox size={13} className="text-ink-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-400">
+              <h2 className="secao">
                 A agendar ({backlog.data.length})
               </h2>
               <span className="text-[11px] text-ink-400">
-                — arraste para um dia do calendário
+                arraste para um dia do calendário
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -250,7 +261,7 @@ export default function Calendar() {
             {WEEK_DAYS.map((day) => (
               <div
                 key={day}
-                className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-400"
+                className="px-2 py-2 secao text-center"
               >
                 {day}
               </div>
@@ -355,7 +366,7 @@ export default function Calendar() {
                     {events.slice(0, MAX_VISIBLE_PER_DAY).map((event) => (
                       <div
                         key={event.id}
-                        title={`${event.title} — arraste para outro dia`}
+                        title={`${event.title} (arraste para outro dia)`}
                         draggable
                         onDragStart={(e) => {
                           e.stopPropagation()

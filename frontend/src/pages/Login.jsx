@@ -1,12 +1,10 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { extractError } from '@/lib/api'
 import { Button, Field, Input } from '@/components/ui'
 
 export default function Login() {
-  const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -26,7 +24,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err?.response?.status === 401
-          ? t('login.erro')
+          ? 'Nome de usuário ou senha incorretos.'
           : extractError(err),
       )
     } finally {
@@ -38,11 +36,11 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-ink-50/50 px-4 dark:bg-ink-950">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink-900 dark:text-ink-50">
+          <h1 className="titulo text-[28px] font-medium">
             Notefy
           </h1>
           <p className="mt-1.5 text-sm text-ink-500 dark:text-ink-400">
-            {t('login.subtitulo')}
+            Caderno de estudos.
           </p>
         </div>
 
@@ -56,7 +54,7 @@ export default function Login() {
             </p>
           )}
 
-          <Field label={t('login.usuario')}>
+          <Field label="Nome de usuário">
             <Input
               type="text"
               autoComplete="username"
@@ -68,7 +66,7 @@ export default function Login() {
             />
           </Field>
 
-          <Field label={t('login.senha')}>
+          <Field label="Senha">
             <Input
               type="password"
               autoComplete="current-password"
@@ -80,17 +78,17 @@ export default function Login() {
           </Field>
 
           <Button type="submit" size="lg" className="w-full" loading={loading}>
-            {t('login.entrar')}
+            Entrar
           </Button>
         </form>
 
         <p className="mt-5 text-center text-sm text-ink-500 dark:text-ink-400">
-          {t('login.semConta')}{' '}
+          Ainda não tem conta?{' '}
           <Link
             to="/register"
             className="font-medium text-accent-600 underline-offset-2 hover:underline dark:text-accent-400"
           >
-            {t('login.criarConta')}
+            Criar conta
           </Link>
         </p>
       </div>

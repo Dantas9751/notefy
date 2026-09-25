@@ -1,7 +1,12 @@
 import uuid
+import zipfile
+import io
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
-from django.db.models import Count
+from django.db.models import Count, Q
+
+from core.validators import e_uuid
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters import rest_framework as filters
@@ -87,7 +92,16 @@ class DocumentViewSet(OwnedModelViewSet):
         if self.action == "list":
             # Anexos pertencem ao documento pai e apareceriam soltos na
             # pasta; a listagem mostra só o que é de topo.
-            qs = qs.loose().annotate(attachment_count=Count("attachments", distinct=True))
+            # Só os anexos vivos: a exclusão é suave, então sem o filtro
+            # o clipe do cartão continuava anunciando um arquivo que já
+            # estava na lixeira e não aparecia mais ao abrir o documento.
+            qs = qs.loose().annotate(
+                attachment_count=Count(
+                    "attachments",
+                    filter=Q(attachments__deleted_at__isnull=True),
+                    distinct=True,
+                )
+            )
         else:
             qs = qs.prefetch_related("attachments")
         return qs
@@ -211,12 +225,37 @@ class DocumentViewSet(OwnedModelViewSet):
         # INSERT tentar gravar NULL. É preciso atribuir um UUID novo.
         original.pk = uuid.uuid4()
         original._state.adding = True
-        original.title = f"{original.title} (cópia)"
+        # O título é único por pasta: duplicar o MESMO item duas vezes
+        # geraria "(cópia)" duas vezes e a segunda estouraria a constraint
+        # do model como 500. Desambigua como o resto do app faz.
+        titulo = f"{original.title} (cópia)"
+        irmaos = set(
+            Document.objects.alive()
+            .filter(owner=request.user, folder=original.folder, kind=original.kind)
+            .values_list("title", flat=True)
+        )
+        n = 2
+        while titulo in irmaos:
+            titulo = f"{original.title} (cópia {n})"
+            n += 1
+        original.title = titulo
         # A cópia nasce sem estrela: favoritar é uma escolha sobre AQUELE
         # item, e herdá-la faria a duplicata disputar o topo da pasta com o
         # original sem ninguém ter pedido.
         original.is_favorite = False
-        original.save()
+        try:
+            original.save()
+        except DjangoValidationError as erro:
+            # Mesmo com a desambiguação, o clean() do model pode recusar
+            # (ex.: pasta cheia de cópias numeradas). Sem este catch, isso
+            # vira 500 com página HTML.
+            dicionario = getattr(erro, "message_dict", None)
+            mensagens = (
+                next(iter(dicionario.values()))[0]
+                if dicionario
+                else getattr(erro, "messages", ["Não foi possível duplicar."])[0]
+            )
+            return Response({"detail": mensagens}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(original).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["get", "post"], url_path="pdf")
@@ -277,6 +316,133 @@ class DocumentViewSet(OwnedModelViewSet):
         document.save()
         return Response(self.get_serializer(document).data)
 
+    @action(detail=True, methods=["post"], parser_classes=[JSONParser])
+    def extract(self, request, pk=None):
+        """Extrai um .zip para a pasta indicada, criando arquivos.
+
+        Body: { "folder": "<uuid>" }
+        Se folder não vier, cria uma pasta com o mesmo nome do zip dentro
+        da pasta atual do documento.
+        """
+        from organization.models import Folder
+
+        doc = self.get_object()
+
+        if not doc.file:
+            return Response(
+                {"detail": "Este documento não tem arquivo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        nome_lower = (doc.title or doc.original_name or "").lower()
+        if not nome_lower.endswith(".zip"):
+            return Response(
+                {"detail": "Só arquivos .zip podem ser extraídos."},
+                status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        # Pasta de destino
+        folder_id = request.data.get("folder")
+        if folder_id:
+            destino = Folder.objects.filter(pk=folder_id, owner=request.user).first()
+            if not destino:
+                return Response(
+                    {"detail": "Pasta de destino não encontrada."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            # Cria uma pasta com o mesmo nome do zip dentro da pasta atual
+            nome_pasta = doc.title.removesuffix(".zip").removesuffix(".ZIP") or "Extraído"
+            # Desambiguar se já existe pasta com esse nome
+            base = nome_pasta
+            n = 2
+            while Folder.objects.filter(
+                owner=request.user, parent=doc.folder, name=nome_pasta
+            ).exists():
+                nome_pasta = f"{base} ({n})"
+                n += 1
+            destino = Folder.objects.create(
+                owner=request.user,
+                category=doc.folder.category if doc.folder else None,
+                parent=doc.folder,
+                name=nome_pasta,
+            )
+
+        # Ler o zip
+        try:
+            doc.file.seek(0)
+            conteudo = doc.file.read()
+            zf = zipfile.ZipFile(io.BytesIO(conteudo))
+        except zipfile.BadZipFile:
+            return Response(
+                {"detail": "O arquivo não é um .zip válido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        criados = []
+        with zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                # Ignorar arquivos do macOS/Windows que começam com ._ ou __MACOSX
+                basename = info.filename.split("/")[-1]
+                if basename.startswith("._") or basename.startswith("__"):
+                    continue
+                if not basename:
+                    continue
+                try:
+                    conteudo_arquivo = zf.read(info.filename)
+                    # Detectar content-type básico pela extensão
+                    ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+                    content_type_map = {
+                        "pdf": "application/pdf",
+                        "png": "image/png",
+                        "jpg": "image/jpeg",
+                        "jpeg": "image/jpeg",
+                        "gif": "image/gif",
+                        "svg": "image/svg+xml",
+                        "txt": "text/plain",
+                        "md": "text/markdown",
+                        "csv": "text/csv",
+                        "json": "application/json",
+                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    }
+                    # Desambiguar título duplicado (dois arquivos "readme.md"
+                    # em pastas diferentes do zip).
+                    titulo = basename
+                    n = 2
+                    while Document.objects.alive().filter(
+                        owner=request.user, folder=destino,
+                        kind=Document.Kind.FILE, title__iexact=titulo,
+                    ).exists():
+                        nome_base = basename.rsplit(".", 1)[0] if "." in basename else basename
+                        ext = basename.rsplit(".", 1)[1] if "." in basename else ""
+                        titulo = f"{nome_base} ({n}).{ext}" if ext else f"{nome_base} ({n})"
+                        n += 1
+                    documento = Document(
+                        kind=Document.Kind.FILE,
+                        title=titulo,
+                        folder=destino,
+                        owner=request.user,
+                        file=ContentFile(conteudo_arquivo, name=basename),
+                    )
+                    documento.save()
+                    criados.append(documento)
+                except Exception:
+                    # Arquivo corrompido ou inválido: pula e continua
+                    continue
+
+        return Response(
+            {
+                "folder": str(destino.id),
+                "folder_name": destino.name,
+                "extracted": len(criados),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
         """Move o item para outra pasta — o destino do arrastar na sidebar."""
@@ -291,7 +457,13 @@ class DocumentViewSet(OwnedModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        folder = Folder.objects.filter(pk=folder_id, owner=request.user).first()
+        # `e_uuid` antes do `filter`: um id malformado não devolve vazio,
+        # derruba a consulta e a resposta vira 500 no lugar do aviso.
+        folder = (
+            Folder.objects.filter(pk=folder_id, owner=request.user).first()
+            if e_uuid(folder_id)
+            else None
+        )
         if not folder:
             return Response(
                 {"folder": "Pasta não encontrada."}, status=status.HTTP_400_BAD_REQUEST
@@ -310,12 +482,20 @@ class DocumentViewSet(OwnedModelViewSet):
 class FavoritesView(APIView):
     """Tudo que o usuário marcou com a estrela, num lugar só.
 
-    Documentos e pastas — Task não tem `is_favorite`, então não entra. Criar
-    o campo lá seria uma migração que esta feature não pede; quando existir,
-    basta somar mais um bloco a `itens`.
+    Documentos e pastas. Task não tem `is_favorite`, então não entra; criar
+    o campo lá seria uma migração que esta feature não pede, e quando ele
+    existir basta somar mais um bloco a `itens`.
 
     A forma do resultado copia a da busca global (`type`, `id`, `title`,
     `subtitle`, `url`) para a tela poder reaproveitar o mesmo cartão.
+
+    Esta é a ÚNICA fonte da lista de favoritos. A barra lateral montava a
+    dela com duas chamadas próprias (`/documents/?is_favorite=true` e
+    `/folders/?is_favorite=true`), cada uma com sua ordenação: pastas por
+    nome, documentos por data, e as pastas sempre na frente. Com a lista
+    cortada nos primeiros itens, "quais aparecem" passou a ser uma
+    decisão de produto, e duas respostas diferentes para a mesma pergunta
+    viraram um bug esperando acontecer. Aqui a ordem é uma só.
     """
 
     permission_classes = [IsAuthenticated]
@@ -345,6 +525,11 @@ class FavoritesView(APIView):
                     "subtitle": doc.folder.name if doc.folder else "",
                     "url": f"{meta[1]}/{doc.id}",
                     "updated_at": doc.updated_at.isoformat(),
+                    # `folder` é o id, não o nome: é o que o menu de
+                    # contexto usa para o "Ir para pasta". `color` é a cor
+                    # escolhida pelo usuário, que pinta o ícone na lista.
+                    "folder": str(doc.folder_id) if doc.folder_id else "",
+                    "color": doc.color,
                 }
             )
 
@@ -362,6 +547,8 @@ class FavoritesView(APIView):
                     "subtitle": pasta.category.name if pasta.category else "",
                     "url": f"/folders/{pasta.id}",
                     "updated_at": pasta.updated_at.isoformat(),
+                    "folder": "",
+                    "color": pasta.color,
                 }
             )
 

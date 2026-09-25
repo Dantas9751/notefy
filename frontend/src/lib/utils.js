@@ -45,17 +45,87 @@ export function readableTextColor(hex) {
   return luminance > 0.6 ? '#1a1816' : '#ffffff'
 }
 
-export function hexWithAlpha(hex, alpha) {
-  if (!hex) return 'transparent'
-  const a = Math.round(alpha * 255).toString(16).padStart(2, '0')
-  return `${hex}${a}`
+/**
+ * Remove o raciocínio interno dos modelos "thinking".
+ *
+ * Modelos de raciocínio devolvem `<think>...</think>` dentro do próprio
+ * conteúdo. Isso é rascunho do modelo, não resposta: aparecia no chat e
+ * ia parar dentro da nota do usuário.
+ *
+ * A tag ABERTA sem fechamento também some: durante o streaming ela chega
+ * primeiro, e mostrar o rascunho "até fechar a tag" é pior do que esperar.
+ */
+export function removerThink(texto) {
+  if (!texto) return texto
+  return texto
+    // Bloco fechado, inclusive vazio e multilinha.
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    // Abertura órfã: o que vem depois ainda é raciocínio.
+    .replace(/<think>[\s\S]*$/i, '')
+    // Fechamento órfão (o bloco começou antes do pedaço que chegou).
+    .replace(/^[\s\S]*?<\/think>/i, '')
+    .trim()
 }
 
-export const NOTE_STATUS = {
-  draft: { label: 'Rascunho', className: 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300' },
-  in_progress: { label: 'Em progresso', className: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' },
-  done: { label: 'Finalizado', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' },
+/**
+ * Remove formatação markdown do texto de IA.
+ *
+ * O Notefy não renderiza markdown no chat — os símbolos aparecem como
+ * lixo visual. Esta função aplica o que deveria ser o comportamento do
+ * modelo (que costuma ignorar a instrução de não usar markdown).
+ */
+export function limparMarkdown(texto) {
+  if (!texto) return texto
+  return (
+    removerThink(texto)
+      // Bloco de código: ```linguagem\n...\n```
+      .replace(/```[\s\S]*?```/g, (bloco) => bloco.replace(/```\w*\n?/g, '').replace(/```/g, '').trim())
+      // Código inline: `código`
+      .replace(/`([^`\n]+)`/g, '$1')
+      // Negrito/itálico misto: ***algo*** ou **_algo_**
+      .replace(/\*{3}[_*]*([^*_]+)[_*]*\*{3}/g, '$1')
+      // Negrito: **algo** ou __algo__
+      .replace(/\*{2}([^*\n]+)\*{2}/g, '$1')
+      .replace(/__([^_\n]+)__/g, '$1')
+      // Itálico: *algo* ou _algo_
+      .replace(/\*([^*\n]+)\*/g, '$1')
+      .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, '$1')
+      // Títulos: ### Título ou # Título
+      .replace(/^#{1,6}\s+/gm, '')
+      // Citação: > texto
+      .replace(/^>\s*/gm, '')
+      // Horizontal rule: --- ou *** ou ___
+      .replace(/^[\-*_]{3,}\s*$/gm, '')
+      // Imagem: ![alt](url) — remove inteira
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      // Link: [texto](url) → só o texto
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      // Tachado: ~~algo~~
+      .replace(/~~([^~]+)~~/g, '$1')
+      // Lista marcada com - no início da linha → mantém o texto, sem o traço
+      .replace(/^[-*+]\s+/gm, '')
+      // Listas numéricas: garante que "1. texto" vira "1. texto" (ok)
+      // Espaços extras entre linhas: no máximo uma linha em branco
+      .replace(/\n{3,}/g, '\n\n')
+      // Caracteres de outros alfabetos soltos (chinês, japonês, etc.)
+      // que o modelo injeta por alucinação. Remove sequências de 2+
+      // caracteres não-latinos (mantém acentos como é, ñ, ç).
+      .replace(/[^\x00-\x7F\u00C0-\u024F\s]{2,}/g, '')
+      .trim()
+  )
 }
+
+/**
+ * Paleta oferecida por qualquer coisa que o usuário possa colorir.
+ *
+ * Uma lista só: com uma cópia por modal, quadro e pasta não ofereciam o
+ * mesmo conjunto e a mesma cor tinha nomes diferentes em telas diferentes.
+ * Quem aceita "sem cor" usa `['', ...PRESET_COLORS]`.
+ */
+export const PRESET_COLORS = [
+  '#4F46E5', '#0EA5E9', '#10B981', '#F59E0B',
+  '#EF4444', '#EC4899', '#8B5CF6', '#64748B',
+]
 
 /** Três colunas: o status é o lugar da tarefa no quadro. */
 export const TASK_STATUS = {

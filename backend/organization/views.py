@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.validators import e_uuid
 from core.views import OwnedModelViewSet
 
 from .models import Category, Folder
@@ -344,6 +345,8 @@ class FolderViewSet(OwnedModelViewSet):
         if parent_id:
             parent = (
                 self.get_queryset().filter(pk=parent_id).select_related("category").first()
+                if e_uuid(parent_id)
+                else None
             )
             if not parent:
                 return Response(
@@ -353,7 +356,11 @@ class FolderViewSet(OwnedModelViewSet):
             folder.parent = parent
             folder.category = parent.category  # herda; o save() reforça
         elif category_id:
-            category = Category.objects.filter(pk=category_id, owner=request.user).first()
+            category = (
+                Category.objects.filter(pk=category_id, owner=request.user).first()
+                if e_uuid(category_id)
+                else None
+            )
             if not category:
                 return Response(
                     {"category": "Categoria não encontrada."},

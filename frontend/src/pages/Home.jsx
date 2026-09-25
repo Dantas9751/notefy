@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CheckSquare, ChevronRight, FolderOpen, Layers, Plus, Tag, Trash2, X, FolderPlus } from 'lucide-react'
+import { CheckSquare, FolderOpen, Layers, Plus, Tag, Trash2, X, FolderPlus } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
+import { propsDoCampo, useRenomear } from '@/hooks/useRenomear'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
@@ -15,6 +16,7 @@ import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import { DOCUMENT_KINDS } from '@/lib/documents'
 import { TASK_PRIORITY, formatRelative, cn } from '@/lib/utils'
+import { ICONE } from '@/lib/ui'
 
 function greeting() {
   const hour = new Date().getHours()
@@ -23,82 +25,79 @@ function greeting() {
   return 'Boa noite'
 }
 
-function StatCard({ icon: Icon, label, value, to, color }) {
+/**
+ * Um número do painel.
+ *
+ * O ícone fica no RÓTULO, não numa caixa colorida acima do número: o
+ * painel de quatro cartões com ícone dentro de um quadradinho é o que
+ * todo gerador de interface produz. Aqui ele é do mesmo tamanho e do
+ * mesmo traço dos ícones da Busca — era essa a incoerência entre as duas
+ * telas, uma com ícone em tudo e a outra com ícone em nada.
+ */
+function Numero({ icon: Icon, label, value, to }) {
   return (
-    <Link to={to} className="card flex items-center gap-3 p-4 transition hover:bg-ink-50 dark:hover:bg-ink-800/50">
-      <div
-        className="rounded-md p-2"
-        style={color ? { backgroundColor: `${color}18`, color } : undefined}
-      >
-        <Icon size={17} className={color ? undefined : 'text-ink-500 dark:text-ink-400'} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-lg font-semibold leading-tight tabular-nums text-ink-900 dark:text-ink-50">
-          {value ?? '—'}
-        </p>
-        <p className="truncate text-xs text-ink-500 dark:text-ink-400">{label}</p>
-      </div>
+    <Link to={to} className="group block">
+      <p className="font-serif text-numero tabular-nums text-ink-900 transition group-hover:text-accent-700 dark:text-ink-50 dark:group-hover:text-accent-400">
+        {value ?? '—'}
+      </p>
+      <p className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-500 dark:text-ink-400">
+        <Icon size={ICONE.sm} className="shrink-0" />
+        {label}
+      </p>
     </Link>
   )
 }
 
 /** Cartão de categoria com suporte a seleção e clique direito. */
-function CategoryCard({ category, isSelected, onClick, onContextMenu }) {
+function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, indice = 0 }) {
   const folders = category.folders ?? []
   const preview = folders.slice(0, 4)
 
   return (
     <Link
       to={`/categories/${category.id}`}
-      onClick={onClick}
+      // Captura: o handler precisa barrar Shift/Ctrl ANTES do router e do
+      // browser resolverem o clique, senão a categoria abre em outra aba.
+      onClickCapture={onClickCapture}
       onContextMenu={onContextMenu}
+      // Linha, não cartão: a cor da categoria vira um ponto, e não uma
+      // tarja de 3px no topo. A tarja colorida era o único sinal de
+      // identidade do bloco, e é a marca registrada do painel genérico.
+      style={{ '--i': indice }}
       className={cn(
-        "card group flex flex-col p-4 transition overflow-hidden",
-        isSelected ? 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10' : 'hover:bg-ink-50 dark:hover:bg-ink-800/50'
+        'entra group block px-2 py-3 transition',
+        // Tinta cheia, não 10% de opacidade: numa lista de fio não há
+        // borda para receber o anel de seleção, então o fundo é o único
+        // sinal — e no escuro um accent a 10% sobre ink-950 é invisível.
+        isSelected
+          ? 'bg-accent-100 dark:bg-accent-500/25'
+          : 'hover:bg-ink-100/60 dark:hover:bg-ink-800/40',
       )}
-      style={{ borderTopColor: category.color, borderTopWidth: 3 }}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-baseline gap-2.5">
         <span
-          className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
+          className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: category.color }}
         />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-ink-900 group-hover:text-accent-700 dark:text-ink-100 dark:group-hover:text-accent-300">
-            {category.name}
-          </h3>
-          <p className="mt-0.5 text-[11px] text-ink-400">
-            {category.folder_count} pasta(s) · {category.document_count} item(ns)
-          </p>
-        </div>
-        <ChevronRight
-          size={15}
-          className="mt-0.5 shrink-0 text-ink-300 transition group-hover:translate-x-0.5 group-hover:text-accent-500"
-        />
+        <h3 className="titulo min-w-0 flex-1 truncate text-[15px]">{category.name}</h3>
+        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">
+          {category.document_count}
+        </span>
       </div>
 
-      <div className="mt-3 flex-1 space-y-1">
-        {preview.map((folder) => (
-          <div
-            key={folder.id}
-            className="flex items-center gap-1.5 text-[12px] text-ink-500 dark:text-ink-400"
-          >
-            <FolderOpen size={12} className="shrink-0 text-ink-300" />
-            <span className="truncate">{folder.name}</span>
-            {folder.document_count > 0 && (
-              <span className="ml-auto shrink-0 text-[10px] tabular-nums text-ink-400">
-                {folder.document_count}
-              </span>
-            )}
-          </div>
-        ))}
-        {folders.length > preview.length && (
-          <p className="text-[11px] text-ink-400">+{folders.length - preview.length} pasta(s)</p>
+      {/* As pastas em linha corrida. Uma lista vertical de quatro itens
+          com ícone de pasta em cada é altura gasta para repetir o que o
+          contexto já diz. */}
+      <p className="mt-1 truncate pl-[18px] text-[12px] text-ink-500 dark:text-ink-400">
+        {folders.length === 0 ? (
+          <span className="text-ink-400">sem pastas</span>
+        ) : (
+          <>
+            {preview.map((f) => f.name).join(' · ')}
+            {folders.length > preview.length && ` · +${folders.length - preview.length}`}
+          </>
         )}
-        {folders.length === 0 && (
-          <p className="text-[11px] italic text-ink-400">Nenhuma pasta ainda.</p>
-        )}
-      </div>
+      </p>
     </Link>
   )
 }
@@ -130,7 +129,11 @@ export default function Home() {
     params: { status: 'todo', ordering: 'starts_at', page_size: 6 },
   })
   
-  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({ onChanged: recent.refetch })
+  const renomear = useRenomear({ onRenamed: recent.refetch })
+  const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({
+    onChanged: recent.refetch,
+    onRename: (doc) => renomear.abrir(doc.id),
+  })
 
   // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
@@ -162,8 +165,13 @@ export default function Home() {
       upcoming.refetch()
       refresh()
     }
-    window.addEventListener('notefy:moved', onChanged)
-    return () => window.removeEventListener('notefy:moved', onChanged)
+    // `task-changed` junto: o painel mostra "Tarefas abertas" e a lista
+    // do que vem a seguir. Concluir uma tarefa no Quadro mudava os dois
+    // e esta tela só descobria ao ser recarregada — o número ficava
+    // contando uma tarefa que o usuário já tinha fechado.
+    const eventos = ['notefy:moved', 'notefy:task-changed']
+    eventos.forEach((e) => window.addEventListener(e, onChanged))
+    return () => eventos.forEach((e) => window.removeEventListener(e, onChanged))
   }, [stats.refetch, recent.refetch, upcoming.refetch, refresh])
 
   /* ------------------------------------------------------------------ */
@@ -171,6 +179,7 @@ export default function Home() {
   /* ------------------------------------------------------------------ */
   const handleItemClick = (itemType, itemId, event) => {
     const uniqueKey = `${itemType}:${itemId}`
+
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault()
       event.stopPropagation()
@@ -178,10 +187,35 @@ export default function Home() {
         prev.includes(uniqueKey) ? prev.filter((i) => i !== uniqueKey) : [...prev, uniqueKey]
       )
       lastSelectedId.current = uniqueKey
-    } else {
-      setSelectedIds([uniqueKey])
-      lastSelectedId.current = uniqueKey
+      return
     }
+
+    // Shift marca o intervalo. Faltava por completo: o clique caía no
+    // ramo comum e, como os cartões são `<Link>`, o browser ainda abria
+    // a categoria numa nova aba.
+    if (event.shiftKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      // Cada seção é uma lista independente — "tudo entre A e B" só faz
+      // sentido dentro da mesma grade.
+      const lista =
+        itemType === 'category'
+          ? (categories ?? []).map((c) => `category:${c.id}`)
+          : (recent.data ?? []).slice(0, 6).map((d) => `document:${d.id}`)
+      const de = lista.indexOf(lastSelectedId.current)
+      const ate = lista.indexOf(uniqueKey)
+      if (de === -1 || ate === -1) {
+        setSelectedIds([uniqueKey])
+      } else {
+        const faixa = lista.slice(Math.min(de, ate), Math.max(de, ate) + 1)
+        setSelectedIds((prev) => Array.from(new Set([...prev, ...faixa])))
+      }
+      lastSelectedId.current = uniqueKey
+      return
+    }
+
+    setSelectedIds([uniqueKey])
+    lastSelectedId.current = uniqueKey
   }
 
   const handleContextMenu = (itemType, item, event) => {
@@ -279,7 +313,6 @@ export default function Home() {
     <div className="pb-24">
       <PageHeader
         title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
-        subtitle="Um resumo do seu espaço e as categorias onde tudo mora."
         actions={
           <Button icon={Plus} onClick={() => setCategoryModal(true)}>
             Nova categoria
@@ -290,13 +323,16 @@ export default function Home() {
       <PageBody className="space-y-8">
         {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
 
-        {/* Painel: quanto tem de cada coisa */}
+        {/* Painel: quanto tem de cada coisa.
+            Quatro números soltos sobre um fio, e os tipos como texto
+            corrido embaixo. Antes eram nove cartões em duas grades — o
+            olho não tinha onde pousar primeiro. */}
         <section>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard icon={Layers} label="Itens no total" value={stats.data?.total} to="/recent" />
-            <StatCard icon={Tag} label="Categorias" value={categories.length} to="/" />
-            <StatCard icon={FolderOpen} label="Pastas" value={totalFolders} to="/" />
-            <StatCard
+          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-ink-150 pb-6 sm:grid-cols-4 dark:border-ink-800">
+            <Numero icon={Layers} label="Itens no total" value={stats.data?.total} to="/recent" />
+            <Numero icon={Tag} label="Categorias" value={categories.length} to="/" />
+            <Numero icon={FolderOpen} label="Pastas" value={totalFolders} to="/" />
+            <Numero
               icon={CheckSquare}
               label="Tarefas abertas"
               value={upcoming.data?.count}
@@ -304,9 +340,12 @@ export default function Home() {
             />
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {/* Os tipos viram uma linha de texto: a contagem por tipo é
+              informação secundária, e cinco cartões com tarja colorida à
+              esquerda davam a ela o mesmo peso do painel inteiro. O ponto
+              colorido mantém a identidade de cada tipo sem a tarja. */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
             {Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => {
-              const Icon = meta.icon
               const count = byKind[kind] ?? 0
               return (
                 // `type` e nao `kind`: e o nome que a busca le da URL
@@ -317,18 +356,23 @@ export default function Home() {
                   key={kind}
                   to={`/search?type=${kind}`}
                   title={`Ver ${meta.plural.toLowerCase()}`}
-                  className="card flex items-center gap-2.5 p-3 transition hover:bg-ink-50 dark:hover:bg-ink-800/50"
-                  style={{ borderLeftColor: meta.accent, borderLeftWidth: 3 }}
+                  className={cn(
+                    'group flex items-baseline gap-1.5 text-[12px] transition',
+                    count === 0
+                      ? 'text-ink-400 dark:text-ink-500'
+                      : 'text-ink-600 hover:text-ink-900 dark:text-ink-300 dark:hover:text-ink-50',
+                  )}
                 >
-                  <Icon size={16} className="shrink-0" style={{ color: meta.accent }} />
-                  <div className="min-w-0">
-                    <p className="text-base font-semibold leading-none tabular-nums text-ink-900 dark:text-ink-50">
-                      {count}
-                    </p>
-                    <p className="mt-1 truncate text-[11px] text-ink-500 dark:text-ink-400">
-                      {count === 1 ? meta.label : meta.plural}
-                    </p>
-                  </div>
+                  {/* O mesmo ícone que a Busca usa para este tipo, no
+                      mesmo tamanho: as duas telas listam os mesmos cinco
+                      tipos e precisavam ser reconhecíveis uma na outra. */}
+                  <meta.icon
+                    size={ICONE.sm}
+                    className="shrink-0 self-center transition group-hover:scale-110"
+                    style={{ color: count === 0 ? undefined : meta.accent }}
+                  />
+                  <span className="font-medium tabular-nums">{count}</span>
+                  <span>{count === 1 ? meta.label.toLowerCase() : meta.plural.toLowerCase()}</span>
                 </Link>
               )
             })}
@@ -338,23 +382,22 @@ export default function Home() {
         {/* Categorias — o primeiro nível da navegação */}
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold tracking-tight text-ink-900 dark:text-ink-100">
-              Categorias
-            </h2>
+            <h2 className="secao">Categorias</h2>
           </div>
 
           {loading ? (
             <ListSkeleton rows={2} />
           ) : categories.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {categories.map((category) => {
+            <div className="rows">
+              {categories.map((category, i) => {
                 const isSelected = selectedIds.includes(`category:${category.id}`)
                 return (
                   <CategoryCard
                     key={category.id}
+                    indice={i}
                     category={category}
                     isSelected={isSelected}
-                    onClick={(e) => handleItemClick('category', category.id, e)}
+                    onClickCapture={(e) => handleItemClick('category', category.id, e)}
                     onContextMenu={(e) => handleContextMenu('category', category, e)}
                   />
                 )
@@ -378,9 +421,7 @@ export default function Home() {
         {(recent.loading || recent.data?.length > 0) && (
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold tracking-tight text-ink-900 dark:text-ink-100">
-                Mexidos recentemente
-              </h2>
+              <h2 className="secao">Mexidos recentemente</h2>
               <Link
                 to="/recent"
                 className="text-xs text-ink-500 underline-offset-2 hover:underline dark:text-ink-400"
@@ -407,7 +448,21 @@ export default function Home() {
                         isSelected && 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10'
                       )}
                     >
-                      <DocumentCard document={doc} showFolder />
+                      <DocumentCard
+                        document={doc}
+                        showFolder
+                        selecionado={isSelected}
+                        renomeando={renomear.estaEditando(doc.id)}
+                        onRename={() => renomear.abrir(doc.id)}
+                        erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                        camposDeRenomear={propsDoCampo({
+                          valorAtual: doc.title,
+                          endpoint: `/documents/${doc.id}/`,
+                          campo: 'title',
+                          gravar: renomear.gravar,
+                          fechar: renomear.fechar,
+                        })}
+                      />
                     </div>
                   )
                 })}

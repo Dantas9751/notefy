@@ -2,15 +2,14 @@ import { useEffect, useState, useRef } from 'react'
 import api from '@/lib/api'
 import { useMutation } from '@/hooks/useFetch'
 import { useWorkspace, flattenFolders } from '@/context/WorkspaceContext'
-import { Plus, Tag } from 'lucide-react'
+import { Tag } from 'lucide-react'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
+import { PRESET_COLORS } from '@/lib/utils'
 
-const PRESET_COLORS = [
-  '', '#4F46E5', '#0EA5E9', '#10B981', '#F59E0B',
-  '#EF4444', '#EC4899', '#8B5CF6', '#64748B',
-]
+//: Pasta aceita "sem cor" — herda a da categoria.
+const CORES = ['', ...PRESET_COLORS]
 
 /**
  * Criar ou editar pasta.
@@ -180,7 +179,7 @@ export default function FolderFormModal({
 
         <Field label="Cor">
           <div className="flex flex-wrap items-center gap-1.5">
-            {PRESET_COLORS.map((c) => (
+            {CORES.map((c) => (
               <button
                 key={c || 'none'}
                 type="button"
@@ -193,7 +192,7 @@ export default function FolderFormModal({
                 {!c && '×'}
               </button>
             ))}
-            <ColorWheel value={color} selected={!PRESET_COLORS.includes(color)} onChange={setColor} className="h-6 w-6" />
+            <ColorWheel value={color} selected={!CORES.includes(color)} onChange={setColor} className="h-6 w-6" />
           </div>
         </Field>
 

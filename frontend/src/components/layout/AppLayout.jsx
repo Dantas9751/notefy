@@ -1,26 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Minimize2, Maximize2 } from 'lucide-react'
+import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Maximize2 } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
+import { useSplit } from '@/context/SplitContext'
+import { useAssistente } from '@/context/AssistenteContext'
 import { cn } from '@/lib/utils'
 import Sidebar from './Sidebar'
 import TabBar from './TabBar'
+import SplitPane from './SplitPane'
+import AssistentePanel from '@/components/ai/AssistentePanel'
 import { conectarJanelas } from '@/lib/desktop'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import { kindMeta } from '@/lib/documents'
+import { NotificacoesProvider } from '@/context/NotificacoesContext'
+import { AvisosFlutuantes, CentralDeNotificacoes } from './Notificacoes'
 
 export default function AppLayout() {
-  const { mobileSidebarOpen, setMobileSidebarOpen, zen, toggleZen } = useUI()
+  const { mobileSidebarOpen, setMobileSidebarOpen, toggleZen } = useUI()
   const navigate = useNavigate()
   const location = useLocation()
   
   const { user } = useAuth()
   const { refresh } = useWorkspace()
+  const { fecharPainel, painel, registrarPathPainel } = useSplit()
+  const { alternar: alternarAssistente } = useAssistente()
   const telaInicialAplicada = useRef(false)
+  const ladoEmFoco = useRef('main')
   const { menu, openMenu, closeMenu } = useContextMenu()
 
   const [folderModal, setFolderModal] = useState(null)
@@ -61,10 +70,51 @@ export default function AppLayout() {
         e.preventDefault()
         toggleZen()
       }
+      // Ctrl+\ fecha o painel lateral — mesma tecla que o VS Code usa
+      // para dividir. Só fecha: abrir exige escolher QUAL documento vai
+      // ao lado, e isso o teclado não tem como perguntar.
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        fecharPainel()
+      }
+      // Ctrl+J abre o assistente de IA sobre o lado em foco: com o
+      // "abrir ao lado" aberto e o foco no painel, ele cobre o painel;
+      // senão, a main view.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [navigate, toggleZen])
+  }, [navigate, toggleZen, fecharPainel, painel, alternarAssistente])
+
+  // 3b. De que lado o usuário mexeu por último. `document.activeElement`
+  // sozinho não serve: clicar no texto de um editor (ou em área sem
+  // elemento focável) deixa o foco no body, e o Ctrl+J caía sempre na
+  // main view mesmo com o painel em uso.
+  useEffect(() => {
+    const marcar = (e) => {
+      const alvo = e.target
+      if (!alvo?.closest) return
+      // Cliques dentro do próprio assistente não mudam o lado — ele já
+      // está ancorado onde deveria.
+      if (alvo.closest('[data-assistente]')) return
+      if (alvo.closest('[data-painel]')) ladoEmFoco.current = 'painel'
+      else if (alvo.closest('[data-assistente-alvo]')) ladoEmFoco.current = 'main'
+    }
+    window.addEventListener('mousedown', marcar, true)
+    window.addEventListener('focusin', marcar, true)
+    return () => {
+      window.removeEventListener('mousedown', marcar, true)
+      window.removeEventListener('focusin', marcar, true)
+    }
+  }, [])
+
+  // Painel fechado: o lado volta a ser a main view.
+  useEffect(() => {
+    if (!painel) ladoEmFoco.current = 'main'
+  }, [painel])
 
   // 4. Uma janela destacada mexe no mesmo acervo. Repetir aqui os avisos
   // que já circulam dentro do app faz a outra janela se atualizar sozinha
@@ -72,9 +122,13 @@ export default function AppLayout() {
   useEffect(() => conectarJanelas(), [])
 
   // Lógica dinâmica rigorosa para o menu de contexto com base na rota atual
-  const getContextMenuItems = () => {
-    const path = location.pathname
-
+  //
+  // `path` e `irPara` vêm de QUEM foi clicado: com o painel aberto, o
+  // clique do lado direito tem que criar na pasta do PAINEL e abrir o
+  // editor no PAINEL. `location.pathname` é sempre a rota da esquerda —
+  // usá-lo dos dois lados era o que fazia o botão direito do painel agir
+  // sobre a main view.
+  const getContextMenuItems = (path, irPara) => {
     // Caso 1: Na Raiz / Início (ou Dashboard) -> Criar Categoria e Pastas Raiz
     if (path === '/' || path === '/dashboard') {
       return [
@@ -117,22 +171,22 @@ export default function AppLayout() {
         {
           label: 'Nova nota',
           icon: FileText,
-          onClick: () => navigate(`${kindMeta('note').route}/new?folder=${folderId}`),
+          onClick: () => irPara(`${kindMeta('note').route}/new?folder=${folderId}`),
         },
         {
           label: 'Nova planilha',
           icon: Table,
-          onClick: () => navigate(`${kindMeta('spreadsheet').route}/new?folder=${folderId}`),
+          onClick: () => irPara(`${kindMeta('spreadsheet').route}/new?folder=${folderId}`),
         },
         {
           label: 'Novo diagrama',
           icon: Network,
-          onClick: () => navigate(`${kindMeta('diagram').route}/new?folder=${folderId}`),
+          onClick: () => irPara(`${kindMeta('diagram').route}/new?folder=${folderId}`),
         },
         {
           label: 'Novo canvas',
           icon: LayoutTemplate,
-          onClick: () => navigate(`${kindMeta('canvas').route}/new?folder=${folderId}`),
+          onClick: () => irPara(`${kindMeta('canvas').route}/new?folder=${folderId}`),
         },
       ]
     }
@@ -142,14 +196,24 @@ export default function AppLayout() {
   }
 
   return (
+    // A casca logada é o único lugar montado em toda tela: é daqui que a
+    // central de notificações vigia os prazos, e é aqui dentro que a aba
+    // de Configurações a alcança.
+    <NotificacoesProvider>
     <div 
       className="flex h-screen overflow-hidden bg-white dark:bg-ink-950"
       onContextMenu={(e) => {
         if (e.target.closest('article') || e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) {
           return
         }
-        
-        const items = getContextMenuItems()
+
+        // De qual lado veio o clique? O painel marca a própria subárvore
+        // com `data-painel`; sem essa marca, o clique é da esquerda.
+        const noPainel = !!painel && !!e.target.closest('[data-painel]')
+        const path = noPainel ? painel.path.split('?')[0] : location.pathname
+        const irPara = noPainel ? registrarPathPainel : navigate
+
+        const items = getContextMenuItems(path, irPara)
         if (items.length === 0) return
 
         e.preventDefault()
@@ -213,10 +277,31 @@ export default function AppLayout() {
           Sair do zen
         </button>
 
-        <TabBar />
+        {/* A faixa de abas e o sino dividem a mesma linha. O sino fica
+            FORA da fileira rolável: com muitas abas abertas ele rolaria
+            junto e sumiria do canto. */}
+        <div className="app-tabs flex shrink-0 items-stretch border-b border-ink-200 bg-ink-50/60 dark:border-ink-800 dark:bg-ink-900/40">
+          <TabBar />
+          <CentralDeNotificacoes />
+        </div>
 
-        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <Outlet />
+        {/* `SplitPane` devolve os filhos crus quando não há painel aberto:
+            sem "abrir ao lado", a árvore é a mesma de antes. */}
+        <main className="flex min-h-0 flex-1 overflow-hidden">
+          <SplitPane>
+            {/* `flex-1` e `min-w-0`: dentro de um pai flex, um filho sem
+                eles encolhe até o conteúdo — a tela inteira ficava
+                espremida à esquerda mesmo sem painel aberto. Com o painel,
+                a largura vem do `style` do SplitPane e o `flex-1` não
+                atrapalha. */}
+            <div
+              data-assistente-alvo="main"
+              className="h-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+            >
+              <Outlet />
+            </div>
+          </SplitPane>
+          <AssistentePanel />
         </main>
       </div>
 
@@ -251,7 +336,10 @@ export default function AppLayout() {
           window.dispatchEvent(new Event('notefy:moved'))
         }}
       />
+
+      <AvisosFlutuantes />
     </div>
+    </NotificacoesProvider>
   )
 }
 
@@ -262,9 +350,7 @@ export function PageHeader({ title, subtitle, breadcrumb, actions, children }) {
       {breadcrumb}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight text-ink-900 dark:text-ink-50">
-            {title}
-          </h1>
+          <h1 className="titulo truncate text-[26px] leading-tight">{title}</h1>
           {subtitle && (
             <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{subtitle}</p>
           )}

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -21,7 +22,37 @@ import {
   displayValue,
   visibleRows,
 } from '@/lib/formula'
+import { copiarTexto } from '@/lib/desktop'
 import { cn } from '@/lib/utils'
+import { useMenuSuspenso } from '@/hooks/useMenuSuspenso'
+import {
+  bordasDaSelecao,
+  colar,
+  dentroDeAlguma,
+  deTSV,
+  limpar,
+  paraTSV,
+  retangulo,
+  uniao,
+} from '@/lib/celulas'
+
+/**
+ * Contorno da seleção como `box-shadow`, um lado por vez.
+ *
+ * `box-shadow` desenha POR DENTRO da célula (`inset`): não empurra o
+ * layout como `border` faria, e o traço fica alinhado com a grade. Só os
+ * lados que fazem divisa com o lado de fora são desenhados, então blocos
+ * vizinhos formam um contorno contínuo em vez de uma caixinha por célula.
+ */
+function contornoDaSelecao(bordas, cor, espessura) {
+  if (!bordas) return undefined
+  const linhas = []
+  if (bordas.topo) linhas.push(`inset 0 ${espessura}px 0 0 ${cor}`)
+  if (bordas.base) linhas.push(`inset 0 -${espessura}px 0 0 ${cor}`)
+  if (bordas.esquerda) linhas.push(`inset ${espessura}px 0 0 0 ${cor}`)
+  if (bordas.direita) linhas.push(`inset -${espessura}px 0 0 0 ${cor}`)
+  return linhas.length ? linhas.join(', ') : undefined
+}
 
 /**
  * Planilha com colunas tipadas, fórmulas, resumo, ordenação e filtros.
@@ -61,6 +92,7 @@ function ColumnMenu({
   index,
   total,
   sort,
+  ancora,
   onUpdate,
   onDelete,
   onClear,
@@ -71,10 +103,50 @@ function ColumnMenu({
   const [name, setName] = useState(column.name)
   const numeric = NUMERIC_TYPES.includes(column.type)
 
-  return (
+  // O menu vai para um portal no `body` em vez de ficar dentro do `<th>`.
+  //
+  // Dentro da tabela ele era filho de uma célula do cabeçalho, que já vive
+  // num contexto de empilhamento próprio (thead sticky, e as colunas
+  // congeladas com z-index maior). Um z-index alto AQUI dentro não vence
+  // um irmão lá fora: o navegador compara os pais primeiro, então as
+  // colunas seguintes passavam por cima da caixa. No body não há pai que
+  // limite, e o menu fica acima de tudo.
+  const menuRef = useRef(null)
+  const [pos, setPos] = useState(() => ({
+    left: ancora?.left ?? 0,
+    top: ancora?.bottom ?? 0,
+  }))
+
+  useLayoutEffect(() => {
+    if (!ancora || !menuRef.current) return
+    const caixa = menuRef.current.getBoundingClientRect()
+    setPos({
+      // Não deixa vazar pela direita nem pelo fundo da janela.
+      left: Math.max(8, Math.min(ancora.left, window.innerWidth - caixa.width - 8)),
+      top: Math.max(8, Math.min(ancora.bottom + 4, window.innerHeight - caixa.height - 8)),
+    })
+  }, [ancora])
+
+  // Posição fixa não acompanha a rolagem: rolar a planilha deixaria o
+  // menu parado sobre uma coluna que já não é a dele. Fecha em vez disso.
+  useEffect(() => {
+    const fechar = () => onClose()
+    window.addEventListener('scroll', fechar, true)
+    window.addEventListener('resize', fechar)
+    return () => {
+      window.removeEventListener('scroll', fechar, true)
+      window.removeEventListener('resize', fechar)
+    }
+  }, [onClose])
+
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-20" onMouseDown={onClose} aria-hidden />
-      <div className="absolute left-0 top-full z-30 mt-1 max-h-[70vh] w-64 overflow-y-auto rounded-md border border-ink-200 bg-white p-2 shadow-pop dark:border-ink-700 dark:bg-ink-900">
+      <div className="fixed inset-0 z-[70]" onMouseDown={onClose} aria-hidden />
+      <div
+        ref={menuRef}
+        style={{ left: pos.left, top: pos.top }}
+        className="fixed z-[71] max-h-[70vh] w-64 overflow-y-auto rounded-md border border-ink-200 bg-white p-2 shadow-pop dark:border-ink-700 dark:bg-ink-900"
+      >
         <label className="label">Nome</label>
         <input
           value={name}
@@ -222,7 +294,8 @@ function ColumnMenu({
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
 
@@ -335,15 +408,21 @@ function CellInput({ column, value, onCommit, onCancel }) {
 
         // Toda navegação grava antes de sair: sair de uma célula sem
         // gravar o que foi digitado perde trabalho silenciosamente.
-        const irPara = (direcao) => {
+        //
+        // `criar` diz se bater na borda ESTENDE a planilha ou apenas para.
+        // Enter e a seta para baixo criam linha — é o de sempre. A seta
+        // para a direita cria coluna, pelo mesmo motivo. O Tab NÃO: ele
+        // percorre célula a célula, e criar uma coluna a cada volta
+        // enchia a planilha de colunas sem a pessoa perceber.
+        const irPara = (direcao, criar = false) => {
           e.preventDefault()
-          onCommit(draft, direcao)
+          onCommit(draft, direcao, criar)
         }
 
-        if (e.key === 'Enter') return irPara(e.shiftKey ? 'up' : 'down')
+        if (e.key === 'Enter') return irPara(e.shiftKey ? 'up' : 'down', !e.shiftKey)
         if (e.key === 'Tab') return irPara(e.shiftKey ? 'left' : 'right')
         if (e.key === 'ArrowUp') return irPara('up')
-        if (e.key === 'ArrowDown') return irPara('down')
+        if (e.key === 'ArrowDown') return irPara('down', true)
 
         // Esquerda/direita só saem da célula quando o cursor já está na
         // ponta do texto — no meio de uma palavra, a seta tem que andar o
@@ -356,7 +435,7 @@ function CellInput({ column, value, onCommit, onCancel }) {
             : alvo.selectionStart === alvo.value.length)
 
         if (e.key === 'ArrowLeft' && naPonta) return irPara('left')
-        if (e.key === 'ArrowRight' && naPonta) return irPara('right')
+        if (e.key === 'ArrowRight' && naPonta) return irPara('right', true)
       }}
       className={cn(
         'h-full w-full border-0 bg-transparent px-2 text-sm focus:outline-none',
@@ -466,9 +545,26 @@ export default function SpreadsheetEditor({ data, onChange }) {
 
   const [editing, setEditing] = useState(null)
   const [menuColumn, setMenuColumn] = useState(null)
+  //: Onde desenhar o menu da coluna. Como ele mora num portal, precisa da
+  //: posição do cabeçalho que o abriu.
+  const [menuAncora, setMenuAncora] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
+  const { ref: ajudaRef, paraCima: ajudaParaCima } = useMenuSuspenso(showHelp)
   //: Coluna inteira selecionada pelo clique no cabeçalho.
   const [selectedColumn, setSelectedColumn] = useState(null)
+  /**
+   * Seleção de células num ÚNICO estado.
+   *
+   * `blocos` são os retângulos já fechados (Ctrl+clique) e `ancora`/`ponta`
+   * descrevem o que está sendo desenhado agora. Estavam em três `useState`
+   * separados, e cada gesto precisava de dois ou três `set` — como o React
+   * agrupa as atualizações, o segundo clique ainda lia o estado do render
+   * anterior e a seleção ficava um passo atrasada. Com um objeto só, cada
+   * gesto é UMA transição calculada a partir do valor anterior.
+   */
+  const [selecao, setSelecao] = useState({ ancora: null, ponta: null, blocos: [] })
+  const arrastandoCelulas = useRef(false)
+  const gradeRef = useRef(null)
   //: Arraste da divisória do cabeçalho para mudar a largura.
   const [resizing, setResizing] = useState(null)
   //: Reordenação de coluna arrastando o próprio cabeçalho.
@@ -493,11 +589,15 @@ export default function SpreadsheetEditor({ data, onChange }) {
    * tela não é a do array, e descer pelo array levaria a uma linha que o
    * usuário não está vendo.
    *
-   * Descer na última linha CRIA a próxima. É o que permite preencher uma
-   * planilha inteira sem tirar a mão do teclado — e é o comportamento que
-   * qualquer um espera de Enter numa planilha.
+   * `criar` decide o que acontece ao bater na borda de baixo ou da
+   * direita: estender a planilha, ou simplesmente parar.
+   *
+   * Só Enter e as setas ↓ e → pedem `criar`. O Tab não: ele anda célula a
+   * célula pela planilha inteira, e criar uma coluna toda vez que ele
+   * chegasse na última enchia a grade de colunas sem a pessoa notar — o
+   * gesto não deixa claro quando cria e quando só move.
    */
-  const navigateCell = (direction, visibleRows) => {
+  const navigateCell = (direction, visibleRows, criar = false) => {
     if (!editing) return
     const rowIndex = visibleRows.findIndex((r) => r.id === editing.rowId)
     const colIndex = columns.findIndex((c) => c.id === editing.colId)
@@ -510,32 +610,57 @@ export default function SpreadsheetEditor({ data, onChange }) {
     else if (direction === 'left') nextCol -= 1
     else if (direction === 'right') nextCol += 1
 
-    if (nextRow >= visibleRows.length) {
+    /**
+     * Move a edição E a seleção juntas.
+     *
+     * A seleção precisa acompanhar: ela é quem pinta o fundo da âncora
+     * (`bg-accent`), e o `editing` só desenha o anel. Movendo um sem o
+     * outro, a célula de onde se saiu continuava pintada — dois lugares
+     * parecendo ativos ao mesmo tempo. Quando a seta criava uma linha, o
+     * fundo sobrava na linha de cima.
+     */
+    const irPara = (rowId, colId, linha, coluna) => {
+      setEditing({ rowId, colId })
+      setSelecao({ ancora: { linha, coluna }, ponta: { linha, coluna }, blocos: [] })
+    }
+
+    if (criar && nextRow >= visibleRows.length) {
       const novo = { id: uid('r'), cells: {} }
       update({ rows: [...rows, novo] })
-      setEditing({ rowId: novo.id, colId: editing.colId })
+      irPara(novo.id, editing.colId, visibleRows.length, colIndex)
+      return
+    }
+
+    if (criar && nextCol >= columns.length) {
+      const nova = novaColuna()
+      update({ columns: [...columns, nova] })
+      irPara(editing.rowId, nova.id, rowIndex, columns.length)
       return
     }
 
     // Bater na borda não faz nada: sair da grade seria perder a edição sem
     // o usuário ter pedido.
-    if (nextRow < 0 || nextCol < 0 || nextCol >= columns.length) return
-    setEditing({ rowId: visibleRows[nextRow].id, colId: columns[nextCol].id })
+    if (nextRow < 0 || nextCol < 0) return
+    if (nextRow >= visibleRows.length || nextCol >= columns.length) return
+    irPara(visibleRows[nextRow].id, columns[nextCol].id, nextRow, nextCol)
   }
 
-  const addColumn = () =>
-    update({
-      columns: [
-        ...columns,
-        {
-          id: uid('c'),
-          name: `Coluna ${columns.length + 1}`,
-          type: 'text',
-          width: 160,
-          aggregate: 'none',
-        },
-      ],
-    })
+  /**
+   * Molde de coluna nova.
+   *
+   * Num lugar só porque agora nascem colunas por dois caminhos — o botão
+   * "Coluna" e a seta para a direita na última célula — e duas cópias
+   * divergiriam no primeiro campo que alguém acrescentasse.
+   */
+  const novaColuna = () => ({
+    id: uid('c'),
+    name: `Coluna ${columns.length + 1}`,
+    type: 'text',
+    width: 160,
+    aggregate: 'none',
+  })
+
+  const addColumn = () => update({ columns: [...columns, novaColuna()] })
 
   const updateColumn = (id, patch) =>
     update({ columns: columns.map((c) => (c.id === id ? { ...c, ...patch } : c)) })
@@ -580,6 +705,16 @@ export default function SpreadsheetEditor({ data, onChange }) {
   })
 
   /** Duplo clique na divisória ajusta a largura ao conteúdo. */
+  /** Abre o menu da coluna ancorado no cabeçalho que foi clicado. */
+  const abrirMenuColuna = (id, elemento) => {
+    const caixa = elemento.getBoundingClientRect()
+    setMenuAncora({ left: caixa.left, bottom: caixa.bottom })
+    setMenuColumn(id)
+  }
+
+  //: Estável: o menu registra listeners de scroll/resize com ele.
+  const fecharMenuColuna = useCallback(() => setMenuColumn(null), [])
+
   const autoFitColumn = (column) => {
     const header = column.name.length
     const widest = rows.reduce((max, row) => {
@@ -619,6 +754,207 @@ export default function SpreadsheetEditor({ data, onChange }) {
 
   const hasSummary = Object.values(summaries).some(Boolean)
   const hiddenCount = rows.length - shown.length
+
+  /* ------------------------------------------------------------------ */
+  /* Seleção de células e área de transferência                         */
+  /*                                                                    */
+  /* Os índices são da VISÃO (`shown`), não do array cru: com filtro ou  */
+  /* ordenação ativos, copiar "as três primeiras linhas" tem de copiar   */
+  /* o que está na tela.                                                */
+  /* ------------------------------------------------------------------ */
+
+  const { ancora, ponta, blocos } = selecao
+  const area = useMemo(() => retangulo(ancora, ponta), [ancora, ponta])
+  //: Tudo que está selecionado: os blocos fechados mais o atual.
+  const areas = useMemo(
+    () => (area ? [...blocos, area] : blocos),
+    [blocos, area],
+  )
+
+  const iniciarSelecao = (linha, coluna, event) => {
+    // preventDefault SEMPRE, antes de qualquer ramo: sem isso o navegador
+    // começa a seleção de TEXTO da página. Com Shift ele estende essa
+    // seleção nativa até o clique — era o "shift+clique pinta a página
+    // inteira de azul". Vale também para o arraste comum, que senão
+    // seleciona o texto das células por onde passa.
+    event.preventDefault()
+    // Sem o foco na grade, Ctrl+C/V e as setas iriam para o documento.
+    gradeRef.current?.focus({ preventScroll: true })
+
+    const estende = event.shiftKey
+    const soma = event.ctrlKey || event.metaKey
+    const alvo = { linha, coluna }
+
+    setSelecao((antes) => {
+      // Shift ESTENDE o bloco atual, mantendo a âncora onde estava.
+      if (estende && antes.ancora) {
+        return { ...antes, ponta: alvo }
+      }
+      // Ctrl FECHA o bloco atual e começa outro, somando à seleção.
+      if (soma) {
+        const atual = retangulo(antes.ancora, antes.ponta)
+        return {
+          ancora: alvo,
+          ponta: alvo,
+          blocos: atual ? [...antes.blocos, atual] : antes.blocos,
+        }
+      }
+      // Clique normal recomeça do zero.
+      return { ancora: alvo, ponta: alvo, blocos: [] }
+    })
+
+    setSelectedColumn(null)
+    arrastandoCelulas.current = true
+  }
+
+  const estenderSelecao = (linha, coluna, event) => {
+    // Só estende com o botão esquerdo AINDA apertado. `event.buttons` é a
+    // verdade do momento; a flag sozinha não bastava, porque um `pointerup`
+    // perdido (solto fora da janela) a deixava ligada e a seleção passava
+    // a seguir o mouse solto.
+    if (!arrastandoCelulas.current || !(event?.buttons & 1)) return
+    setSelecao((antes) => ({ ...antes, ponta: { linha, coluna } }))
+  }
+
+  // O ponteiro costuma ser solto fora da célula (ou fora da tabela), então
+  // quem encerra o arraste é a janela.
+  useEffect(() => {
+    const soltar = () => {
+      arrastandoCelulas.current = false
+    }
+    window.addEventListener('pointerup', soltar)
+    return () => window.removeEventListener('pointerup', soltar)
+  }, [])
+
+  /** Linhas da visão de volta para o array real, preservando a ordem crua. */
+  const gravarLinhasVisiveis = (linhasDaVisao) => {
+    const porId = new Map(linhasDaVisao.map((r) => [r.id, r]))
+    update({ rows: rows.map((r) => porId.get(r.id) ?? r) })
+  }
+
+  const copiarSelecao = (event) => {
+    if (!area) return
+    // Com blocos soltos, copia a caixa que envolve todos: TSV não sabe
+    // representar buracos, e é o que o Excel também faz.
+    const texto = paraTSV(uniao(areas), shown, columns)
+    if (event?.clipboardData) {
+      event.clipboardData.setData('text/plain', texto)
+      event.preventDefault()
+    } else {
+      copiarTexto(texto)
+    }
+  }
+
+  const recortarSelecao = (event) => {
+    if (!area) return
+    copiarSelecao(event)
+    // Recortar respeita os buracos: some só o que está marcado.
+    let linhas = shown
+    for (const bloco of areas) linhas = limpar(bloco, linhas, columns)
+    gravarLinhasVisiveis(linhas)
+  }
+
+  const colarNaSelecao = (event) => {
+    if (!area) return
+    const texto = event?.clipboardData?.getData('text/plain')
+    if (!texto) return
+    event.preventDefault()
+    const matriz = deTSV(texto)
+    gravarLinhasVisiveis(
+      colar(matriz, shown, columns, {
+        linha: area.linhaInicio,
+        coluna: area.colunaInicio,
+      }),
+    )
+    // A seleção passa a cobrir o que foi colado, como no Excel.
+    setSelecao((antes) => ({
+      ...antes,
+      ponta: {
+        linha: Math.min(area.linhaInicio + matriz.length - 1, shown.length - 1),
+        coluna: Math.min(
+          area.colunaInicio + Math.max(...matriz.map((l) => l.length)) - 1,
+          columns.length - 1,
+        ),
+      },
+    }))
+  }
+
+  const teclasDaGrade = (event) => {
+    // Enquanto edita, o input manda: Ctrl+C ali copia texto, não células.
+    // E o Enter/Tab/Seta que navegam entre células já são tratados lá
+    // dentro — deixar chegar aqui faria a grade processar o mesmo
+    // keypress duas vezes (o CellInput faz onCommit e a grade também).
+    if (editing) return
+    if (!area) return
+
+    const mod = event.ctrlKey || event.metaKey
+
+    if (mod && event.key.toLowerCase() === 'a') {
+      event.preventDefault()
+      setSelecao({
+        ancora: { linha: 0, coluna: 0 },
+        ponta: { linha: shown.length - 1, coluna: columns.length - 1 },
+        blocos: [],
+      })
+      return
+    }
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      let linhas = shown
+      for (const bloco of areas) linhas = limpar(bloco, linhas, columns)
+      gravarLinhasVisiveis(linhas)
+      return
+    }
+
+    if (event.key === 'Escape') {
+      setSelecao((antes) => ({ ...antes, ponta: antes.ancora, blocos: [] }))
+      return
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const linha = shown[area.linhaInicio]
+      const coluna = columns[area.colunaInicio]
+      if (linha && coluna) setEditing({ rowId: linha.id, colId: coluna.id })
+      return
+    }
+
+    const passos = {
+      ArrowUp: [-1, 0],
+      ArrowDown: [1, 0],
+      ArrowLeft: [0, -1],
+      ArrowRight: [0, 1],
+    }
+    const passo = passos[event.key]
+    if (!passo) {
+      // Digitar com a célula selecionada entra na edição, como em
+      // qualquer planilha. Sem isso, perder o clique-simples-edita
+      // deixaria a grade muda ao teclado.
+      if (!mod && event.key.length === 1) {
+        const linha = shown[area.linhaInicio]
+        const coluna = columns[area.colunaInicio]
+        if (linha && coluna) {
+          setCell(linha.id, coluna.id, event.key)
+          setEditing({ rowId: linha.id, colId: coluna.id })
+          event.preventDefault()
+        }
+      }
+      return
+    }
+
+    event.preventDefault()
+    const base = event.shiftKey ? (ponta ?? ancora) : ancora
+    const linha = Math.min(Math.max(base.linha + passo[0], 0), shown.length - 1)
+    const coluna = Math.min(Math.max(base.coluna + passo[1], 0), columns.length - 1)
+    const alvo = { linha, coluna }
+    // Shift+seta ESTENDE; seta sozinha move a seleção inteira.
+    setSelecao((antes) =>
+      event.shiftKey
+        ? { ...antes, ponta: alvo }
+        : { ancora: alvo, ponta: alvo, blocos: [] },
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -677,8 +1013,14 @@ export default function SpreadsheetEditor({ data, onChange }) {
           {showHelp && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowHelp(false)} aria-hidden />
-              <div className="absolute right-0 top-full z-30 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border border-ink-200 bg-white p-2 shadow-pop dark:border-ink-700 dark:bg-ink-900">
-                <p className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+              <div
+                ref={ajudaRef}
+                className={cn(
+                  'absolute right-0 z-30 max-h-72 w-72 overflow-y-auto rounded-md border border-ink-200 bg-white p-2 shadow-pop dark:border-ink-700 dark:bg-ink-900',
+                  ajudaParaCima ? 'bottom-full mb-1' : 'top-full mt-1',
+                )}
+              >
+                <p className="px-1 pb-1.5 secao">
                   Fórmulas
                 </p>
                 <ul className="space-y-1">
@@ -702,7 +1044,24 @@ export default function SpreadsheetEditor({ data, onChange }) {
       <FilterBar data={data} onChange={(patch) => update(patch)} />
 
       {/* Grade */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        ref={gradeRef}
+        // `tabIndex` para a grade receber teclado sem depender de um input
+        // focado — é assim que Ctrl+C/V e as setas funcionam sem editar.
+        tabIndex={0}
+        onKeyDown={teclasDaGrade}
+        onCopy={copiarSelecao}
+        onCut={recortarSelecao}
+        onPaste={colarNaSelecao}
+        // `select-none` é o que REALMENTE impede o navegador de selecionar
+        // o texto das células ao arrastar. `preventDefault` no pointerdown
+        // não faz isso: o arrasto de texto nasce de outro caminho interno
+        // do navegador. É a mesma proteção que o quadro usa.
+        //
+        // A edição acontece dentro de <input>, que ignora `user-select`
+        // do pai — copiar e selecionar texto ali continua funcionando.
+        className="min-h-0 flex-1 select-none overflow-auto focus:outline-none"
+      >
         <table className="w-max border-collapse text-sm">
           <thead className="sticky top-0 z-10">
             <tr>
@@ -752,7 +1111,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                       onClick={() =>
                         setSelectedColumn(selectedColumn === column.id ? null : column.id)
                       }
-                      onDoubleClick={() => setMenuColumn(column.id)}
+                      onDoubleClick={(e) => abrirMenuColuna(column.id, e.currentTarget)}
                       title="Clique para selecionar a coluna · duplo clique abre as opções"
                       className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 px-2 py-1.5 text-left transition hover:bg-ink-100 dark:hover:bg-ink-800"
                     >
@@ -774,7 +1133,11 @@ export default function SpreadsheetEditor({ data, onChange }) {
                     </button>
 
                     <button
-                      onClick={() => setMenuColumn(menuColumn === column.id ? null : column.id)}
+                      onClick={(e) =>
+                        menuColumn === column.id
+                          ? setMenuColumn(null)
+                          : abrirMenuColuna(column.id, e.currentTarget)
+                      }
                       aria-label={`Opções de ${column.name}`}
                       className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 dark:hover:bg-ink-700"
                     >
@@ -812,12 +1175,13 @@ export default function SpreadsheetEditor({ data, onChange }) {
                       index={index}
                       total={columns.length}
                       sort={sort}
+                      ancora={menuAncora}
                       onUpdate={(patch) => updateColumn(column.id, patch)}
                       onDelete={() => deleteColumn(column.id)}
                       onClear={() => clearColumn(column)}
                       onAutoFit={() => autoFitColumn(column)}
                       onSort={(direction) => update({ sort: { column: column.id, direction } })}
-                      onClose={() => setMenuColumn(null)}
+                      onClose={fecharMenuColuna}
                     />
                   )}
                 </th>
@@ -835,13 +1199,17 @@ export default function SpreadsheetEditor({ data, onChange }) {
           </thead>
 
           <tbody>
-            {shown.map((row) => {
+            {shown.map((row, linhaIndex) => {
               // O número visível é a posição REAL da linha: é ela que a
               // fórmula endereça, mesmo com a tabela ordenada ou filtrada.
               const realIndex = rows.findIndex((r) => r.id === row.id)
               return (
-                <tr key={row.id} className="group">
-                  <td className="sticky left-0 z-10 border-b border-r border-ink-200 bg-white px-1 text-center text-[11px] tabular-nums text-ink-400 dark:border-ink-700 dark:bg-ink-950">
+                <tr key={row.id}>
+                  {/* `group` VIVE AQUI, no td do número — e não no tr
+                      inteiro. Se ficasse no tr, `group-hover` ativaria
+                      quando o mouse passasse por QUALQUER célula da linha,
+                      fazendo o número virar lixeira em toda a faixa. */}
+                  <td className="group sticky left-0 z-10 border-b border-r border-ink-200 bg-white px-1 text-center text-[11px] tabular-nums text-ink-400 dark:border-ink-700 dark:bg-ink-950">
                     <span className="group-hover:hidden">{realIndex + 1}</span>
                     <button
                       onClick={() => deleteRow(row.id)}
@@ -860,17 +1228,60 @@ export default function SpreadsheetEditor({ data, onChange }) {
                         ? { left: 40, position: 'sticky', zIndex: 10 }
                         : undefined
 
+                    const selecionada = dentroDeAlguma(areas, linhaIndex, colIndex)
+                    const bordas = bordasDaSelecao(areas, linhaIndex, colIndex)
+                    const ehAncora =
+                      ancora?.linha === linhaIndex && ancora?.coluna === colIndex
+                    // Contorno grosso na divisa do bloco; fio fino nas
+                    // divisas internas, que é o que dá a leitura de
+                    // "várias células escolhidas juntas".
+                    const contorno = selecionada
+                      ? [
+                          contornoDaSelecao(bordas, 'rgb(var(--accent-500))', 2),
+                          contornoDaSelecao(
+                            {
+                              topo: !bordas.topo,
+                              base: !bordas.base,
+                              esquerda: !bordas.esquerda,
+                              direita: !bordas.direita,
+                            },
+                            'rgb(var(--accent-400) / 0.45)',
+                            1,
+                          ),
+                        ]
+                          .filter(Boolean)
+                          .join(', ')
+                      : undefined
+
                     if (column.type === 'checkbox') {
                       return (
                         <td
                           key={column.id}
-                          style={sticky}
-                          className="border-b border-r border-ink-200 bg-white text-center dark:border-ink-700 dark:bg-ink-950"
+                          style={{ ...sticky, boxShadow: contorno }}
+                          // A coluna de caixa de seleção participa da
+                          // seleção como qualquer outra. Sem estes
+                          // handlers ela era um buraco morto no meio da
+                          // grade: arrastar por cima dela parava a
+                          // seleção — e a planilha PADRÃO do app tem uma.
+                          onPointerDown={(e) => {
+                            if (e.button !== 0) return
+                            iniciarSelecao(linhaIndex, colIndex, e)
+                          }}
+                          onPointerEnter={(e) => estenderSelecao(linhaIndex, colIndex, e)}
+                          className={cn(
+                            'h-8 border-b border-r border-ink-200 bg-white text-center dark:border-ink-700 dark:bg-ink-950',
+                            // Sem preenchimento: quem marca a seleção é o
+                            // contorno (`boxShadow`), igual às demais.
+                            ehAncora && 'bg-accent-50/60 dark:bg-accent-500/10',
+                          )}
                         >
                           <input
                             type="checkbox"
                             checked={Boolean(raw)}
                             onChange={(e) => setCell(row.id, column.id, e.target.checked)}
+                            // O clique na caixa marca a caixa e NÃO deve
+                            // virar início de arrasto de seleção.
+                            onPointerDown={(e) => e.stopPropagation()}
                             className="rounded border-ink-300 text-accent-600 focus:ring-accent-500"
                           />
                         </td>
@@ -880,34 +1291,60 @@ export default function SpreadsheetEditor({ data, onChange }) {
                     return (
                       <td
                         key={column.id}
-                        style={sticky}
+                        style={{ ...sticky, boxShadow: isEditing ? undefined : contorno }}
+                        onPointerDown={(e) => {
+                          if (e.button !== 0) return
+                          iniciarSelecao(linhaIndex, colIndex, e)
+                        }}
+                        onPointerEnter={(e) => estenderSelecao(linhaIndex, colIndex, e)}
                         onDoubleClick={() => setEditing({ rowId: row.id, colId: column.id })}
                         className={cn(
-                          'relative h-8 cursor-cell border-b border-r border-ink-200 bg-white dark:border-ink-700 dark:bg-ink-950',
+                          'relative h-8 cursor-cell border-b border-r border-ink-200 dark:border-ink-700',
+                          // UM fundo só: `bg-white` e `bg-accent-*` são a
+                          // MESMA propriedade CSS, e deixar as duas na
+                          // classe fazia a ordem da folha decidir qual
+                          // vence. A seleção NÃO pinta o fundo — ela é só
+                          // contorno, para não esconder o conteúdo.
+                          error
+                            ? 'bg-red-50 dark:bg-red-500/10'
+                            : selectedColumn === column.id
+                              ? 'bg-accent-50 dark:bg-accent-500/10'
+                              : 'bg-white dark:bg-ink-950',
                           isEditing && 'ring-1 ring-inset ring-accent-500',
-                          error && 'bg-red-50 dark:bg-red-500/10',
-                          // Coluna selecionada pelo cabeçalho fica realçada
-                          // de ponta a ponta, como no Excel.
-                          selectedColumn === column.id && 'bg-accent-50 dark:bg-accent-500/10',
+                          // A âncora ganha um leve peso de fundo para se
+                          // distinguir do resto do bloco.
+                          ehAncora && !isEditing && 'bg-accent-50/60 dark:bg-accent-500/10',
                         )}
                       >
                         {isEditing ? (
                           <CellInput
                             column={column}
                             value={raw}
-                            onCommit={(value, direcao) => {
+                            onCommit={(value, direcao, criar) => {
                               setCell(row.id, column.id, value)
-                              if (direcao) navigateCell(direcao, shown)
+                              if (direcao) navigateCell(direcao, shown, criar)
                               else if (column.type !== 'multiselect') setEditing(null)
                             }}
                             onCancel={() => setEditing(null)}
                           />
                         ) : (
                           <div
-                            onClick={() => setEditing({ rowId: row.id, colId: column.id })}
+                            // pointer-events-none: o clique tem de chegar
+                            // ao `<td>` (que tem onPointerDown para
+                            // seleção). Sem isso o `<div>` captura o
+                            // pointer e a grade nunca sabe que o usuário
+                            // clicou — select/shift/drag morrem aqui.
+                            //
+                            // Duplo clique continua funcionando porque o
+                            // browser propaga dblclick para cima.
+                            style={{ pointerEvents: 'none' }}
                             title={error || undefined}
                             className={cn(
-                              'flex h-8 items-center truncate px-2',
+                              // `h-full`, não `h-8`: com altura fixa igual
+                              // à do `td` o conteúdo estourava a célula por
+                              // causa da borda, e sobrava uma faixa pintada
+                              // encostando na linha de cima.
+                              'flex h-full items-center truncate px-2',
                               NUMERIC_TYPES.includes(column.type) &&
                                 column.type !== 'rating' &&
                                 'justify-end tabular-nums',
@@ -955,7 +1392,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                     >
                       {summary && (
                         <>
-                          <span className="mr-1 text-[10px] uppercase tracking-wide text-ink-400">
+                          <span className="mr-1 secao">
                             {summary.label}
                           </span>
                           <span className="text-xs font-medium tabular-nums text-ink-700 dark:text-ink-200">

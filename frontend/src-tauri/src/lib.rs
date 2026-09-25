@@ -13,7 +13,8 @@
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
@@ -39,10 +40,124 @@ fn wait_for_backend() -> bool {
     false
 }
 
+/// Desfaz o percent-encoding do nome do arquivo.
+///
+/// O nome viaja num cabeçalho HTTP do IPC, e cabeçalho só aceita ASCII —
+/// mas os nomes aqui são de gente que escreve em português ("Relatório
+/// anual.pdf"). O JavaScript manda `encodeURIComponent`, e o que volta ao
+/// byte original é isto.
+fn decodificar_nome(texto: &str) -> String {
+    let bytes = texto.as_bytes();
+    let mut saida = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&texto[i + 1..i + 3], 16) {
+                saida.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        saida.push(bytes[i]);
+        i += 1;
+    }
+
+    String::from_utf8_lossy(&saida).into_owned()
+}
+
+/// Nome legível do formato para a lista de tipos do "Salvar como".
+///
+/// O que aparece ali é "Documento PDF (*.pdf)", e não "PDF (*.pdf)" — o
+/// diálogo do Windows monta o "(*.ext)" sozinho a partir do filtro.
+fn rotulo_do_formato(extensao: &str) -> &str {
+    match extensao {
+        "pdf" => "Documento PDF",
+        "md" => "Markdown",
+        "html" => "Página HTML",
+        "csv" => "Valores separados por vírgula",
+        "xlsx" => "Planilha do Excel",
+        "json" => "JSON",
+        "svg" => "Imagem SVG",
+        "png" => "Imagem PNG",
+        "jpg" | "jpeg" => "Imagem JPEG",
+        "gif" => "Imagem GIF",
+        "webp" => "Imagem WebP",
+        "zip" => "Arquivo ZIP",
+        "mp3" => "Áudio MP3",
+        "mp4" => "Vídeo MP4",
+        "docx" => "Documento do Word",
+        "pptx" => "Apresentação do PowerPoint",
+        "txt" => "Texto",
+        // Formato que a lista não conhece ainda: o diálogo mostra a
+        // extensão mesmo, que é melhor do que um rótulo genérico errado.
+        _ => "Arquivo",
+    }
+}
+
+/// Pergunta onde salvar e grava os bytes ali.
+///
+/// A webview não tem gerenciador de downloads: um `<a download>` clicado
+/// por script não faz nada e não avisa nada. Exportar e baixar arquivo
+/// passam por aqui.
+///
+/// O conteúdo chega como corpo bruto do IPC, não como argumento JSON. Um
+/// `Vec<u8>` serializado em JSON vira uma lista de números — cerca de
+/// quatro vezes o tamanho original, o que um arquivo de dezenas de MB não
+/// sobrevive. O nome vai num cabeçalho porque corpo bruto não convive com
+/// argumentos nomeados.
+///
+/// Devolve o caminho escolhido, ou `None` se a pessoa cancelou — cancelar
+/// não é erro, e a interface precisa saber diferenciar para não mostrar
+/// "falha ao exportar" para quem só desistiu.
+#[tauri::command]
+async fn salvar_arquivo(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<Option<String>, String> {
+    let tauri::ipc::InvokeBody::Raw(dados) = request.body() else {
+        return Err("o conteúdo do arquivo precisa vir como corpo bruto".into());
+    };
+
+    let nome = request
+        .headers()
+        .get("x-nome")
+        .and_then(|valor| valor.to_str().ok())
+        .map(decodificar_nome)
+        .unwrap_or_else(|| "arquivo".to_string());
+
+    // Nome e extensão vão em campos separados: o "Salvar como" espera o
+    // nome sem extensão no campo de texto e a extensão na lista de baixo.
+    // Mandar "briar.png" inteiro no nome deixava o tipo como "All Files",
+    // e quem trocasse o nome perdia a extensão junto.
+    let (base, extensao) = match nome.rsplit_once('.') {
+        Some((b, e)) if !b.is_empty() && !e.is_empty() => (b, Some(e.to_lowercase())),
+        _ => (nome.as_str(), None),
+    };
+
+    let mut dialogo = app.dialog().file().set_file_name(base);
+
+    if let Some(ext) = &extensao {
+        dialogo = dialogo.add_filter(rotulo_do_formato(ext), &[ext.as_str()]);
+    }
+    // Escape para quem quiser gravar com outro nome ou sem extensão.
+    dialogo = dialogo.add_filter("Todos os arquivos", &["*"]);
+
+    let escolhido = dialogo.blocking_save_file();
+
+    let Some(destino) = escolhido else {
+        return Ok(None);
+    };
+
+    let caminho = destino.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&caminho, dados).map_err(|e| e.to_string())?;
+
+    Ok(Some(caminho.display().to_string()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![salvar_arquivo])
         .manage(Backend(std::sync::Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {

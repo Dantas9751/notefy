@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from organization.models import Folder
+from organization.models import Category, Folder
 from organization.serializers import (
     BREADCRUMB_SCHEMA,
     CategoryMiniSerializer,
@@ -22,8 +22,13 @@ class DocumentListSerializer(serializers.ModelSerializer):
     pasta lenta. Os payloads pesados só vêm no detalhe.
     """
 
-    #: Categoria vem da pasta — o item não tem categoria própria.
+    #: A categoria HERDADA da pasta — onde o item mora.
     category = CategoryMiniSerializer(source="folder.category", read_only=True)
+    #: As etiquetas do próprio item. Só leitura aqui: a listagem mostra,
+    #: quem edita é o modal de propriedades.
+    categories_detail = CategoryMiniSerializer(
+        source="categories", many=True, read_only=True
+    )
     folder_name = serializers.CharField(source="folder.name", read_only=True)
     file_url = serializers.SerializerMethodField()
     attachment_count = serializers.IntegerField(read_only=True)
@@ -32,7 +37,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
         model = Document
         fields = (
             "id", "kind", "title", "excerpt", "status", "color", "icon",
-            "folder", "folder_name", "category",
+            "folder", "folder_name", "category", "categories_detail",
             "is_favorite", "is_archived", "position",
             "word_count", "attachment_count",
             "file_url", "file_kind", "mime_type", "size", "original_name",
@@ -58,7 +63,17 @@ class DocumentSerializer(serializers.ModelSerializer):
     #: Obrigatória: a hierarquia é categoria → pasta → item, e não existe
     #: lugar para um item fora de uma pasta.
     folder = OwnedPrimaryKeyRelatedField(queryset=Folder.objects.all())
+    #: A categoria HERDADA da pasta — onde o item mora.
     category = CategoryMiniSerializer(source="folder.category", read_only=True)
+    #: As etiquetas do próprio item — o que ele é. `OwnedPrimaryKeyRelatedField`
+    #: e não `PrimaryKeyRelatedField`: sem ele o cliente poderia etiquetar a
+    #: própria nota com a categoria de outra pessoa mandando o UUID alheio.
+    categories = OwnedPrimaryKeyRelatedField(
+        queryset=Category.objects.all(), many=True, required=False
+    )
+    categories_detail = CategoryMiniSerializer(
+        source="categories", many=True, read_only=True
+    )
     attached_to = OwnedPrimaryKeyRelatedField(
         queryset=Document.objects.all(), required=False, allow_null=True
     )
@@ -71,7 +86,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = (
             "id", "kind", "kind_label", "title", "status", "color", "icon",
-            "folder", "breadcrumb", "category",
+            "folder", "breadcrumb", "category", "categories", "categories_detail",
             "is_favorite", "is_archived", "position",
             "content", "content_format", "data",
             "file", "file_url", "file_kind", "mime_type", "size", "original_name",
