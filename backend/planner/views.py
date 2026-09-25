@@ -31,6 +31,12 @@ class TaskFilter(filters.FilterSet):
     priority_min = filters.NumberFilter(field_name="priority", lookup_expr="gte")
     unscheduled = filters.BooleanFilter(field_name="starts_at", lookup_expr="isnull")
     overdue = filters.BooleanFilter(method="filter_overdue")
+    #: A janela de prazo que a central de notificações consulta a cada
+    #: minuto. Sem cron no desktop, quem avisa é o app aberto, e ele só
+    #: precisa das tarefas que vencem perto de agora. "Prazo" é o de
+    #: `TaskQuerySet.filtrar_prazo`: o fim, ou o início quando não há fim.
+    due_after = filters.DateTimeFilter(method="filter_due_after")
+    due_before = filters.DateTimeFilter(method="filter_due_before")
     #: `?open=true` esconde as concluídas. O roadmap usa para não ficar
     #: cheio de barras de coisas que já acabaram — o que já foi feito não
     #: é mais planejamento.
@@ -46,10 +52,13 @@ class TaskFilter(filters.FilterSet):
     def filter_overdue(self, queryset, name, value):
         if not value:
             return queryset
-        now = timezone.now()
-        return queryset.open().filter(
-            Q(ends_at__lt=now) | Q(ends_at__isnull=True, starts_at__lt=now)
-        )
+        return queryset.open().filtrar_prazo("lt", timezone.now())
+
+    def filter_due_after(self, queryset, name, value):
+        return queryset.filtrar_prazo("gte", value)
+
+    def filter_due_before(self, queryset, name, value):
+        return queryset.filtrar_prazo("lte", value)
 
 
 class BoardViewSet(OwnedModelViewSet):
@@ -61,7 +70,17 @@ class BoardViewSet(OwnedModelViewSet):
     search_fields = ("name",)
 
     def get_queryset(self):
-        return super().get_queryset().annotate(task_count=Count("tasks"))
+        # Só o que está vivo. `Count("tasks")` puro contava as que foram
+        # para a lixeira, e como a exclusão aqui é suave o número do
+        # quadro só subia: criar e apagar a mesma tarefa deixava o
+        # contador um acima para sempre.
+        return (
+            super()
+            .get_queryset()
+            .annotate(
+                task_count=Count("tasks", filter=Q(tasks__deleted_at__isnull=True))
+            )
+        )
 
     def list(self, request, *args, **kwargs):
         # Garante o quadro padrao antes de listar: uma conta que nunca criou

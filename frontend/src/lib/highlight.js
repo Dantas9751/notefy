@@ -81,6 +81,48 @@ export const CODE_LANGUAGES = [
   { value: 'ini', label: 'INI' },
 ]
 
+/** Extensão de arquivo de cada linguagem do seletor. */
+const EXTENSIONS = {
+  plaintext: '.txt', python: '.py', javascript: '.js', typescript: '.ts',
+  jsx: '.jsx', tsx: '.tsx', java: '.java', c: '.c', cpp: '.cpp',
+  csharp: '.cs', go: '.go', rust: '.rs', php: '.php', ruby: '.rb',
+  kotlin: '.kt', swift: '.swift', sql: '.sql', bash: '.sh',
+  powershell: '.ps1', json: '.json', yaml: '.yml', xml: '.xml',
+  html: '.html', css: '.css', scss: '.scss', markdown: '.md',
+  dockerfile: '.dockerfile', ini: '.ini',
+}
+
+/** Conjunto para reconhecer um sufixo QUALQUER que já saiu daqui. */
+const CONHECIDAS = new Set(Object.values(EXTENSIONS))
+
+export function extensionFor(language) {
+  return EXTENSIONS[language] ?? ''
+}
+
+/**
+ * Troca a extensão de um nome de arquivo ao mudar a linguagem do bloco.
+ *
+ * Só mexe no sufixo quando ele é um dos nossos: um nome digitado à mão
+ * como `Dockerfile` ou `notas.finais` não deve virar `Dockerfile.py` só
+ * porque o seletor mudou. Nome vazio continua vazio — o campo é opcional
+ * e preenchê-lo sozinho colocaria um `.py` órfão no cabeçalho.
+ */
+export function renameForLanguage(filename, language) {
+  const nome = (filename ?? '').trim()
+  if (!nome) return nome
+
+  const corte = nome.lastIndexOf('.')
+  // Um ponto na posição 0 abre o nome (`.env`, `.gitignore`): ali ele é o
+  // nome inteiro, não um sufixo. Cortar deixaria o arquivo sem nome, e
+  // acrescentar produziria `.env.ini`.
+  if (corte === 0) return nome
+
+  const sufixoAtual = corte > 0 ? nome.slice(corte) : ''
+  if (sufixoAtual && !CONHECIDAS.has(sufixoAtual.toLowerCase())) return nome
+
+  return nome.slice(0, corte > 0 ? corte : nome.length) + extensionFor(language)
+}
+
 /**
  * HTML colorido de um trecho de código.
  *

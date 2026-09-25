@@ -7,7 +7,7 @@ import { Button, EmptyState, ErrorState, ListSkeleton, Select } from '@/componen
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import TaskFormModal from '@/components/modals/TaskFormModal'
 import TaskScheduler from '@/components/TaskScheduler'
-import { TASK_STATUS, cn } from '@/lib/utils'
+import { TASK_STATUS, cn, formatDate } from '@/lib/utils'
 
 const DIA = 24 * 60 * 60 * 1000
 
@@ -108,7 +108,6 @@ export default function Roadmap() {
         const duracaoDias = pontual
           ? 1
           : Math.round((meiaNoite(termino) - meiaNoite(comeco)) / DIA) + 1
-        const formato = { day: '2-digit', month: '2-digit' }
 
         return {
           ...evento,
@@ -122,8 +121,8 @@ export default function Roadmap() {
           duracaoDias,
           rotuloPeriodo:
             duracaoDias > 1
-              ? `${comeco.toLocaleDateString(undefined, formato)} a ${termino.toLocaleDateString(undefined, formato)} (${duracaoDias} dias)`
-              : comeco.toLocaleDateString(undefined, formato),
+              ? `${formatDate(comeco, 'dd/MM')} a ${formatDate(termino, 'dd/MM')} (${duracaoDias} dias)`
+              : formatDate(comeco, 'dd/MM'),
         }
       })
       .filter(Boolean)
@@ -141,7 +140,7 @@ export default function Roadmap() {
         saida.push({
           chave: `${cursor.getFullYear()}-${cursor.getMonth()}`,
           left: ((cursor.getTime() - inicio.getTime()) / total) * 100,
-          label: cursor.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }),
+          label: formatDate(cursor, 'MMM/yy'),
         })
       }
       cursor.setMonth(cursor.getMonth() + 1)
@@ -320,7 +319,7 @@ export default function Roadmap() {
                             width: `${barra.width}%`,
                             backgroundColor: barra.color || meta.accent,
                           }}
-                          title={`${barra.title} — ${barra.rotuloPeriodo}`}
+                          title={`${barra.title} (${barra.rotuloPeriodo})`}
                           className={cn(
                             'absolute top-1/2 z-20 flex h-6 -translate-y-1/2 items-center overflow-hidden px-2 text-[11px] font-medium text-white shadow-sm transition hover:brightness-110',
                             barra.cortadoInicio ? 'rounded-l-none' : 'rounded-l-md',

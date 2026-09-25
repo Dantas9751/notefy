@@ -1,8 +1,11 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { UIProvider } from '@/context/UIContext'
 import { WorkspaceProvider } from '@/context/WorkspaceContext'
 import { TabsProvider } from '@/context/TabsContext'
+import { SplitProvider } from '@/context/SplitContext'
+import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
 
@@ -18,11 +21,15 @@ import FileViewer from '@/pages/FileViewer'
 import Calendar from '@/pages/Calendar'
 import Board from '@/pages/Board'
 import SearchPage from '@/pages/Search'
-import Settings from '@/pages/Settings'
-import Profile from '@/pages/Profile'
+import Settings from '@/pages/settings'
+import AbaAparencia from '@/pages/settings/AbaAparencia'
+import AbaConta from '@/pages/settings/AbaConta'
+import AbaNotificacoes from '@/pages/settings/AbaNotificacoes'
+import AbaLaviel from '@/pages/settings/AbaLaviel'
+import AbaDados from '@/pages/settings/AbaDados'
+import AbaSeguranca from '@/pages/settings/AbaSeguranca'
 import Trash from '@/pages/Trash'
 import Roadmap from '@/pages/Roadmap'
-import FavoritesView from '@/pages/FavoritesView'
 import NotFound from '@/pages/NotFound'
 
 /**
@@ -88,7 +95,11 @@ function AppRoutes() {
           <ProtectedRoute>
             <WorkspaceProvider>
               <TabsProvider>
-                <AppLayout />
+                <SplitProvider>
+                  <AssistenteProvider>
+                    <AppLayout />
+                  </AssistenteProvider>
+                </SplitProvider>
               </TabsProvider>
             </WorkspaceProvider>
           </ProtectedRoute>
@@ -115,9 +126,20 @@ function AppRoutes() {
         <Route path="search" element={<SearchPage />} />
         <Route path="board" element={<Board />} />
         <Route path="calendar" element={<Calendar />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="favorites" element={<FavoritesView />} />
+        {/* Uma aba, uma URL: dá para recarregar sem cair na primeira,
+            voltar com o botão do navegador e guardar o endereço. */}
+        <Route path="settings" element={<Settings />}>
+          <Route index element={<Navigate to="aparencia" replace />} />
+          <Route path="aparencia" element={<AbaAparencia />} />
+          <Route path="conta" element={<AbaConta />} />
+          <Route path="notificacoes" element={<AbaNotificacoes />} />
+          <Route path="laviel" element={<AbaLaviel />} />
+          <Route path="dados" element={<AbaDados />} />
+          <Route path="seguranca" element={<AbaSeguranca />} />
+        </Route>
+        {/* O perfil virou a aba "Conta". A rota antiga continua de pé
+            porque ela está em atalhos e em janelas já abertas. */}
+        <Route path="profile" element={<Navigate to="/settings/conta" replace />} />
         <Route path="trash" element={<Trash />} />
         <Route path="roadmap" element={<Roadmap />} />
       </Route>
@@ -128,6 +150,20 @@ function AppRoutes() {
 }
 
 export default function App() {
+  // Suprime o menu de contexto do navegador em TODA a aplicação.
+  // O Notefy tem seus próprios menus. Inputs/textareas mantêm o nativo.
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = e.target.tagName
+      const editavel =
+        tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+        e.target.isContentEditable
+      if (!editavel) e.preventDefault()
+    }
+    document.addEventListener('contextmenu', handler)
+    return () => document.removeEventListener('contextmenu', handler)
+  }, [])
+
   return (
     <UIProvider>
       <AuthProvider>

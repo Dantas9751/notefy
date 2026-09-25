@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CalendarClock, CalendarX2 } from 'lucide-react'
 import api from '@/lib/api'
 import { Button, Field, Input, Modal, Select } from '@/components/ui'
+import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
 import { useFetch } from '@/hooks/useFetch'
 
 /** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
@@ -13,6 +14,8 @@ export function toLocalInput(iso) {
     date.getHours(),
   )}:${pad(date.getMinutes())}`
 }
+
+
 
 /**
  * Agendar ou desagendar uma tarefa.
@@ -47,6 +50,15 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
     form.board || boardList.find((b) => b.is_default)?.id || boardList[0]?.id || ''
 
   const submit = async (clear = false) => {
+    if (!clear) {
+      // Valida ANTES de montar o ISO: é aqui que "ano 0000" e "31 de
+      // fevereiro" apareciam como erro genérico de salvamento.
+      const problema = erroDoPeriodo(form.starts_at, form.ends_at)
+      if (problema) {
+        setError(problema)
+        return
+      }
+    }
     setLoading(true)
     setError(null)
     try {
@@ -112,6 +124,9 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
           <Input
             type="datetime-local"
             value={form.starts_at}
+            min={DATA_MIN}
+            max={DATA_MAX}
+            step={60}
             onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
             autoFocus
           />
@@ -135,7 +150,9 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
           <Input
             type="datetime-local"
             value={form.ends_at}
-            min={form.starts_at || undefined}
+            min={form.starts_at || DATA_MIN}
+            max={DATA_MAX}
+            step={60}
             onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}
           />
         </Field>

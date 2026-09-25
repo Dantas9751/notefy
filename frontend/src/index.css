@@ -8,20 +8,22 @@
 
     /* Cor de destaque, em canais R G B separados para o Tailwind poder
        aplicar opacidade (`accent-500/50`). Estes são os valores de fábrica
-       — o índigo original. Escolher outra cor nas Configurações injeta uma
+       — um verde-musgo fosco. O índigo de fábrica era o mesmo de metade
+       dos aplicativos gerados por IA; sobre os cinzas QUENTES desta
+       paleta ele também brigava, porque índigo é frio. Escolher outra cor nas Configurações injeta uma
        regra `:root` numa <style> própria (ver lib/accent.js), que
        sobrescreve estes valores; voltar ao padrão esvazia essa regra e
        estes aqui voltam a valer. */
-    --accent-50: 238 242 255;
-    --accent-100: 224 231 255;
-    --accent-200: 199 210 254;
-    --accent-300: 165 180 252;
-    --accent-400: 129 140 248;
-    --accent-500: 99 102 241;
-    --accent-600: 79 70 229;
-    --accent-700: 67 56 202;
-    --accent-800: 55 48 163;
-    --accent-900: 49 46 129;
+    --accent-50: 244 246 238;
+    --accent-100: 232 237 219;
+    --accent-200: 210 220 187;
+    --accent-300: 180 196 145;
+    --accent-400: 146 167 106;
+    --accent-500: 112 134 76;
+    --accent-600: 86 105 56;
+    --accent-700: 67 82 45;
+    --accent-800: 55 66 39;
+    --accent-900: 47 56 35;
   }
 
   .dark {
@@ -42,6 +44,28 @@
      interface que depende de silêncio visual. */
   :focus-visible {
     @apply outline-none ring-2 ring-accent-500/50 ring-offset-1 ring-offset-white dark:ring-offset-ink-950;
+  }
+
+  /* Traço único para TODO ícone do app.
+     O lucide escreve `stroke-width="2"` em cada SVG; 2 é pesado ao lado
+     de uma serifada e de texto de 12px. Uma regra aqui alinha os 43
+     arquivos que importam ícone sem tocar em nenhum deles — e impede que
+     a próxima tela invente o seu próprio traço. */
+  svg.lucide {
+    stroke-width: 1.75;
+  }
+
+  /* Quem pediu menos movimento recebe menos movimento. Vale para as
+     animações do app inteiro, inclusive as de entrada das listas. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   ::selection {
@@ -120,9 +144,90 @@
 }
 
 @layer components {
+  /* Cartão: borda de fio, sem sombra.
+     Sombra em toda superfície achata a tela — se tudo flutua, nada
+     flutua, e o menu suspenso perde o único sinal que o separa do
+     conteúdo. O hover muda o FUNDO, que é resposta de ponteiro, não
+     elevação. */
   .card {
-    @apply rounded-lg border border-ink-200 bg-white shadow-subtle transition
-           hover:shadow-card dark:border-ink-800 dark:bg-ink-900;
+    @apply rounded border border-ink-200 bg-white transition
+           hover:border-ink-300 dark:border-ink-800 dark:bg-ink-900
+           dark:hover:border-ink-700;
+  }
+
+  /* Lista de fio: linhas separadas por um traço em vez de uma grade de
+     caixas. É o padrão de ferramenta (cliente de e-mail, gerenciador de
+     arquivos) e cabe muito mais item na tela que uma grade de cartões —
+     que é o que um app de estudo precisa. */
+  .rows {
+    @apply divide-y divide-ink-150 border-y border-ink-150
+           dark:divide-ink-800 dark:border-ink-800;
+  }
+  .row {
+    @apply flex items-center gap-3 px-2 py-2.5 transition
+           hover:bg-ink-100/60 dark:hover:bg-ink-800/40;
+  }
+
+  /* Título de seção: versalete curto e discreto. Separa sem precisar de
+     uma barra ou de um cartão em volta. */
+  .secao {
+    @apply text-[11px] font-medium uppercase tracking-[0.12em] text-ink-400
+           dark:text-ink-500;
+  }
+
+  /* Título de página / de item. Serifada carrega a hierarquia sozinha. */
+  .titulo {
+    @apply font-serif tracking-[-0.01em] text-ink-900 dark:text-ink-50;
+  }
+
+  /* Foco de luz seguindo o ponteiro (SpotlightCard do reactbits.dev,
+     refeito em CSS — o original já era CSS, então nada foi instalado).
+     `--x`/`--y` chegam do onMouseMove; sem hover o gradiente existe mas
+     está invisível, então não há trabalho de pintura em repouso. */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 300ms ease;
+    /* `-1`: atrás do conteúdo do cartão, senão o brilho cobriria o texto
+       e capturaria o clique. */
+    z-index: -1;
+    pointer-events: none;
+    background: radial-gradient(
+      200px circle at var(--x, 50%) var(--y, 50%),
+      rgb(var(--accent-500) / 0.1),
+      transparent 70%
+    );
+  }
+  .spotlight:hover::before {
+    opacity: 1;
+  }
+
+  /* Entrada da lista (o AnimatedContent do reactbits.dev — lá ele usa
+     GSAP; aqui são seis linhas de CSS, então nada foi instalado).
+     Deslocamento de 4px e nada de blur: a lista tem texto pequeno, e
+     texto borrado entrando é exatamente o efeito que cansa na segunda
+     vez que se abre a tela.
+
+     O atraso vem de `--i` (o índice da linha), limitado a ~8 itens: numa
+     pasta com 60 documentos, um escalonamento sem teto faria o último
+     aparecer meio segundo depois do primeiro. A regra global de
+     `prefers-reduced-motion` lá em cima zera tudo isto. */
+  .entra {
+    animation: entra 260ms ease-out backwards;
+    animation-delay: calc(min(var(--i, 0), 8) * 30ms);
+  }
+  @keyframes entra {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
 
   .input {
@@ -169,6 +274,12 @@
   }
   .prose-note a {
     @apply text-accent-600 underline underline-offset-2 dark:text-accent-400;
+  }
+  /* A foto do quadro sai do celular com 4000px de largura. Sem teto ela
+     estoura a coluna de leitura e arrasta a barra horizontal por toda a
+     nota. `h-auto` preserva a proporção. */
+  .prose-note img {
+    @apply my-3 h-auto max-w-full rounded border border-ink-200 dark:border-ink-800;
   }
 }
 

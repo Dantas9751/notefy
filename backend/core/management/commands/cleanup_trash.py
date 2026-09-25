@@ -56,10 +56,15 @@ class Command(BaseCommand):
                 with transaction.atomic():
                     # `hard_delete` (e não `delete`) é o ponto do comando:
                     # `delete` só remarcaria a data e nada sairia do banco.
-                    # Item a item, e não em massa, para o `post_delete` de
-                    # Document rodar e levar o arquivo do disco junto.
-                    for obj in alvo:
-                        obj.hard_delete()
+                    #
+                    # Em massa, como o esvaziar-lixeira do `core.trash`: o
+                    # coletor do Django desliga o atalho de exclusão rápida
+                    # quando o modelo tem ouvinte de `post_delete`, e
+                    # Document tem (`content.signals`), então o arquivo sai
+                    # do disco do mesmo jeito — sem uma volta ao banco por
+                    # item. Os dois caminhos que apagam de vez agora fazem
+                    # a mesma coisa.
+                    alvo.hard_delete()
 
             total += quantos
             resumo.append(f"{quantos} {tipo}(s)")

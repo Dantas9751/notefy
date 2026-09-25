@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -5,6 +6,7 @@ from content.models import Document
 from organization.models import Category, Folder
 from organization.serializers import CategoryMiniSerializer, OwnedPrimaryKeyRelatedField
 
+from . import recorrencia
 from .models import Board, ChecklistItem, Task
 
 
@@ -87,6 +89,22 @@ class TaskSerializer(serializers.ModelSerializer):
             "is_overdue", "created_at", "updated_at",
         )
         read_only_fields = ("id", "completed_at", "created_at", "updated_at")
+
+    def validate_recurrence_rule(self, valor):
+        """Recusa a regra que não saberíamos executar, e normaliza o atalho.
+
+        Aqui e não só no `clean()` do modelo: `Task.save()` não chama
+        `full_clean()`, então o `clean()` nunca roda pela API — e a API é
+        quem escreve este campo. Sem isto, uma regra impossível seria
+        aceita com 201 e a repetição simplesmente nunca aconteceria, que
+        é o defeito que a recorrência veio corrigir.
+        """
+        try:
+            return recorrencia.validar(valor)
+        except DjangoValidationError as erro:
+            raise serializers.ValidationError(
+                erro.message_dict.get("recurrence_rule", [str(erro)])
+            ) from erro
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))

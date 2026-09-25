@@ -26,7 +26,7 @@ from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator, icon_name_validator
 from organization.models import Folder
 
-from .schemas import empty_data_for, extract_text, validate_data
+from .schemas import empty_data_for, extract_text, secao_tem_conteudo, validate_data
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -57,7 +57,12 @@ class DocumentQuerySet(SoftDeleteQuerySet):
         return self.filter(kind__in=kinds)
 
     def with_relations(self):
-        return self.select_related("folder", "folder__category", "owner")
+        # `categories` é M2M e os dois serializers a expõem: sem o
+        # prefetch, listar 30 itens dispara 30 consultas extras. Fica
+        # aqui porque é o ponto único por onde toda listagem passa.
+        return self.select_related("folder", "folder__category", "owner").prefetch_related(
+            "categories"
+        )
 
     def loose(self):
         """Documentos de topo — exclui arquivos anexados a outro documento."""
@@ -189,6 +194,19 @@ class Document(BaseModel):
         choices=FileKind.choices,
         blank=True,
         db_index=True,
+    )
+
+    #: Etiquetas do item, somadas à categoria que ele herda da pasta.
+    #:
+    #: Pasta é hierarquia: um item mora em UM lugar. Etiqueta é
+    #: transversal: a mesma nota é "Cálculo III" (onde ela mora), "prova"
+    #: e "revisar" (o que ela é). Sem isto, a única classificação possível
+    #: era a da pasta, e marcar um item como "revisar" exigia movê-lo.
+    #:
+    #: Mesmo campo que `planner.Task` já usa — o vocabulário de categoria
+    #: é um só no app inteiro.
+    categories = models.ManyToManyField(
+        "organization.Category", blank=True, related_name="documents"
     )
 
     # ------------------------------------------------------------------
@@ -339,7 +357,7 @@ class Document(BaseModel):
 
         if self.kind == self.Kind.NOTE and self.content:
             sections = self.data.get("sections") or []
-            if not any((s.get("html") or s.get("code")) for s in sections):
+            if not any(secao_tem_conteudo(s) for s in sections):
                 self.data = {
                     **self.data,
                     "sections": [{"id": "s1", "type": "text", "html": self.content}],

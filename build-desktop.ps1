@@ -14,10 +14,50 @@
 $ErrorActionPreference = "Stop"
 $raiz = $PSScriptRoot
 
-# O MinGW e o Cargo nao estao no PATH do sistema; o rustup foi instalado
-# com --no-modify-path para nao mexer no ambiente do usuario.
-$mingw = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin"
-$env:PATH = "$mingw;$env:USERPROFILE\.cargo\bin;$env:PATH"
+# O Cargo nao esta no PATH do sistema; o rustup foi instalado com
+# --no-modify-path para nao mexer no ambiente do usuario.
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+
+# ---------------------------------------------------------------------
+# Linker
+#
+# Quem linka depende da toolchain do Rust, e as duas circulam por ai: a
+# "gnu" usa o MinGW, a "msvc" usa o link.exe do Visual Studio. Assumir
+# uma das duas quebra na maquina que tem a outra, com um erro que nao
+# diz o que aconteceu ("linker `link.exe` not found"), entao perguntamos
+# ao proprio rustc.
+# ---------------------------------------------------------------------
+$alvo = (rustc -vV | Select-String "^host:").ToString().Split(" ")[1]
+Write-Host "Toolchain do Rust: $alvo" -ForegroundColor DarkGray
+
+if ($alvo -like "*-gnu") {
+    $mingw = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin"
+    if (-not (Test-Path $mingw)) {
+        throw "toolchain gnu, mas o MinGW nao esta em $mingw"
+    }
+    $env:PATH = "$mingw;$env:PATH"
+} else {
+    # O vcvars64.bat nao exporta so o PATH: sao dezenas de variaveis
+    # (INCLUDE, LIB, WindowsSdkDir...) que o link.exe precisa. Rodar em
+    # cmd e reimportar o ambiente inteiro e a unica forma de trazer tudo
+    # para esta sessao. Fazer so o PATH deixa o link.exe sem as libs.
+    $raizesVs = @("$env:ProgramFiles\Microsoft Visual Studio", "${env:ProgramFiles(x86)}\Microsoft Visual Studio")
+    $vcvars = Get-ChildItem $raizesVs -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue } |
+        ForEach-Object { Join-Path $_.FullName "VC\Auxiliary\Build\vcvars64.bat" } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if (-not $vcvars) {
+        throw "toolchain msvc, mas o vcvars64.bat nao foi encontrado - instale as Build Tools do Visual Studio (workload 'Desenvolvimento para desktop com C++')"
+    }
+
+    Write-Host "Ambiente MSVC: $vcvars" -ForegroundColor DarkGray
+    cmd /c "`"$vcvars`" >nul 2>&1 && set" | ForEach-Object {
+        if ($_ -match "^([^=]+)=(.*)$") {
+            Set-Item -Path "Env:\$($matches[1])" -Value $matches[2]
+        }
+    }
+}
 
 # ---------------------------------------------------------------------
 # Assinatura
@@ -99,7 +139,7 @@ New-Item -ItemType Directory -Force $destino | Out-Null
 # No Windows ele assume "msvc" mesmo quando a toolchain do Rust e a "gnu",
 # entao gravamos os dois nomes: o binario e o mesmo (vem do PyInstaller e
 # nao tem relacao com o alvo do Rust), so o nome que o bundler procura muda.
-$alvo = (rustc -vV | Select-String "^host:").ToString().Split(" ")[1]
+# ($alvo ja veio la de cima, junto da escolha do linker.)
 
 # Assina o original UMA vez e so entao copia: as duas copias saem prontas
 # e assinadas. Assinar cada copia separadamente significaria esperar o
@@ -108,20 +148,31 @@ $alvo = (rustc -vV | Select-String "^host:").ToString().Split(" ")[1]
 Write-Host "    assinando o backend..."
 Assinar "$raiz\backend\dist\notefy-server.exe"
 
-foreach ($sufixo in @($alvo, "x86_64-pc-windows-msvc")) {
+# Na toolchain msvc os dois nomes coincidem; o -Unique evita copiar o
+# mesmo arquivo de 50 MB duas vezes.
+foreach ($sufixo in (@($alvo, "x86_64-pc-windows-msvc") | Select-Object -Unique)) {
     Copy-Item "$raiz\backend\dist\notefy-server.exe" "$destino\notefy-server-$sufixo.exe" -Force
     Write-Host "    -> notefy-server-$sufixo.exe"
 }
 
 # A toolchain MSVC embute o WebView2Loader no executavel; a GNU o deixa
 # como DLL externa. Sem ela ao lado do .exe, o app nem abre na maquina de
-# quem instala (erro 0xC0000135, DLL nao encontrada).
-$loader = Get-ChildItem "$env:CARGO_TARGET_DIR\release\build" -Recurse -Filter "WebView2Loader.dll" -ErrorAction SilentlyContinue |
+# quem instala (erro 0xC0000135, DLL nao encontrada). O tauri.conf.json a
+# declara como recurso obrigatorio, entao ela precisa existir aqui nos
+# dois casos, ou o bundler para.
+#
+# A DLL vem dentro do codigo-fonte do crate webview2-com-sys, e nao de
+# nenhum passo de compilacao: procurar em CARGO_TARGET_DIR primeiro nunca
+# achava nada num build limpo, porque essa pasta so existe depois de
+# compilar - e a compilacao vem so na etapa seguinte. O cargo fetch baixa
+# o codigo dos crates sem compilar, que e exatamente o que falta aqui.
+Push-Location "$raiz\frontend\src-tauri"
+cargo fetch --quiet
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "falha ao baixar os crates" }
+Pop-Location
+
+$loader = Get-ChildItem "$env:USERPROFILE\.cargo\registry\src" -Recurse -Filter "WebView2Loader.dll" -ErrorAction SilentlyContinue |
     Where-Object { $_.DirectoryName -like "*x64*" } | Select-Object -First 1
-if (-not $loader) {
-    $loader = Get-ChildItem "$env:USERPROFILE\.cargo\registry\src" -Recurse -Filter "WebView2Loader.dll" -ErrorAction SilentlyContinue |
-        Where-Object { $_.DirectoryName -like "*x64*" } | Select-Object -First 1
-}
 if ($loader) {
     Copy-Item $loader.FullName "$destino\WebView2Loader.dll" -Force
     Write-Host "    -> WebView2Loader.dll"

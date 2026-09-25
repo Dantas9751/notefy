@@ -292,7 +292,10 @@ function InlineText({ node, rect, shape, onCommit, onCancel }) {
             onCancel()
           }
         }}
-        className="resize-none bg-transparent text-ink-900 outline-none dark:text-ink-50"
+        // Um véu que segue o tema do quadro: branco translúcido no claro,
+        // escuro no escuro. Antes o véu era branco fixo — num quadro escuro
+        // o texto claro do campo sumia sobre ele e só reaparecia ao sair.
+        className="resize-none bg-white/85 text-ink-900 outline-none backdrop-blur-[1px] dark:bg-ink-900/85 dark:text-ink-50"
         style={{
           width: '100%',
           height: '100%',
@@ -306,8 +309,6 @@ function InlineText({ node, rect, shape, onCommit, onCancel }) {
           // fronteira, controle) editam ali embaixo também.
           display: 'flex',
           alignItems: layout.bottom ? 'flex-end' : layout.align === 'center' ? 'center' : 'flex-start',
-          // Um véu leve: sobre uma forma preenchida o texto puro some.
-          background: 'rgb(255 255 255 / 0.85)',
           borderRadius: 4,
           boxShadow: '0 0 0 1.5px rgb(99 102 241 / 0.9)',
         }}
@@ -326,6 +327,7 @@ export default function GraphNode({
   selected,
   connecting,
   onPointerDown,
+  onContextMenu,
   onDoubleClick,
   onStartConnection,
   onResize,
@@ -345,7 +347,9 @@ export default function GraphNode({
     className: fill ? undefined : 'fill-white dark:fill-ink-900',
     fill: fill || undefined,
     stroke: accent,
-    strokeWidth: 1.5,
+    // 1.25 e não 1.5: sobre a grade de pontos, o traço grosso faz cada
+    // nó ler como caixa antes de ler como conteúdo.
+    strokeWidth: 1.25,
     ...extra,
   })
 
@@ -487,6 +491,28 @@ export default function GraphNode({
               {...surface()}
             />
             <CenteredLabel text={node.text || 'Documento'} rect={{ ...rect, h: rect.h - 12 }} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            {/* Um nó ligado a um documento de verdade não pode parecer
+                igual a um desenho de folha com legenda digitada: o
+                sublinhado e o canto dobrado dizem que ali tem para onde
+                ir, e o duplo clique abre. */}
+            {node.document_id && (
+              <>
+                <line
+                  x1={12}
+                  y1={rect.h - 24}
+                  x2={rect.w - 12}
+                  y2={rect.h - 24}
+                  stroke={accent}
+                  strokeWidth={1}
+                  strokeOpacity={0.35}
+                />
+                <path
+                  d={`M${rect.w - 15},4 L${rect.w - 4},4 L${rect.w - 4},15 Z`}
+                  fill={accent}
+                  fillOpacity={0.45}
+                />
+              </>
+            )}
           </>
         )
 
@@ -702,21 +728,37 @@ export default function GraphNode({
     <g
       transform={`translate(${rect.x}, ${rect.y})`}
       onPointerDown={onPointerDown}
+      onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       className="cursor-move"
     >
+      {/* Anel de seleção: sólido com halo, não tracejado. Traço
+          picotado é o vocabulário de "espaço reservado" e de "recortar" —
+          o oposto de "este objeto está selecionado". O halo largo e
+          translúcido dá a separação sem engrossar a linha. */}
       {selected && (
-        <rect
-          x={-5}
-          y={-5}
-          width={rect.w + 10}
-          height={rect.h + 10}
-          rx={8}
-          fill="none"
-          className="stroke-accent-500"
-          strokeWidth={1.5}
-          strokeDasharray="4 3"
-        />
+        <>
+          <rect
+            x={-5}
+            y={-5}
+            width={rect.w + 10}
+            height={rect.h + 10}
+            rx={8}
+            fill="none"
+            className="stroke-accent-500/20"
+            strokeWidth={5}
+          />
+          <rect
+            x={-5}
+            y={-5}
+            width={rect.w + 10}
+            height={rect.h + 10}
+            rx={8}
+            fill="none"
+            className="stroke-accent-500"
+            strokeWidth={1.5}
+          />
+        </>
       )}
 
       {body()}

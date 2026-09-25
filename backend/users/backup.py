@@ -38,6 +38,26 @@ def _iso(valor):
 # ---------------------------------------------------------------------------
 # Exportação
 # ---------------------------------------------------------------------------
+#: Preferências que entram no backup — as mesmas na ida e na volta.
+#:
+#: Uma lista só porque os dois lados TÊM que concordar: a exportação
+#: escrevia seis campos à mão e a importação aceitava o objeto inteiro do
+#: arquivo, então o .zip podia trazer campos que o app nunca exporta.
+#:
+#: Fora daqui de propósito: `ai_provider`, `ai_key_cifrada`, `ai_base_url`
+#: e `ai_model`. Credencial de IA não viaja em backup, e o endereço do
+#: provedor não pode ser escolhido por um arquivo que veio de fora — o
+#: backend faz requisição para ele levando a chave junto.
+CAMPOS_DE_PREFERENCIA = (
+    "theme",
+    "default_view",
+    "sidebar_collapsed",
+    "accent_color",
+    "editor_font_size",
+    "week_starts_on_monday",
+)
+
+
 def exportar(user):
     """Devolve os bytes de um .zip com tudo que pertence a `user`."""
     categorias = list(Category.objects.filter(owner=user).order_by("position", "name"))
@@ -57,14 +77,7 @@ def exportar(user):
         "exportado_em": datetime.now(dt_timezone.utc).isoformat(),
         "username": user.username,
         "preferencias": (
-            {
-                "theme": prefs.theme,
-                "default_view": prefs.default_view,
-                "sidebar_collapsed": prefs.sidebar_collapsed,
-                "accent_color": prefs.accent_color,
-                "editor_font_size": prefs.editor_font_size,
-                "week_starts_on_monday": prefs.week_starts_on_monday,
-            }
+            {campo: getattr(prefs, campo) for campo in CAMPOS_DE_PREFERENCIA}
             if prefs
             else None
         ),
@@ -388,7 +401,17 @@ def importar(user, arquivo, substituir=False):
 
         prefs = dados.get("preferencias")
         if prefs:
-            UserPreferences.objects.update_or_create(user=user, defaults=prefs)
+            # SÓ os campos que a exportação escreve. `defaults=prefs`
+            # passava o objeto cru do .zip para o `update_or_create`, que
+            # faz `setattr` de toda chave recebida — um backup montado à
+            # mão escrevia qualquer campo do modelo, inclusive `user_id`
+            # (a chave primária) e o endereço do provedor de IA.
+            #
+            # O .zip vem de fora: é a única entrada do app em que o
+            # conteúdo não passou por serializer nenhum.
+            limpo = {c: prefs[c] for c in CAMPOS_DE_PREFERENCIA if c in prefs}
+            if limpo:
+                UserPreferences.objects.update_or_create(user=user, defaults=limpo)
 
     return {
         "categorias": len(categorias),

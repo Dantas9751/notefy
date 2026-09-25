@@ -19,6 +19,10 @@ export default function DestinationModal({
   title = 'Escolher pasta',
   confirmLabel = 'Continuar',
   currentFolderId,
+  // Mover para a pasta onde o item já está é um no-op, então ela aparece
+  // desabilitada. Extrair um .zip na pasta atual, ao contrário, é o caso
+  // MAIS comum — quem chama diz qual dos dois é.
+  permitirPastaAtual = false,
   onClose,
   onPick,
 }) {
@@ -129,7 +133,7 @@ export default function DestinationModal({
             return (
               <li key={option.id}>
                 <button
-                  disabled={isCurrent}
+                  disabled={isCurrent && !permitirPastaAtual}
                   onClick={() => setSelected(option.id)}
                   onDoubleClick={() => onPick(option.id)}
                   className={cn(

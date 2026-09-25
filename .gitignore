@@ -9,6 +9,9 @@ env/
 
 # Segredos e dados locais
 .env
+# Cópias de segurança do .env carregam a mesma SECRET_KEY. `.env.*`
+# pegaria também os `.env.example`, que são fonte e ficam no repositório.
+.env.bak*
 *.sqlite3
 backend/media/
 backend/staticfiles/
@@ -22,9 +25,12 @@ dist-ssr/
 npm-debug.log*
 yarn-error.log*
 
-# ---- Editores / SO ----
+# ---- Editores / SO / ferramentas ----
 .vscode/
 .idea/
+.claude/
+# Grafo de conhecimento gerado pelo graphify: cache regenerável, não fonte.
+graphify-out/
 .DS_Store
 Thumbs.db
 

@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "content",
     "planner",
     "search",
+    "ai",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -108,7 +109,30 @@ TEMPLATES = [
 # desenvolvimento o padrão continua sendo a própria pasta do backend.
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path(env("NOTEFY_DATA_DIR", default=str(BASE_DIR)))
+def _pasta_de_dados():
+    """Onde moram o banco e os uploads.
+
+    Duas armadilhas que este código já pisou, as duas com o mesmo
+    sintoma: o Django abre um SQLite VAZIO em outro lugar e a aplicação
+    responde "no such table: users_user" em todo login.
+
+    1. `NOTEFY_DATA_DIR=` vazio no `.env` não cai no default do
+       `env()` — a chave EXISTE, então o valor é `""`, e `Path("")` é
+       `.`, o diretório de onde se rodou o comando.
+    2. Um caminho relativo valeria a partir do diretório atual, então o
+       mesmo projeto usaria bancos diferentes conforme se rodasse
+       `manage.py` de dentro de `backend/` ou da raiz.
+
+    Nos dois casos o certo é ancorar em `BASE_DIR`: a pasta dos dados é
+    uma propriedade do projeto, não de onde o terminal estava aberto.
+    """
+    bruto = env("NOTEFY_DATA_DIR", default="").strip()
+    if not bruto:
+        return BASE_DIR
+    return Path(bruto) if Path(bruto).is_absolute() else BASE_DIR / bruto
+
+
+DATA_DIR = _pasta_de_dados()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 #: Ligado quando o backend roda embutido no aplicativo de desktop, e não
@@ -176,7 +200,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 30,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.ScopedRateThrottle",),
-    "DEFAULT_THROTTLE_RATES": {"auth": "20/min", "search": "120/min"},
+    "DEFAULT_THROTTLE_RATES": {"auth": "20/min", "search": "120/min", "ai": "30/min"},
 }
 
 SIMPLE_JWT = {

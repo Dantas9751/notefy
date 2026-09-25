@@ -1,9 +1,19 @@
 <!doctype html>
-<html lang="pt-BR">
+<!-- `-u-hc-h23`: força o relógio de 24 horas nos campos nativos de
+     data e hora, que sem isso seguem o formato do sistema operacional e
+     mostram AM/PM. Não há como mandar nisso por CSS ou atributo. -->
+<html lang="pt-BR-u-hc-h23">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Notefy — notas, estudos e planner em um só lugar." />
+    <!-- O app já tinha ícone (o do Tauri); o que faltava era o navegador
+         saber disso. Sem estas linhas a aba fica com o globo cinza e o
+         servidor leva um 404 de /favicon.ico a cada carregamento. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#1a1816" />
+    <meta name="description" content="Caderno de estudos: notas, arquivos, planilhas, diagramas e tarefas, no seu computador." />
     <title>Notefy</title>
   </head>
   <body>

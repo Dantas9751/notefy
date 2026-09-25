@@ -11,18 +11,33 @@ campos novos sem exigir migração nem mudança no backend.
 """
 
 import re
+import uuid
 
 from django.core.exceptions import ValidationError
 
 # --------------------------------------------------------------------------
 # Nota — dividida em seções
 #
-# Uma nota é uma lista de blocos: texto rico ou código. Guardar o código
-# num campo próprio, e não como <pre> dentro do HTML, é o que permite
-# escolher a linguagem, colorir a sintaxe e manter a indentação intacta —
-# um contentEditable normaliza espaços e brigaria com o realce.
+# Uma nota é uma lista de blocos. Guardar cada um num campo próprio, e não
+# tudo como HTML, é o que permite tratá-los como dados:
+#
+# - `code` tem linguagem, então dá para colorir a sintaxe e manter a
+#   indentação intacta — um contentEditable normaliza espaços e brigaria
+#   com o realce.
+# - `checklist` tem itens com `done`, então marcar um item é um booleano e
+#   não um caractere; dá para contar quantos faltam sem ler HTML.
+# - `table` tem linhas e colunas de verdade, então a célula é endereçável.
+#   Uma tabela desenhada dentro do texto rico só é tabela para os olhos.
+#
+# Os quatro convivem na mesma lista, na ordem que o autor escolher.
 # --------------------------------------------------------------------------
-SECTION_TYPES = ("text", "code")
+SECTION_TYPES = ("text", "code", "checklist", "table")
+
+#: Teto de itens/linhas por seção. Não é regra de negócio: é o que
+#: impede um payload absurdo (colado, ou gerado por engano) virar um
+#: JSONField de megabytes que o editor não consegue mais desenhar.
+MAX_ITENS_SECAO = 500
+MAX_COLUNAS_TABELA = 30
 
 CODE_LANGUAGES = (
     "plaintext", "python", "javascript", "typescript", "jsx", "tsx",
@@ -81,6 +96,10 @@ DIAGRAM_NODE_TYPES = (
     "process", "io", "database", "document", "manual", "delay", "terminator",
     # Genéricos
     "note", "rect", "rounded", "ellipse", "diamond", "cylinder", "cloud", "hexagon", "text",
+    # Imagem colada. O canvas já aceitava; o diagrama recusava na
+    # validação, e um print do slide é exatamente o que se cola ao lado
+    # de um fluxograma para explicar de onde ele veio.
+    "image",
 )
 
 DIAGRAM_EDGE_TYPES = (
@@ -167,6 +186,91 @@ def _require(condition, message):
 # Nota
 # --------------------------------------------------------------------------
 
+def secao_tem_conteudo(section):
+    """A seção tem algo escrito?
+
+    Existe para o `save()` do modelo decidir se pode jogar o `content`
+    antigo dentro de uma nota "vazia". Checar `html or code` direto ali
+    dava dois problemas: uma nota cujo único bloco é uma tabela contava
+    como vazia e era SOBRESCRITA pelo texto legado, e uma seção que não
+    fosse dict derrubava o `.get` com AttributeError — 500 ao salvar.
+    """
+    if not isinstance(section, dict):
+        return False
+    if section.get("html") or section.get("code"):
+        return True
+    if any((i or {}).get("text") for i in section.get("items") or [] if isinstance(i, dict)):
+        return True
+    return any(any(c for c in row) for row in section.get("rows") or [] if isinstance(row, list))
+
+
+def _validate_checklist_section(section, sid):
+    """`items: [{id, text, done}]`.
+
+    O `done` é booleano no banco, e não um `[x]` no meio do texto: é o
+    que permite contar o que falta, riscar o item e um dia filtrar a
+    busca por pendência — nada disso sai de uma string.
+    """
+    items = section.get("items")
+    if items is None:
+        section["items"] = []
+        return
+    _require(isinstance(items, list), f"`items` da seção {sid!r} deve ser uma lista.")
+    _require(
+        len(items) <= MAX_ITENS_SECAO,
+        f"A seção {sid!r} tem mais de {MAX_ITENS_SECAO} itens.",
+    )
+    for posicao, item in enumerate(items):
+        _require(
+            isinstance(item, dict),
+            f"Item {posicao} da seção {sid!r} deve ser um objeto.",
+        )
+        _require(
+            isinstance(item.get("text", ""), str),
+            f"`text` do item {posicao} da seção {sid!r} deve ser texto.",
+        )
+        # O id só serve para o React reconciliar a lista; faltando, o
+        # editor reconcilia por posição e apagar um item do meio faz o
+        # texto dos de baixo saltar de linha. Preencher aqui é o mesmo
+        # remendo já aplicado ao id da seção.
+        if not item.get("id"):
+            item["id"] = f"i{posicao}-{uuid.uuid4().hex[:8]}"
+        item["done"] = bool(item.get("done"))
+
+
+def _validate_table_section(section, sid):
+    """`rows: [[célula, ...], ...]`, a primeira linha é o cabeçalho.
+
+    Sem declaração de colunas: o número delas é o da linha mais larga, e
+    o editor completa as curtas. Uma lista de colunas separada seria um
+    segundo lugar para a mesma verdade, e os dois sairiam do ar assim que
+    alguém colasse uma linha maior.
+    """
+    rows = section.get("rows")
+    if rows is None:
+        section["rows"] = []
+        return
+    _require(isinstance(rows, list), f"`rows` da seção {sid!r} deve ser uma lista.")
+    _require(
+        len(rows) <= MAX_ITENS_SECAO,
+        f"A seção {sid!r} tem mais de {MAX_ITENS_SECAO} linhas.",
+    )
+    for posicao, row in enumerate(rows):
+        _require(
+            isinstance(row, list),
+            f"Linha {posicao} da seção {sid!r} deve ser uma lista de células.",
+        )
+        _require(
+            len(row) <= MAX_COLUNAS_TABELA,
+            f"Linha {posicao} da seção {sid!r} passa de {MAX_COLUNAS_TABELA} colunas.",
+        )
+        for coluna, celula in enumerate(row):
+            _require(
+                isinstance(celula, str),
+                f"Célula {coluna} da linha {posicao} na seção {sid!r} deve ser texto.",
+            )
+
+
 def _validate_note(data):
     sections = data.get("sections")
     if sections is None:
@@ -180,7 +284,16 @@ def _validate_note(data):
             continue
         sid = section.get("id")
         if not sid:
-            continue
+            # O `continue` que morava aqui pulava a validação INTEIRA da
+            # seção, não só o id — tipo desconhecido e `html` não-texto
+            # passavam direto.
+            #
+            # E o id ausente não era inofensivo: o editor endereçava seção
+            # por id, então duas seções sem id eram indistinguíveis entre
+            # si e escrever numa apagava a outra. Preencher aqui conserta
+            # a nota na primeira gravação.
+            sid = f"s{index}-{uuid.uuid4().hex[:8]}"
+            section["id"] = sid
         _require(sid not in seen, f"`id` de seção duplicado: {sid!r}.")
         seen.add(sid)
 
@@ -195,6 +308,10 @@ def _validate_note(data):
                 isinstance(section.get("html", ""), str),
                 f"`html` da seção {sid!r} deve ser texto.",
             )
+        elif kind == "checklist":
+            _validate_checklist_section(section, sid)
+        elif kind == "table":
+            _validate_table_section(section, sid)
         else:
             _require(
                 isinstance(section.get("code", ""), str),
@@ -385,20 +502,33 @@ def validate_data(kind, data):
 # Extração de texto para a busca
 # --------------------------------------------------------------------------
 
-def extract_text(kind, data):
+def extract_text(kind, data, content=""):
     """Texto pesquisável de dentro do payload."""
     if not isinstance(data, dict):
-        return ""
+        # Arquivos guardam o texto extraído em `content`, não em `data`.
+        return content or ""
 
     parts = []
     if kind == "note":
         for section in data.get("sections") or []:
             if not isinstance(section, dict):
                 continue
-            if section.get("type") == "code":
+            tipo = section.get("type")
+            if tipo == "code":
                 if section.get("title"):
                     parts.append(str(section["title"]))
                 parts.append(str(section.get("code", "")))
+            elif tipo == "checklist":
+                # O texto do item entra na busca; o `done` não. Procurar
+                # por "comprar" tem que achar a lista tendo ela sido
+                # concluída ou não.
+                for item in section.get("items") or []:
+                    if isinstance(item, dict):
+                        parts.append(str(item.get("text", "")))
+            elif tipo == "table":
+                for row in section.get("rows") or []:
+                    if isinstance(row, list):
+                        parts.extend(str(c) for c in row)
             else:
                 parts.append(_TAG_RE.sub(" ", str(section.get("html", ""))))
         return _WS_RE.sub(" ", " ".join(parts)).strip()

@@ -13,9 +13,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from content.models import Document
+from core.validators import uuids_validos
 from organization.models import Category, Folder
 from planner.models import Task
 
+from .fts import filtrar_e_ordenar, ids_por_relevancia
 from .serializers import GlobalSearchResponseSerializer, SearchFacetsResponseSerializer
 
 #: Tipos aceitos em ?type= — os cinco de documento mais pasta e tarefa.
@@ -31,7 +33,19 @@ _DOCUMENT_UI = {
     Document.Kind.CANVAS: ("layout-dashboard", "/canvas"),
 }
 
-MAX_PER_TYPE = 50
+#: Teto do `?limit=`. Era 50, e o cliente nem mandava o parâmetro: o
+#: resultado 21 já era inalcançável, sem nenhuma forma de chegar nele.
+#:
+#: O "carregar mais" SOBE o limite e refaz a busca, em vez de pedir a
+#: página seguinte. Os três ramos (documento, pasta, tarefa) são fatiados
+#: separadamente e mesclados em memória, então um `offset` por tipo
+#: produziria página com item repetido ou faltando na emenda. Subir o
+#: teto devolve sempre um superconjunto correto do que já estava na tela.
+#:
+#: ponytail: refaz a busca inteira a cada "carregar mais". Num banco
+#: local com índice FTS isso é barato; se um dia custar, aí sim vale
+#: paginar de verdade — e a conta certa é fatiar DEPOIS da mesclagem.
+MAX_PER_TYPE = 200
 
 # --------------------------------------------------------------------------
 # Relevância
@@ -96,14 +110,22 @@ class GlobalSearchView(APIView):
         term = params.get("q", "").strip()
         raw_types = params.getlist("type") or params.getlist("type[]")
         types = [t for t in raw_types if t in ITEM_TYPES] or list(ITEM_TYPES)
-        category_ids = params.getlist("category") or params.getlist("category[]")
+        # Id inválido é descartado em vez de derrubar a busca inteira: a
+        # lista vem da query string, e um link antigo com uma categoria já
+        # apagada não pode virar 500 na tela de buscar.
+        category_ids = uuids_validos(
+            params.getlist("category") or params.getlist("category[]")
+        )
         status_filter = params.get("status", "").strip()
         date_from = parse_date(params.get("date_from", "") or "")
         date_to = parse_date(params.get("date_to", "") or "")
 
         try:
-            limit = min(int(params.get("limit", 20)), MAX_PER_TYPE)
-        except ValueError:
+            # `max(1, ...)` e não só o teto: `?limit=-5` virava `qs[:-5]`,
+            # que o Django recusa com ValueError — 500 numa busca por um
+            # número que o usuário nem digita, ele vem da URL.
+            limit = max(1, min(int(params.get("limit", 20)), MAX_PER_TYPE))
+        except (TypeError, ValueError):
             limit = 20
 
         ctx = {
@@ -144,6 +166,11 @@ class GlobalSearchView(APIView):
                 "query": term,
                 "counts": counts,
                 "total": sum(counts.values()),
+                # `limit` volta na resposta para o cliente saber de onde
+                # subir no "carregar mais"; `has_more` poupa ele de
+                # comparar `total` com um resultado já mesclado e cortado.
+                "limit": limit,
+                "has_more": sum(counts.values()) > len(results),
                 "results": results,
             }
         )
@@ -152,7 +179,7 @@ class GlobalSearchView(APIView):
     # Filtros comuns
     # ------------------------------------------------------------------
     @staticmethod
-    def _apply_common(qs, ctx, category_field="categories"):
+    def _apply_common(qs, ctx, category_field="categories", extra_category_field=None):
         # Um lugar só para o corte da lixeira. As três buscas (documento,
         # pasta, tarefa) passam por aqui, e cada uma monta o queryset a
         # partir de `Model.objects`, que enxerga tudo — sem isto a busca
@@ -164,7 +191,15 @@ class GlobalSearchView(APIView):
         if ctx["date_to"]:
             qs = qs.filter(created_at__date__lte=ctx["date_to"])
         if ctx["category_ids"]:
-            qs = qs.filter(**{f"{category_field}__id__in": ctx["category_ids"]}).distinct()
+            # Documento tem duas ligações com categoria: a HERDADA da pasta
+            # (onde ele mora) e as ETIQUETAS dele (o que ele é). Filtrar só
+            # pela herdada deixaria de fora justamente a nota que o usuário
+            # etiquetou à mão. Pasta e tarefa têm só uma, e o `extra` fica
+            # vazio para elas.
+            filtro = Q(**{f"{category_field}__id__in": ctx["category_ids"]})
+            if extra_category_field:
+                filtro |= Q(**{f"{extra_category_field}__id__in": ctx["category_ids"]})
+            qs = qs.filter(filtro).distinct()
         return qs
 
     @staticmethod
@@ -181,18 +216,39 @@ class GlobalSearchView(APIView):
             .loose()
             .select_related("folder", "folder__category")
         )
-        qs = self._apply_common(qs, ctx, category_field="folder__category")
+        qs = self._apply_common(
+            qs, ctx, category_field="folder__category", extra_category_field="categories"
+        )
         if ctx["status"] in Document.Status.values:
             qs = qs.filter(status=ctx["status"])
 
         if ctx["term"]:
-            # `search_text` guarda o texto extraído do payload, então a
-            # planilha e o diagrama são achados pelo próprio conteúdo, e
-            # não só pelo título.
-            qs = qs.filter(
-                Q(title__icontains=ctx["term"]) | Q(search_text__icontains=ctx["term"])
-            )
-        qs = ranked(qs, ctx["term"])
+            # Índice FTS5 no lugar do `LIKE '%termo%'` sobre `search_text`
+            # (até 20 000 caracteres por documento, varridos a cada busca).
+            # O índice cobre título e corpo, então planilha e diagrama
+            # continuam sendo achados pelo próprio conteúdo.
+            # `None` significa que o termo não tinha nenhuma palavra —
+            # alguém digitou `***`, `?` ou só um emoji. Ia direto para o
+            # `id__in=None` e derrubava a busca inteira com 500.
+            #
+            # Vira lista vazia, ou seja "nada encontrado", e não "mostra
+            # tudo": é o que pasta e tarefa já respondem para o mesmo
+            # termo, e é a resposta honesta para quem procurou algo que
+            # não dá para procurar.
+            ids = ids_por_relevancia(ctx["term"]) or []
+            qs = qs.filter(id__in=ids)
+            # A ordem vem do bm25 e se perde no `IN`. Reimpô-la com um CASE
+            # mantém o ranking sem trazer tudo para a memória — ordenar em
+            # Python erraria justamente os resultados fora da 1ª página.
+            qs = qs.annotate(
+                score=Case(
+                    *[When(id=doc_id, then=Value(float(-i))) for i, doc_id in enumerate(ids)],
+                    default=Value(0.0),
+                    output_field=FloatField(),
+                )
+            ).order_by("-score")
+        else:
+            qs = ranked(qs, ctx["term"])
 
         per_kind = dict.fromkeys(kinds, 0)
         for row in qs.order_by().values("kind").annotate(total=Count("id")):
@@ -224,12 +280,13 @@ class GlobalSearchView(APIView):
     def _search_folders(self, ctx):
         qs = Folder.objects.filter(owner=ctx["user"]).select_related("category")
         qs = self._apply_common(qs, ctx, category_field="category")
-        if ctx["term"]:
-            qs = qs.filter(
-                Q(name__icontains=ctx["term"]) | Q(description__icontains=ctx["term"])
-            )
-        total = qs.count()
+        # `icontains` do SQLite não ignora acento: buscar "calculo" achava
+        # a NOTA "Cálculo III" (que tem índice FTS) e não achava a PASTA de
+        # mesmo nome. Filtrar em Python iguala as duas — a tabela já vem
+        # cortada por dono, data e categoria.
         qs = ranked(qs, ctx["term"], field="name")
+        encontradas = filtrar_e_ordenar(qs, ctx["term"], "name", ("description",))
+        total = len(encontradas)
         items = [
             {
                 "type": "folder",
@@ -244,7 +301,7 @@ class GlobalSearchView(APIView):
                 "updated_at": f.updated_at.isoformat(),
                 "score": f.score,
             }
-            for f in qs[: ctx["limit"]]
+            for f in encontradas[: ctx["limit"]]
         ]
         return items, total
 
@@ -256,12 +313,10 @@ class GlobalSearchView(APIView):
         qs = self._apply_common(qs, ctx)
         if ctx["status"] in Task.Status.values:
             qs = qs.filter(status=ctx["status"])
-        if ctx["term"]:
-            qs = qs.filter(
-                Q(title__icontains=ctx["term"]) | Q(description__icontains=ctx["term"])
-            )
-        total = qs.count()
+        # Mesma razão das pastas: sem acento tem que achar com acento.
         qs = ranked(qs, ctx["term"])
+        encontradas = filtrar_e_ordenar(qs, ctx["term"], "title", ("description",))
+        total = len(encontradas)
         items = [
             {
                 "type": "task",
@@ -276,7 +331,7 @@ class GlobalSearchView(APIView):
                 "updated_at": t.updated_at.isoformat(),
                 "score": t.score,
             }
-            for t in qs[: ctx["limit"]]
+            for t in encontradas[: ctx["limit"]]
         ]
         return items, total
 

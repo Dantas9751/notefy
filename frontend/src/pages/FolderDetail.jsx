@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ChevronRight,
+  Download,
   FileUp,
   FolderOpen,
   FolderPlus,
@@ -12,8 +13,10 @@ import {
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
+import { useTabState } from '@/context/TabsContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
+import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
@@ -23,18 +26,29 @@ import FavoriteButton from '@/components/FavoriteButton'
 import CreateMenu from '@/components/layout/CreateMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { exportBatchAsZip } from '@/components/ExportMenu'
+import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 import {
   canDrop,
   hasFilePayload,
   hasItemPayload,
+  limparDragPayload,
   readDragPayload,
   setDragPayload,
 } from '@/lib/dnd'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import { TASK_STATUS, cn, formatRelative } from '@/lib/utils'
 
-export default function FolderDetail() {
-  const { id } = useParams()
+/**
+ * Terceiro nível da navegação: os itens de uma pasta.
+ *
+ * Aceita `id` por prop para o painel lateral do split — lá dentro
+ * `useParams()` devolveria o id da rota principal, não o do painel.
+ */
+export default function FolderDetail({ id: idProp }) {
+  const params = useParams()
+  const id = idProp ?? params.id
+  const emPainel = !!idProp
   const navigate = useNavigate()
   const { refresh } = useWorkspace()
   const { menu, openMenu, closeMenu } = useContextMenu()
@@ -44,8 +58,13 @@ export default function FolderDetail() {
     { deps: [id] },
   )
 
+  // Nome real da pasta como título da aba; desligado no painel lateral.
+  useTabState({ title: data?.folder?.name ?? 'Pasta', enabled: !emPainel })
+
+  const renomear = useRenomear({ onRenamed: refetch })
   const { buildMenu, dialogs } = useDocumentActions({
     onChanged: refetch,
+    onRename: (doc) => renomear.abrir(doc.id),
   })
 
   const [folderModal, setFolderModal] = useState(null)
@@ -56,6 +75,17 @@ export default function FolderDetail() {
   const [confirmarLote, setConfirmarLote] = useState(null)
 
   const fileInputRef = useRef(null)
+
+  //: Upload com aviso de nome duplicado (estilo OneDrive): a pasta de
+  //: destino já está carregada nesta tela, então o hook não precisa
+  //: buscá-la de novo.
+  const { iniciar: iniciarUpload, Modal: ModalDeConflito } = useUploadComConflitos({
+    onEnviado: () => {
+      refetch()
+      refresh()
+    },
+    onErro: setUploadError,
+  })
 
   const {
     folder,
@@ -79,6 +109,8 @@ export default function FolderDetail() {
 
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
+
+  useF2(renomear, selectedIds)
 
   const {
     requestDelete,
@@ -112,24 +144,14 @@ export default function FolderDetail() {
     return () => clearTimeout(timer)
   }, [uploadError])
 
-  const upload = async (files) => {
+  const upload = (files) => {
     if (!files.length) return
     setUploadError(null)
-    try {
-      const body = new FormData()
-      files.forEach((file) => {
-        body.append('files', file)
-      })
-      body.append('folder', id)
-      await api.post('/documents/upload/', body)
-      refetch()
-      refresh()
-    } catch (err) {
-      setUploadError(extractError(err))
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+    // A lista de documentos da pasta já está em mãos — o conflito de
+    // nomes é decidido contra ela.
+    iniciarUpload(files, id, data?.documents ?? [])
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
@@ -270,11 +292,58 @@ export default function FolderDetail() {
     setConfirmarLote(selectedIds.length)
   }
 
+  /** Baixa os selecionados como ZIP, cada um no formato padrão. */
+  const handleBulkExport = async () => {
+    if (selectedIds.length === 0) return
+    setUploadError(null)
+
+    const documentos = []
+    for (const selectionKey of selectedIds) {
+      const { type: itemType, id: itemId } = parseKey(selectionKey)
+
+      try {
+        if (itemType === 'document') {
+          const { data } = await api.get(`/documents/${itemId}/`)
+          documentos.push(data)
+        } else if (itemType === 'folder') {
+          // A subpasta vira as suas folhas soltas (mesmo critério da
+          // sidebar): uma pasta vazia no zip seria um zero no lugar do
+          // conteúdo que o usuário mandou baixar.
+          const { data } = await api.get(`/folders/${itemId}/contents/`)
+          for (const doc of data.documents ?? []) {
+            const completo = await api.get(`/documents/${doc.id}/`)
+            documentos.push(completo.data)
+          }
+        }
+      } catch {
+        // Item que falha não derruba o lote: melhor um zip com o que deu
+        // certo do que nenhum arquivo por causa de um item quebrado.
+      }
+    }
+
+    if (!documentos.length) {
+      setUploadError('Nada para exportar na seleção.')
+      return
+    }
+
+    try {
+      await exportBatchAsZip(documentos)
+    } catch (err) {
+      setUploadError(extractError(err))
+    }
+  }
+
   const subfolderMenu = (payload) => {
     const { sub, isMultiple } = payload
 
     if (isMultiple) {
       return [
+        {
+          label: `Exportar (${selectedIds.length}) como .zip`,
+          icon: Download,
+          onClick: handleBulkExport,
+        },
+        { separator: true },
         {
           label: `Excluir (${selectedIds.length} selecionados)`,
           icon: Trash2,
@@ -349,6 +418,12 @@ export default function FolderDetail() {
     if (payload.isMultiple) {
       return [
         {
+          label: `Exportar (${selectedIds.length}) como .zip`,
+          icon: Download,
+          onClick: handleBulkExport,
+        },
+        { separator: true },
+        {
           label: `Excluir (${selectedIds.length} selecionados)`,
           icon: Trash2,
           danger: true,
@@ -364,23 +439,30 @@ export default function FolderDetail() {
     <div
       onDragEnter={(event) => {
         if (!hasFilePayload(event) && !hasItemPayload(event)) return
-
         event.preventDefault()
-
-        setDragging(
-          hasFilePayload(event)
-            ? 'file'
-            : 'item',
-        )
+        if (hasFilePayload(event)) {
+          setDragging('file')
+          return
+        }
+        // Realce só quando o gesto muda algo de fato: item que já mora
+        // nesta pasta (ou pasta sobre si mesma/descendente) fica sem
+        // fundo. Sem payload legível durante o arraste, mostra mesmo
+        // assim — a restrição continua valendo no drop.
+        const payload = readDragPayload(event)
+        if (payload && !canDrop(payload, target)) return
+        setDragging('item')
       }}
       onDragOver={(event) => {
         if (hasFilePayload(event)) {
           event.preventDefault()
           setDragging('file')
-        } else if (hasItemPayload(event)) {
-          event.preventDefault()
-          setDragging('item')
+          return
         }
+        if (!hasItemPayload(event)) return
+        event.preventDefault()
+        const payload = readDragPayload(event)
+        if (payload && !canDrop(payload, target)) return
+        setDragging('item')
       }}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -607,7 +689,7 @@ export default function FolderDetail() {
           <EmptyState
             icon={FolderOpen}
             title="Pasta vazia"
-            description="Use “Criar” para uma nota, planilha, diagrama ou canvas — ou arraste arquivos para cá."
+            description="Use “Criar” para uma nota, planilha, diagrama ou canvas, ou arraste arquivos para cá."
             action={
               <div className="flex w-full justify-center">
                 <CreateMenu
@@ -622,7 +704,7 @@ export default function FolderDetail() {
 
         {subfolders.length > 0 && (
           <section>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-400">
+            <h2 className="mb-3 secao">
               Subpastas
             </h2>
 
@@ -646,6 +728,7 @@ export default function FolderDetail() {
                         path: sub.path,
                       })
                     }
+                    onDragEnd={() => limparDragPayload()}
                     onClickCapture={(event) =>
                       handleClick(selectionKey, event, () =>
                         navigate(`/folders/${sub.id}`),
@@ -674,7 +757,7 @@ export default function FolderDetail() {
                     />
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-ink-900 dark:text-ink-100">
+                      <p className="titulo truncate text-[15px]">
                         {sub.name}
                       </p>
 
@@ -698,7 +781,7 @@ export default function FolderDetail() {
 
         {visible.length > 0 && (
           <section>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-400">
+            <h2 className="mb-3 secao">
               {kindFilter
                 ? kindMeta(kindFilter).plural
                 : 'Conteúdo'}
@@ -728,6 +811,17 @@ export default function FolderDetail() {
                   >
                     <DocumentCard
                       document={doc}
+                      selecionado={selecionado}
+                      renomeando={renomear.estaEditando(doc.id)}
+                      onRename={() => renomear.abrir(doc.id)}
+                      erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                      camposDeRenomear={propsDoCampo({
+                        valorAtual: doc.title,
+                        endpoint: `/documents/${doc.id}/`,
+                        campo: 'title',
+                        gravar: renomear.gravar,
+                        fechar: renomear.fechar,
+                      })}
                       className={cn(
                         selecionado &&
                           'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
@@ -742,7 +836,7 @@ export default function FolderDetail() {
 
         {tasks.length > 0 && (
           <section>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-400">
+            <h2 className="mb-3 secao">
               Tarefas
             </h2>
 
@@ -851,6 +945,7 @@ export default function FolderDetail() {
 
       {deleteDialogs}
       {dialogs}
+      {ModalDeConflito}
     </div>
   )
 }

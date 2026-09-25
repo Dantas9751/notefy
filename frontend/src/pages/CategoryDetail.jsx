@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ChevronRight, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
+import { ChevronRight, Download, FolderOpen, FolderPlus, Pencil, Trash2, X } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
+import { exportFolderAsZip } from '@/components/ExportMenu'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
+import { useTabState } from '@/context/TabsContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
@@ -11,14 +13,22 @@ import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { canDrop, hasItemPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import { canDrop, hasItemPayload, limparDragPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
 import { cn, formatRelative } from '@/lib/utils'
 
 /**
  * Segundo nível da navegação: as pastas de uma categoria.
+ *
+ * Aceita `id` por prop para o painel lateral do split: lá dentro o React
+ * Router continua apontando para a rota da ESQUERDA, e `useParams()`
+ * devolveria o id do documento principal — o painel mostraria a categoria
+ * errada.
  */
-export default function CategoryDetail() {
-  const { id } = useParams()
+export default function CategoryDetail({ id: idProp }) {
+  const params = useParams()
+  const id = idProp ?? params.id
+  const emPainel = !!idProp
   const navigate = useNavigate()
   const { refresh } = useWorkspace()
   const { menu, openMenu, closeMenu } = useContextMenu()
@@ -27,20 +37,33 @@ export default function CategoryDetail() {
     deps: [id],
   })
 
+  // Título da aba: categoria abre como aba própria, e o nome real
+  // substitui o "Categoria" padrão. No painel lateral o router pertence
+  // à esquerda, então a aba não é mexida (enabled: false).
+  useTabState({ title: data?.category?.name ?? 'Categoria', enabled: !emPainel })
+
   const [folderModal, setFolderModal] = useState(null)
   const [categoryModal, setCategoryModal] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
   const [bulkError, setBulkError] = useState(null)
   //: Ids aguardando confirmação de exclusão em lote.
   const [confirmarLote, setConfirmarLote] = useState(null)
 
-  // Estados para Multi-Seleção
-  const [selectedIds, setSelectedIds] = useState([])
-  const lastSelectedId = useRef(null)
+  // Seleção múltipla: o mesmo hook das outras listas. A cópia que morava
+  // aqui esquecia de mover a âncora depois do Shift (o intervalo seguinte
+  // saía do item errado) e não tinha Esc — dois comportamentos que a tela
+  // de pastas e a busca já tinham. Chave = id da pasta: a lista é de um
+  // tipo só, não há colisão a desempatar.
+  const {
+    selected: selectedIds,
+    isSelected,
+    clear: limparSelecao,
+    handleClick,
+    handleContextMenu: selecionarParaMenu,
+  } = useMultiSelect((data?.folders ?? []).map((f) => f.id))
 
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
     onDeleted: () => {
-      setSelectedIds([])
+      limparSelecao()
       refetch()
       refresh()
     },
@@ -48,17 +71,6 @@ export default function CategoryDetail() {
       setBulkError(message)
     },
   })
-
-  // Atalho Tecla ESC para limpar seleções
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setSelectedIds([])
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
 
   // Mover algo pela sidebar pode ter tirado (ou trazido) uma pasta daqui.
   useEffect(() => {
@@ -96,46 +108,13 @@ export default function CategoryDetail() {
   const { category, folders = [] } = data ?? {}
   const target = { type: 'category', id }
 
-  // Lógica de Clique com Ctrl/Cmd e Shift perfeitamente fluida
-  const handleFolderClick = (folder, event) => {
-    const list = folders.map((f) => f.id)
-
-    if (event.ctrlKey || event.metaKey) {
-      setSelectedIds((prev) =>
-        prev.includes(folder.id) ? prev.filter((i) => i !== folder.id) : [...prev, folder.id]
-      )
-      lastSelectedId.current = folder.id
-    } else if (event.shiftKey) {
-      event.preventDefault() // Impede de selecionar texto fantasma na tela
-      
-      // Se não clicou em nada antes, pega o primeiro item da lista como base
-      const startId = lastSelectedId.current || list[0]
-      const lastIndex = list.indexOf(startId)
-      const currentIndex = list.indexOf(folder.id)
-
-      if (lastIndex !== -1 && currentIndex !== -1) {
-        const start = Math.min(lastIndex, currentIndex)
-        const end = Math.max(lastIndex, currentIndex)
-        const rangeIds = list.slice(start, end + 1)
-        setSelectedIds((prev) => Array.from(new Set([...prev, ...rangeIds])))
-      } else {
-        setSelectedIds([folder.id])
-      }
-    } else {
-      setSelectedIds([folder.id])
-      lastSelectedId.current = folder.id
-      navigate(`/folders/${folder.id}`)
-    }
-  }
+  const handleFolderClick = (folder, event) =>
+    handleClick(folder.id, event, () => navigate(`/folders/${folder.id}`))
 
   const handleContextMenu = (folder, event) => {
     event.preventDefault()
-    let currentSelected = selectedIds
-    if (!selectedIds.includes(folder.id)) {
-      currentSelected = [folder.id]
-      setSelectedIds([folder.id])
-    }
-    openMenu(event, { folder, isMultiple: currentSelected.length > 1 })
+    const quantos = selecionarParaMenu(folder.id)
+    openMenu(event, { folder, isMultiple: quantos > 1 })
   }
 
   const handleBulkDelete = () => {
@@ -200,7 +179,7 @@ export default function CategoryDetail() {
     }
 
     setConfirmarLote(null)
-    setSelectedIds([])
+    limparSelecao()
 
     if (bloqueados.length) {
       setBulkError(
@@ -213,11 +192,73 @@ export default function CategoryDetail() {
     window.dispatchEvent(new Event('notefy:moved'))
   }
 
+  /** Busca o conteúdo de um nível da pasta (sem subpastas). */
+  const coletarPasta = async (folderId) => {
+    const { data } = await api.get(`/folders/${folderId}/contents/`)
+
+    // `contents/` devolve um nível. Buscar o payload de cada documento é
+    // o que permite converter para .md/.csv em vez de gravar um JSON de
+    // metadados que ninguém consegue abrir.
+    const documentos = []
+    for (const doc of data.documents ?? []) {
+      try {
+        const completo = await api.get(`/documents/${doc.id}/`)
+        documentos.push(completo.data)
+      } catch {
+        /* item ignorado */
+      }
+    }
+
+    return { name: data.folder.name, documents: documentos, children: [] }
+  }
+
+  /** Baixa uma pasta inteira como ZIP — mesmo fluxo da sidebar. */
+  const handleFolderExport = async (folder) => {
+    setBulkError(null)
+    try {
+      await exportFolderAsZip([await coletarPasta(folder.id)])
+    } catch (err) {
+      setBulkError(extractError(err))
+    }
+  }
+
+  /** Baixa as pastas selecionadas num ZIP só, um nível de cada. */
+  const handleBulkExport = async () => {
+    if (selectedIds.length === 0) return
+    setBulkError(null)
+
+    const arvore = []
+    for (const folderId of selectedIds) {
+      try {
+        arvore.push(await coletarPasta(folderId))
+      } catch {
+        // Pasta que falha não derruba o lote.
+      }
+    }
+
+    if (!arvore.length) {
+      setBulkError('Nada para exportar na seleção.')
+      return
+    }
+
+    try {
+      await exportFolderAsZip(arvore)
+    } catch (err) {
+      setBulkError(extractError(err))
+    }
+  }
+
   const folderMenu = (payload) => {
     const { folder, isMultiple } = payload
 
     if (isMultiple) {
       return [
+        {
+          label: `Exportar (${selectedIds.length}) como .zip`,
+          icon: Download,
+          onClick: handleBulkExport,
+        },
+        { separator: true },
         {
           label: `Excluir (${selectedIds.length} selecionadas)`,
           icon: Trash2,
@@ -241,6 +282,12 @@ export default function CategoryDetail() {
         onClick: () => setFolderModal({ folder, categoryId: id }),
       },
       {
+        label: 'Exportar como .zip',
+        icon: Download,
+        onClick: () => handleFolderExport(folder),
+      },
+      { separator: true },
+      {
         label: 'Excluir',
         icon: Trash2,
         danger: true,
@@ -254,15 +301,12 @@ export default function CategoryDetail() {
   return (
     <div
       onDragOver={(event) => {
-        if (!hasItemPayload(event)) return
-        event.preventDefault()
-        setDragOver(true)
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false)
+        // Sem preventDefault o navegador marca o drop como inválido e o
+        // onDrop nunca dispara. O realce ficou de fora de propósito: a
+        // página inteira como "zona" confundia o gesto.
+        if (hasItemPayload(event)) event.preventDefault()
       }}
       onDrop={async (event) => {
-        setDragOver(false)
         const payload = readDragPayload(event)
         if (!canDrop(payload, target)) return
         event.preventDefault()
@@ -270,7 +314,7 @@ export default function CategoryDetail() {
         refetch()
         refresh()
       }}
-      className={cn('min-h-full pb-20', dragOver && 'ring-2 ring-inset ring-accent-400')}
+      className="min-h-full pb-20"
     >
       <PageHeader
         title={category?.name}
@@ -315,7 +359,7 @@ export default function CategoryDetail() {
         {folders.length ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {folders.map((folder) => {
-              const isSelected = selectedIds.includes(folder.id)
+              const selecionada = isSelected(folder.id)
               return (
                 <article
                   key={folder.id}
@@ -330,17 +374,14 @@ export default function CategoryDetail() {
                       isRoot: true,
                     })
                   }
+                  onDragEnd={() => limparDragPayload()}
                   onClick={(e) => handleFolderClick(folder, e)}
                   onContextMenu={(e) => handleContextMenu(folder, e)}
                   className={cn(
                     'card group flex cursor-pointer items-start gap-3 p-4 active:cursor-grabbing transition',
-                    isSelected && 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10'
+                    selecionada && 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10'
                   )}
-                  style={
-                    folder.color
-                      ? { borderLeftColor: folder.color, borderLeftWidth: 3 }
-                      : undefined
-                  }
+
                 >
                   <FolderOpen
                     size={18}
@@ -348,7 +389,7 @@ export default function CategoryDetail() {
                     style={folder.color ? { color: folder.color } : undefined}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-ink-900 group-hover:text-accent-700 dark:text-ink-100 dark:group-hover:text-accent-300">
+                    <p className="titulo truncate text-[15px] group-hover:text-accent-700 dark:group-hover:text-accent-300">
                       {folder.name}
                     </p>
                     {folder.description && (
@@ -396,7 +437,7 @@ export default function CategoryDetail() {
             <Trash2 size={14} /> Excluir
           </button>
           <button
-            onClick={() => setSelectedIds([])}
+            onClick={limparSelecao}
             className="rounded p-1 text-ink-400 transition hover:text-white"
             title="Limpar seleção"
           >

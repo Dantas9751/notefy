@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import i18n, { IDIOMA_KEY, idiomaSalvo } from '@/lib/i18n'
 import { ACCENT_PADRAO, aplicarAccent, corValida } from '@/lib/accent'
 
 const UIContext = createContext(null)
@@ -21,7 +20,6 @@ export function UIProvider({ children }) {
     const guardado = localStorage.getItem(ACCENT_KEY)
     return corValida(guardado) ? guardado : ACCENT_PADRAO
   })
-  const [language, setLanguageState] = useState(idiomaSalvo)
   // Modo zen: some com a sidebar e os cabecalhos para sobrar so o
   // conteudo. Persistido porque quem escreve muito quer entrar no app ja
   // dentro dele, sem reativar toda vez.
@@ -58,11 +56,17 @@ export function UIProvider({ children }) {
     document.documentElement.classList.toggle('zen', zen)
   }, [zen])
 
+  // `-u-hc-h23` obriga o relógio de 24 horas nos campos nativos de data
+  // e hora. Sem a extensão, o navegador segue o formato do SISTEMA
+  // OPERACIONAL e mostra AM/PM mesmo com a página em português, e não há
+  // outra forma de mandar nisso por CSS ou atributo.
+  //
+  // Está no `index.html` como atributo estático e aqui de novo porque o
+  // React não mexe no <html>: esta linha é só a garantia de que ninguém
+  // perdeu o atributo numa edição do template.
   useEffect(() => {
-    localStorage.setItem(IDIOMA_KEY, language)
-    i18n.changeLanguage(language)
-    document.documentElement.lang = language
-  }, [language])
+    document.documentElement.lang = 'pt-BR-u-hc-h23'
+  }, [])
 
   const toggleSidebar = useCallback(() => setSidebarCollapsed((v) => !v), [])
   const toggleZen = useCallback(() => setZen((v) => !v), [])
@@ -85,8 +89,6 @@ export function UIProvider({ children }) {
       toggleZen,
       accent,
       setAccent,
-      language,
-      setLanguage: setLanguageState,
     }),
     [
       sidebarCollapsed,
@@ -97,7 +99,6 @@ export function UIProvider({ children }) {
       toggleZen,
       accent,
       setAccent,
-      language,
     ],
   )
 

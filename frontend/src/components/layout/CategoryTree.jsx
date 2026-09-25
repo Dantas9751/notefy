@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   ChevronRight,
@@ -10,43 +10,16 @@ import {
   Trash2,
 } from 'lucide-react'
 import { ColorDot } from '@/components/ui'
-import { canDrop, hasItemPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
+import { canDrop, hasItemPayload, limparDragPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
 import { cn } from '@/lib/utils'
+import { usePersistedSet } from '@/hooks/usePersistedSet'
+import { propsDoCampo } from '@/hooks/useRenomear'
 
 const EXPANDED_KEY = 'notefy.expanded'
 
-/**
- * Estado de expansão persistido.
- */
-function loadExpanded() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? '[]'))
-  } catch {
-    return new Set()
-  }
-}
-
+/** Estado de expansão persistido. */
 export function useExpanded() {
-  const [expanded, setExpanded] = useState(loadExpanded)
-
-  const toggle = useCallback((key) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      localStorage.setItem(EXPANDED_KEY, JSON.stringify([...next]))
-      return next
-    })
-  }, [])
-
-  const ensureOpen = useCallback((key) => {
-    setExpanded((prev) => {
-      if (prev.has(key)) return prev
-      const next = new Set(prev).add(key)
-      localStorage.setItem(EXPANDED_KEY, JSON.stringify([...next]))
-      return next
-    })
-  }, [])
-
+  const { values: expanded, toggle, ensureOpen } = usePersistedSet(EXPANDED_KEY)
   return { expanded, toggle, ensureOpen }
 }
 
@@ -98,6 +71,18 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
   // (pastas aninhadas, nós fechados no meio), então "tudo entre A e B" não
   // tem um significado que a pessoa consiga prever olhando a tela.
   const handleSelection = (e) => {
+    // Shift+clique num `<a>` é "abrir em nova janela" para o browser, e o
+    // router ignora clique com modificador — o pedido ia direto para o
+    // default e a pasta abria fora do app. Aqui nenhum modificador
+    // navega: eles são de seleção.
+    if (e.shiftKey) {
+      e.preventDefault()
+      e.currentTarget.blur()
+      // Árvore aninhada não tem "tudo entre A e B" previsível (há nós
+      // fechados no meio), então Shift marca só este item.
+      onSelectIds([selectionKey])
+      return
+    }
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault()
       // `preventDefault` segura o foco no link, e o `:focus-visible` global
@@ -140,6 +125,7 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             path: node.path,
           })
         }
+        onDragEnd={() => limparDragPayload()}
         onContextMenu={handleContextMenu}
         className={cn(
           'group flex items-center gap-0.5 rounded-md pr-1 transition outline-none',
@@ -177,9 +163,11 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
           onClick={handleSelection}
           className={({ isActive }) =>
             cn(
+              // Só cor e fundo mudam. Trocar o PESO da fonte fazia a
+              // palavra "engordar" e reflowar ao marcar — parecia bug.
               'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-1 text-sm transition outline-none focus:outline-none focus:ring-0',
               isActive || isSelected
-                ? 'font-medium text-accent-700 dark:text-accent-300'
+                ? 'text-accent-700 dark:text-accent-300'
                 : 'text-ink-600 dark:text-ink-300',
             )
           }
@@ -189,7 +177,23 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             className="shrink-0"
             style={accent ? { color: accent } : undefined}
           />
-          <span className="truncate">{node.name}</span>
+          {actions.renomear?.estaEditando(node.id) ? (
+            // Campo no lugar do nome, dentro da própria linha da árvore.
+            // O modal de pasta continua existindo para cor e descrição —
+            // trocar só o nome não merece um formulário inteiro.
+            <input
+              {...propsDoCampo({
+                valorAtual: node.name,
+                endpoint: `/folders/${node.id}/`,
+                campo: 'name',
+                gravar: actions.renomear.gravar,
+                fechar: actions.renomear.fechar,
+              })}
+              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+            />
+          ) : (
+            <span className="truncate">{node.name}</span>
+          )}
           {node.is_favorite && <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />}
           {node.document_count > 0 && (
             <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-400">
@@ -298,7 +302,20 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
           }
         >
           <ColorDot color={category.color} size={9} />
-          <span className="truncate font-medium">{category.name}</span>
+          {actions.renomear?.estaEditando(category.id) ? (
+            <input
+              {...propsDoCampo({
+                valorAtual: category.name,
+                endpoint: `/categories/${category.id}/`,
+                campo: 'name',
+                gravar: actions.renomear.gravar,
+                fechar: actions.renomear.fechar,
+              })}
+              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm font-medium outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+            />
+          ) : (
+            <span className="truncate font-medium">{category.name}</span>
+          )}
           {category.document_count > 0 && (
             <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-400">
               {category.document_count}

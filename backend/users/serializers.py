@@ -1,6 +1,9 @@
 from django.contrib.auth import get_user_model, password_validation
 from django.db import transaction
+from django.core.validators import URLValidator
 from rest_framework import serializers
+
+from core.validators import validar_endereco_de_ia
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
     TokenObtainPairSerializer,
@@ -21,6 +24,31 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
         min_value=10, max_value=80, required=False
     )
 
+    # A chave de IA é write-only: o GET não devolve a chave, só se ela
+    # existe. Enviar a chave de novo no PATCH sobrescreve; enviar vazio
+    # remove. Sem isso a chave vazaria no /me/ e no backup de preferências.
+    ai_provider = serializers.ChoiceField(
+        choices=UserPreferences.AIProvider.choices, required=False, allow_blank=True
+    )
+    ai_key = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, trim_whitespace=True
+    )
+    ai_model = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=True, max_length=64
+    )
+    ai_base_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        max_length=300,
+        # `URLField` aceita ftp/ftps por padrão; nenhum gateway de IA
+        # fala nisso, e o backend faz a requisição levando a chave junto.
+        validators=[URLValidator(schemes=["http", "https"]), validar_endereco_de_ia],
+    )
+    ai_key_set = serializers.SerializerMethodField()
+
+    def get_ai_key_set(self, obj):
+        return bool(obj.ai_key)
+
     class Meta:
         model = UserPreferences
         fields = (
@@ -33,6 +61,11 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "canvas_pen_size",
             "canvas_highlighter_opacity",
             "canvas_eraser_radius",
+            "ai_provider",
+            "ai_key",
+            "ai_model",
+            "ai_base_url",
+            "ai_key_set",
         )
 
 

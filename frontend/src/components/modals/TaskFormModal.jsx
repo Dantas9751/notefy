@@ -3,6 +3,8 @@ import api from '@/lib/api'
 import { useFetch, useMutation } from '@/hooks/useFetch'
 import { useWorkspace, flattenFolders } from '@/context/WorkspaceContext'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
+import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
+import { OPCOES as RECORRENCIAS } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS } from '@/lib/utils'
 
 /** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
@@ -24,6 +26,7 @@ const EMPTY = {
   starts_at: '',
   ends_at: '',
   all_day: false,
+  recurrence_rule: '',
   folder: '',
   document: '',
 }
@@ -51,9 +54,17 @@ export default function TaskFormModal({
             description: task.description ?? '',
             status: task.status ?? 'todo',
             priority: task.priority ?? 1,
+            // `board` FALTAVA aqui. Sem ele o formulário abria com o campo
+            // vazio, o `<Select>` — que não tem opção vazia — exibia o
+            // primeiro quadro da lista, e salvar movia a tarefa para lá
+            // sem ninguém ter pedido. Quando o vazio chegava ao PATCH
+            // como null, o model reatribuía o quadro padrão (`Task.save`),
+            // que é a mesma mudança silenciosa por outro caminho.
+            board: task.board ?? '',
             starts_at: toLocalInput(task.starts_at),
             ends_at: toLocalInput(task.ends_at),
             all_day: task.all_day ?? false,
+            recurrence_rule: task.recurrence_rule ?? '',
             folder: task.folder ?? '',
             document: task.document ?? '',
           }
@@ -93,6 +104,13 @@ export default function TaskFormModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    // Data impossível (ano 0000, 31 de fevereiro) faz `toISOString()`
+    // lançar antes do envio, e o usuário via só "algo deu errado".
+    const problema = erroDoPeriodo(form.starts_at, form.ends_at)
+    if (problema) {
+      setError(problema)
+      return
+    }
     try {
       const { data } = await mutate(form)
       onSaved?.(data)
@@ -166,14 +184,23 @@ export default function TaskFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Início">
-            <Input type="datetime-local" value={form.starts_at} onChange={set('starts_at')} />
+            <Input
+              type="datetime-local"
+              value={form.starts_at}
+              min={DATA_MIN}
+              max={DATA_MAX}
+              step={60}
+              onChange={set('starts_at')}
+            />
           </Field>
           <Field label="Fim">
             <Input
               type="datetime-local"
               value={form.ends_at}
               onChange={set('ends_at')}
-              min={form.starts_at || undefined}
+              min={form.starts_at || DATA_MIN}
+              max={DATA_MAX}
+              step={60}
             />
           </Field>
         </div>
@@ -187,6 +214,27 @@ export default function TaskFormModal({
           />
           Dia inteiro
         </label>
+
+        <Field label="Repetir">
+          <Select value={form.recurrence_rule} onChange={set('recurrence_rule')}>
+            {RECORRENCIAS.map((opcao) => (
+              <option key={opcao.valor} value={opcao.valor}>
+                {opcao.rotulo}
+              </option>
+            ))}
+          </Select>
+          {/* A repetição nasce ao CONCLUIR, como no Todoist: a próxima só
+              aparece quando esta for marcada. Sem dizer isso, quem marca
+              "toda semana" numa tarefa sem data fica esperando algo que
+              nunca vem. */}
+          {form.recurrence_rule && (
+            <p className="mt-1 text-[11px] text-ink-400">
+              {form.starts_at
+                ? 'Ao concluir, a próxima é criada automaticamente.'
+                : 'Defina um início: a repetição precisa de uma data de onde partir.'}
+            </p>
+          )}
+        </Field>
 
         <Field label="Pasta">
           <Select value={form.folder} onChange={set('folder')}>

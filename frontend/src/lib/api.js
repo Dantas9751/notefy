@@ -37,20 +37,21 @@ api.interceptors.request.use((config) => {
 })
 
 /**
- * Fila de espera do refresh.
+ * Refresh compartilhado.
  *
  * Numa tela que dispara várias requisições em paralelo, todas podem tomar
- * 401 ao mesmo tempo. Sem esta fila, cada uma pediria um refresh — e com
- * ROTATE_REFRESH_TOKENS ligado no backend, o primeiro refresh invalida os
- * demais e o usuário cairia para a tela de login sem motivo.
+ * 401 ao mesmo tempo. Sem compartilhar a chamada, cada uma pediria um
+ * refresh — e com ROTATE_REFRESH_TOKENS ligado no backend, o primeiro
+ * refresh invalida os demais e o usuário cairia para a tela de login sem
+ * motivo.
+ *
+ * Quem chega no meio do caminho espera a MESMA promise, em vez de entrar
+ * numa fila de callbacks: a fila tinha uma janela de um microtask entre
+ * "já avisei todo mundo" e "já zerei a variável", e quem caísse ali dentro
+ * se inscrevia numa lista que ninguém mais ia percorrer — a requisição
+ * ficava pendurada para sempre, com o spinner na tela.
  */
 let refreshing = null
-const listeners = []
-
-function onRefreshed(token) {
-  listeners.forEach((cb) => cb(token))
-  listeners.length = 0
-}
 
 let onAuthFailure = () => {}
 export function setAuthFailureHandler(fn) {
@@ -85,12 +86,10 @@ api.interceptors.response.use(
         .post(`${BASE_URL}/auth/refresh/`, { refresh: refreshToken })
         .then(({ data }) => {
           tokenStore.set({ access: data.access, refresh: data.refresh })
-          onRefreshed(data.access)
           return data.access
         })
         .catch((err) => {
           tokenStore.clear()
-          onRefreshed(null)
           onAuthFailure()
           throw err
         })
@@ -99,33 +98,22 @@ api.interceptors.response.use(
         })
     }
 
-    const newToken = await new Promise((resolve) => {
-      listeners.push(resolve)
-      refreshing.catch(() => {})
-    })
-
+    let newToken
+    try {
+      newToken = await refreshing
+    } catch {
+      return Promise.reject(error)
+    }
     if (!newToken) return Promise.reject(error)
 
+    // O interceptor de request relê o token do storage; este header é o
+    // plano B para quando a escrita no localStorage falha (aba anônima,
+    // cota estourada) e a leitura volta vazia.
     config.headers.Authorization = `Bearer ${newToken}`
     return api(config)
   },
 )
 
-/** Achata os erros do DRF numa única mensagem legível. */
-export function extractError(error, fallback = 'Algo deu errado. Tente novamente.') {
-  const data = error?.response?.data
-  if (!data) return error?.message || fallback
-  if (typeof data === 'string') return data
-  if (data.detail) return data.detail
-  
-  const first = Object.entries(data)[0]
-  if (!first) return fallback
-  
-  const [, value] = first
-  const message = Array.isArray(value) ? value[0] : value
-  
-  // Retorna apenas a mensagem limpa, sem concatenar o nome do campo (field:)
-  return typeof message === 'string' ? message : fallback
-}
+export { extractError } from './erros'
 
 export default api

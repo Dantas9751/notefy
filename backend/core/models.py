@@ -72,8 +72,13 @@ class SoftDeleteQuerySet(models.QuerySet):
         Sem isto, `qs.delete()` apagaria de verdade e a lixeira teria
         buracos: o mesmo gesto na interface levaria a resultados diferentes
         conforme o caminho de código que o atendeu.
+
+        Só o que está vivo é marcado. Apagar uma categoria arrasta os
+        documentos dela (`Category.delete`), e entre eles pode haver um que
+        já estava na lixeira há 29 dias — remarcar a data devolveria a ele
+        30 dias inteiros e a faxina nunca alcançaria o item.
         """
-        return self.update(deleted_at=timezone.now())
+        return self.alive().update(deleted_at=timezone.now())
 
     def hard_delete(self):
         return super().delete()

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronsDownUp, ChevronsUpDown, Copy, Trash2 } from 'lucide-react'
-import { CODE_LANGUAGES, detectLanguage, highlightCode } from '@/lib/highlight'
+import {
+  CODE_LANGUAGES,
+  detectLanguage,
+  highlightCode,
+  renameForLanguage,
+} from '@/lib/highlight'
+import { copiarTexto } from '@/lib/desktop'
 import { cn } from '@/lib/utils'
 
 /**
@@ -65,11 +71,24 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
     if (language !== 'plaintext') return
     const pasted = event.clipboardData.getData('text/plain')
     const detected = detectLanguage(pasted)
-    if (detected) onChange({ language: detected })
+    if (detected) changeLanguage(detected)
   }
 
+  /**
+   * Trocar a linguagem arrasta a extensão do nome junto.
+   *
+   * Um bloco marcado como Python chamado `main.js` mente sobre o próprio
+   * conteúdo, e era o que acontecia ao mudar o seletor depois de nomear.
+   * Um `patch` só, para nome e linguagem viajarem no mesmo estado.
+   */
+  const changeLanguage = (next) =>
+    onChange({ language: next, title: renameForLanguage(section.title, next) })
+
   const copy = async () => {
-    await navigator.clipboard.writeText(code)
+    // A marca de "copiado" só aparece se realmente copiou: mostrar o
+    // check quando a área de transferência recusou é pior do que não
+    // mostrar nada, porque a pessoa vai colar e não vem nada.
+    if (!(await copiarTexto(code))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -84,7 +103,7 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
         ) : (
           <select
             value={language}
-            onChange={(e) => onChange({ language: e.target.value })}
+            onChange={(e) => changeLanguage(e.target.value)}
             aria-label="Linguagem do bloco"
             className="h-6 cursor-pointer rounded border-0 bg-transparent py-0 pl-1 pr-6 text-[11px] font-medium text-ink-600 focus:ring-1 focus:ring-accent-400 dark:text-ink-300"
           >

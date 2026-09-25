@@ -14,20 +14,21 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Download,
   Search,
-  Star,
   Settings,
   Tag,
   Trash2,
   ExternalLink,
 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
-import { useFetch } from '@/hooks/useFetch'
-import { documentPath, kindMeta } from '@/lib/documents'
 import { useAuth } from '@/context/AuthContext'
 import { useUI } from '@/context/UIContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { cn } from '@/lib/utils'
+import { useRenomear } from '@/hooks/useRenomear'
+import StudyTimer from '@/components/layout/StudyTimer'
+import FavoritosSidebar from '@/components/layout/FavoritosSidebar'
 import { Button, Spinner, Modal } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import CategoryTree from './CategoryTree'
@@ -36,11 +37,14 @@ import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import DestinationModal from '@/components/modals/DestinationModal'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
+import { exportBatchAsZip, exportFolderAsZip } from '@/components/ExportMenu'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
   { to: '/recent', label: 'Recentes', icon: Clock },
-  { to: '/favorites', label: 'Favoritos', icon: Star },
+  // Favoritos não entra aqui: a seção mais abaixo JÁ É a lista, e um
+  // item de navegação levaria a uma tela com os mesmos nomes que já
+  // estão à vista. A seção é o favorito inteiro; não há rota /favorites.
   { to: '/files', label: 'Arquivos', icon: Paperclip },
   { to: '/search', label: 'Buscar', icon: Search }, 
   { to: '/board', label: 'Quadro', icon: Kanban },
@@ -75,6 +79,10 @@ export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar, setMobileSidebarOpen } = useUI()
   const { user, logout } = useAuth()
   const { categories, loading, refresh } = useWorkspace()
+
+  // Renomear pasta e categoria no lugar, na própria linha da árvore.
+  // Depois do `useWorkspace`, que é de onde `refresh` vem.
+  const renomear = useRenomear({ onRenamed: refresh })
   const navigate = useNavigate()
   const location = useLocation()
   const { menu, openMenu, closeMenu } = useContextMenu()
@@ -116,51 +124,29 @@ export default function Sidebar() {
 
   const collapsed = sidebarCollapsed
 
-  const favDocs = useFetch('/documents/', {
-    params: { is_favorite: true, ordering: '-updated_at', page_size: 12 },
-  })
-  const favFolders = useFetch('/folders/', {
-    params: { is_favorite: true, ordering: 'name', page_size: 12 },
-  })
-
-  useEffect(() => {
-    const recarregar = () => {
-      favDocs.refetch()
-      favFolders.refetch()
-    }
-    window.addEventListener('notefy:favorites-changed', recarregar)
-    return () => window.removeEventListener('notefy:favorites-changed', recarregar)
-  }, [favDocs.refetch, favFolders.refetch])
-
-  const favoritos = [
-    ...(favFolders.data?.results ?? []).map((f) => ({
-      id: f.id,
-      type: 'folder',
-      name: f.name,
-      url: `/folders/${f.id}`,
-      icon: FolderIcon,
-      color: f.color,
-    })),
-    ...(favDocs.data?.results ?? []).map((d) => ({
-      id: d.id,
-      type: 'document',
-      name: d.title,
-      url: documentPath(d),
-      folder: d.folder,
-      icon: kindMeta(d.kind).icon,
-      color: d.color,
-    })),
-  ]
-
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setSelectedIds([])
+        return
+      }
+      // O menu de renomear da árvore MOSTRA "F2" ao lado do rótulo, e
+      // nada aqui escutava a tecla: o atalho era anunciado e não fazia
+      // nada. As telas de listagem já tinham o handler; a sidebar ficou
+      // de fora. Só com um item marcado — renomear vários não existe.
+      if (e.key === 'F2' && !renomear.editando && selectedIds.length === 1) {
+        const chave = String(selectedIds[0])
+        const separador = chave.indexOf(':')
+        const tipo = separador === -1 ? 'folder' : chave.slice(0, separador)
+        const id = separador === -1 ? chave : chave.slice(separador + 1)
+        if (tipo !== 'folder') return
+        e.preventDefault()
+        renomear.abrir(id)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [selectedIds, renomear])
 
   useEffect(() => {
     const onMoved = () => refresh()
@@ -261,6 +247,128 @@ export default function Sidebar() {
     window.dispatchEvent(new Event('notefy:moved'))
   }
 
+  /**
+   * Baixa a seleção como um único ZIP.
+   *
+   * Os itens vêm da sidebar como `tipo:id` e sem conteúdo — a árvore
+   * carrega só nome e ícone. Cada documento precisa ser buscado inteiro
+   * antes de virar arquivo, e pastas entram pela rota de conteúdo, que
+   * devolve a subárvore já montada.
+   */
+  const handleBulkExport = async () => {
+    if (selectedIds.length === 0) return
+    setError(null)
+
+    const documentos = []
+    for (const selectionKey of selectedIds) {
+      const separatorIndex = selectionKey.indexOf(':')
+      const itemType = selectionKey.slice(0, separatorIndex)
+      const itemId = selectionKey.slice(separatorIndex + 1)
+
+      try {
+        if (itemType === 'document') {
+          const { data } = await api.get(`/documents/${itemId}/`)
+          documentos.push(data)
+        } else if (itemType === 'folder') {
+          // A pasta vira as suas folhas: um zip de "pasta + notas soltas"
+          // que ignorasse o conteúdo dela seria uma pasta vazia no lugar
+          // do que o usuário mandou baixar.
+          const { data } = await api.get(`/folders/${itemId}/contents/`)
+          for (const doc of data.documents ?? []) {
+            const completo = await api.get(`/documents/${doc.id}/`)
+            documentos.push(completo.data)
+          }
+        }
+      } catch {
+        // Item que falha não derruba o lote: melhor um zip com o que deu
+        // certo do que nenhum arquivo por causa de um item quebrado.
+      }
+    }
+
+    if (documentos.length === 0) {
+      displayError('Nada para exportar na seleção.')
+      return
+    }
+
+    try {
+      await exportBatchAsZip(documentos)
+      setSelectedIds([])
+    } catch (err) {
+      displayError(extractError(err))
+    }
+  }
+
+  /** Baixa uma pasta inteira como ZIP, preservando a hierarquia. */
+  const handleFolderExport = async (folder) => {
+    setError(null)
+    try {
+      const { data } = await api.get(`/folders/${folder.id}/contents/`)
+
+      // `contents/` devolve um nível. Buscar o payload de cada documento é
+      // o que permite converter para .md/.csv em vez de gravar um JSON de
+      // metadados que ninguém consegue abrir.
+      const documentos = []
+      for (const doc of data.documents ?? []) {
+        try {
+          const completo = await api.get(`/documents/${doc.id}/`)
+          documentos.push(completo.data)
+        } catch {
+          /* item ignorado */
+        }
+      }
+
+      await exportFolderAsZip(
+        [{ name: folder.name, documents: documentos, children: [] }],
+      )
+    } catch (err) {
+      displayError(extractError(err))
+    }
+  }
+
+  /** Monta o nó de exportação de uma pasta e de toda a subárvore dela. */
+  const coletarSubarvore = async (folderId) => {
+    const { data } = await api.get(`/folders/${folderId}/contents/`)
+
+    const documentos = []
+    for (const doc of data.documents ?? []) {
+      try {
+        const completo = await api.get(`/documents/${doc.id}/`)
+        documentos.push(completo.data)
+      } catch {
+        /* item ignorado */
+      }
+    }
+
+    const children = []
+    for (const sub of data.subfolders ?? []) {
+      children.push(await coletarSubarvore(sub.id))
+    }
+
+    return { name: data.folder.name, documents: documentos, children }
+  }
+
+  /** Baixa a categoria inteira como ZIP, preservando a hierarquia. */
+  const handleCategoryExport = async (category) => {
+    setError(null)
+    try {
+      const { data } = await api.get(`/categories/${category.id}/contents/`)
+
+      const raizes = []
+      for (const pasta of data.folders ?? []) {
+        raizes.push(await coletarSubarvore(pasta.id))
+      }
+
+      if (!raizes.length) {
+        displayError('Nada para exportar nesta categoria.')
+        return
+      }
+
+      await exportFolderAsZip(raizes)
+    } catch (err) {
+      displayError(extractError(err))
+    }
+  }
+
   const handleBulkMove = async (destinationFolderId) => {
     if (selectedIds.length === 0 || !destinationFolderId) return
     setError(null)
@@ -296,6 +404,11 @@ export default function Sidebar() {
           label: `Mover (${selectedIds.length})`,
           icon: FolderIcon,
           onClick: () => setMoveModalOpen(true),
+        },
+        {
+          label: `Exportar (${selectedIds.length}) como .zip`,
+          icon: Download,
+          onClick: handleBulkExport,
         },
         { separator: true },
         {
@@ -356,7 +469,19 @@ export default function Sidebar() {
         {
           label: 'Renomear',
           icon: Pencil,
+          atalho: 'F2',
+          onClick: () => renomear.abrir(category.id),
+        },
+        {
+          // O modal continua: ele edita cor e descrição, não só o nome.
+          label: 'Editar...',
+          icon: Settings,
           onClick: () => setCategoryModal({ category }),
+        },
+        {
+          label: 'Exportar como .zip',
+          icon: Download,
+          onClick: () => handleCategoryExport(category),
         },
         {
           label: 'Excluir',
@@ -386,10 +511,21 @@ export default function Sidebar() {
           setMoveModalOpen(true)
         },
       },
+      {
+        label: 'Exportar como .zip',
+        icon: Download,
+        onClick: () => handleFolderExport(folder),
+      },
       { separator: true },
       {
         label: 'Renomear',
         icon: Pencil,
+        atalho: 'F2',
+        onClick: () => renomear.abrir(folder.id),
+      },
+      {
+        label: 'Editar...',
+        icon: Settings,
         onClick: () => setFolderModal({ folder, categoryId: payload.categoryId }),
       },
       {
@@ -455,7 +591,7 @@ export default function Sidebar() {
             <>
               {/* Seção Categorias */}
               <div className="flex items-center justify-between px-2 pb-1 pt-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                <span className="secao">
                   Categorias
                 </span>
                 <button
@@ -489,6 +625,7 @@ export default function Sidebar() {
                   actions={{
                     onDrop: handleDrop,
                     onContextMenu: openMenu,
+                    renomear,
                     onCreateFolder: ({ parent, categoryId }) =>
                       setFolderModal({ parent, categoryId }),
                   }}
@@ -499,47 +636,7 @@ export default function Sidebar() {
                 Arraste itens e pastas para mover. Clique com o botão direito para mais opções.
               </p>
 
-              <div className="flex items-center justify-between px-2 pb-1 pt-5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">
-                  Favoritos
-                </span>
-              </div>
-              {favoritos.length === 0 ? (
-                <div className="px-2 pb-2 text-xs text-ink-400">
-                  Nenhum favorito adicionado.
-                </div>
-              ) : (
-                <ul className="pb-2">
-                  {favoritos.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <li key={`${item.type}:${item.id}`}>
-                        <NavLink
-                          to={item.url}
-                          onContextMenu={(event) =>
-                            openMenu(event, { type: 'bookmark', item })
-                          }
-                          className={({ isActive }) =>
-                            cn(
-                              'flex items-center gap-2 rounded px-2 py-1 text-xs transition',
-                              isActive
-                                ? 'bg-accent-50 text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
-                                : 'text-ink-600 hover:bg-ink-200/60 dark:text-ink-300 dark:hover:bg-ink-800',
-                            )
-                          }
-                        >
-                          <Icon
-                            size={13}
-                            className="shrink-0 text-ink-400"
-                            style={item.color ? { color: item.color } : undefined}
-                          />
-                          <span className="truncate">{item.name}</span>
-                        </NavLink>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+              <FavoritosSidebar aoAbrirMenu={openMenu} />
             </>
           )}
 
@@ -557,11 +654,12 @@ export default function Sidebar() {
         </nav>
 
         <div className="border-t border-ink-200 p-3 dark:border-ink-800">
+          <StudyTimer collapsed={collapsed} />
           <div className={cn('flex items-center gap-2', collapsed && 'justify-center')}>
             <NavLink
-              to="/profile"
-              title="Perfil"
-              aria-label="Perfil"
+              to="/settings/conta"
+              title="Sua conta"
+              aria-label="Sua conta"
               className="shrink-0 rounded-full ring-accent-400 transition hover:ring-2"
             >
               {user?.avatar ? (
@@ -578,7 +676,7 @@ export default function Sidebar() {
             </NavLink>
             {!collapsed && (
               <>
-                <NavLink to="/profile" className="min-w-0 flex-1">
+                <NavLink to="/settings/conta" className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium text-ink-700 transition hover:text-accent-600 dark:text-ink-200 dark:hover:text-accent-400">
                     {user?.full_name || user?.username}
                   </p>
