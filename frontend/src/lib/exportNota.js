@@ -11,6 +11,8 @@
  * (`content/export_pdf.py`), onde o Pygments colore o código.
  */
 
+import { idioma, t } from './i18n.js'
+
 export function htmlToMarkdown(html) {
   if (!html) return ''
   return html
@@ -115,10 +117,10 @@ export function buildNoteHtml(doc) {
     })
     .join('\n')
   return `<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="${idioma}">
 <head>
 <meta charset="UTF-8">
-<title>${escapeHtml(doc.title || 'Nota')}</title>
+<title>${escapeHtml(doc.title || t('Nota'))}</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1816; }
   pre { background: #f5f5f5; padding: 1rem; border-radius: 6px; overflow-x: auto; }

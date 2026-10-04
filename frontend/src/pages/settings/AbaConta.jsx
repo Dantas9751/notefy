@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Camera, Check, Trash2, User as UserIcon } from 'lucide-react'
+import { Camera, Check, Trash2 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { Button, ErrorState, Field, Input } from '@/components/ui'
 import { Bloco } from './componentes'
+import { t } from '@/lib/i18n'
 
 /** 5 MB: o maior que uma foto de 80px de lado tem motivo para ser. */
 const LIMITE_FOTO = 5 * 1024 * 1024
@@ -29,7 +30,7 @@ export default function AbaConta() {
   const enviarFoto = async (file) => {
     if (!file) return
     if (file.size > LIMITE_FOTO) {
-      setErro(`A imagem passa do limite de ${LIMITE_FOTO / (1024 * 1024)} MB.`)
+      setErro(t('A imagem passa do limite de {valor} MB.', { valor: LIMITE_FOTO / (1024 * 1024) }))
       return
     }
     setErro(null)
@@ -81,7 +82,7 @@ export default function AbaConta() {
 
   return (
     <>
-      <Bloco title="Foto" description="Aparece no rodapé da barra lateral.">
+      <Bloco title={t('Foto')} description={t('Aparece no rodapé da barra lateral.')}>
         {erro && <ErrorState message={erro} />}
         <div className="flex items-center gap-4">
           {foto ? (
@@ -110,20 +111,20 @@ export default function AbaConta() {
               icon={Camera}
               onClick={() => fotoRef.current?.click()}
             >
-              Trocar foto
+              {t('Trocar foto')}
             </Button>
             {user?.avatar && (
               <Button variant="secondary" size="sm" icon={Trash2} onClick={removerFoto}>
-                Remover foto
+                {t('Remover foto')}
               </Button>
             )}
           </div>
         </div>
       </Bloco>
 
-      <Bloco title="Seus dados">
+      <Bloco title={t('Seus dados')}>
         <form onSubmit={salvar} className="space-y-4">
-          <Field label="Nome de usuário" hint="É com ele que você entra no aplicativo.">
+          <Field label={t('Nome de usuário')} hint={t('É com ele que você entra no aplicativo.')}>
             <Input
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
@@ -131,19 +132,19 @@ export default function AbaConta() {
               required
             />
           </Field>
-          <Field label="Nome de exibição" hint="O nome que aparece na barra lateral.">
+          <Field label={t('Nome de exibição')} hint={t('O nome que aparece na barra lateral.')}>
             <Input
               value={form.full_name}
               onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
             />
           </Field>
           <div className="flex items-center gap-3">
-            <Button type="submit" icon={UserIcon} loading={salvando}>
-              Salvar alterações
+            <Button type="submit" icon={Check} loading={salvando}>
+              {t('Salvar alterações')}
             </Button>
             {salvo && (
               <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                <Check size={13} /> Salvo
+                <Check size={13} /> {t('Salvo')}
               </span>
             )}
           </div>

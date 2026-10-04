@@ -4,6 +4,7 @@ import { useMutation } from '@/hooks/useFetch'
 import { Button, ErrorState, Field, Input, Modal, Textarea } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import { cn, PRESET_COLORS } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const EMPTY = { name: '', color: PRESET_COLORS[0], description: '' }
 
@@ -69,16 +70,16 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar categoria' : 'Nova categoria'}
-      description="Categorias são o topo da organização: toda pasta mora dentro de uma."
+      title={isEditing ? t('Editar categoria') : t('Nova categoria')}
+      description={t('Categorias são o topo da organização: toda pasta mora dentro de uma.')}
       footer={
         <>
           <Button variant="secondary" type="button" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           {/* Conectado ao form id="category-form" */}
           <Button type="submit" form="category-form" loading={loading}>
-            Salvar
+            {t('Salvar')}
           </Button>
         </>
       }
@@ -86,17 +87,17 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
       <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <ErrorState message={error} onRetry={() => setError(null)} />}
 
-        <Field label="Nome">
+        <Field label={t('Nome')}>
           <Input
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="Ex.: Biologia"
+            placeholder={t('Ex.: Biologia')}
             autoFocus
             required
           />
         </Field>
 
-        <Field label="Cor">
+        <Field label={t('Cor')}>
           <div className="flex flex-wrap gap-1.5">
             {PRESET_COLORS.map((color) => (
               <button
@@ -104,7 +105,7 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, color }))}
                 style={{ backgroundColor: color }}
-                aria-label={`Cor ${color}`}
+                aria-label={t('Cor {color}', { color })}
                 className={cn(
                   'h-7 w-7 rounded-full border-2 transition',
                   form.color === color ? 'border-ink-900 dark:border-white' : 'border-transparent',
@@ -120,7 +121,7 @@ export default function CategoryFormModal({ open, onClose, onSaved, category }) 
           </div>
         </Field>
 
-        <Field label="Descrição">
+        <Field label={t('Descrição')}>
           <Textarea
             rows={2}
             value={form.description}

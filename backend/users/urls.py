@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenVerifyView
 from .views import (
     BackupExportView,
     BackupImportView,
+    CapaDoInicioView,
     ChangePasswordView,
     LoginView,
     LogoutView,
@@ -22,6 +23,7 @@ urlpatterns = [
     path("auth/change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
     path("me/", MeView.as_view(), name="me"),
     path("me/preferences/", PreferencesView.as_view(), name="me-preferences"),
+    path("me/cover/", CapaDoInicioView.as_view(), name="me-cover"),
     path("me/backup/", BackupExportView.as_view(), name="me-backup-export"),
     path("me/backup/import/", BackupImportView.as_view(), name="me-backup-import"),
 ]

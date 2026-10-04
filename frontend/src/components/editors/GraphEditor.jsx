@@ -13,12 +13,15 @@ import {
   Palette,
   PenLine,
   Plus,
+  Redo2,
+  Shapes,
   Slash,
   Square,
   Sun,
   Trash2,
   Triangle,
   Type,
+  Undo2,
   X,
 } from 'lucide-react'
 import {
@@ -47,6 +50,8 @@ import { cn } from '@/lib/utils'
 import { atalhoDe } from '@/lib/history'
 import ColorWheel from '@/components/ui/ColorWheel'
 import GraphNode from './GraphNode'
+import { t } from '@/lib/i18n'
+import { semMouse } from '@/lib/desktop'
 
 /**
  * Motor de nós e setas, compartilhado por Diagrama e Canvas.
@@ -58,6 +63,8 @@ import GraphNode from './GraphNode'
  */
 
 const GRID = 20
+/** Formato próprio dos nós na área de transferência (convenção de `lib/dnd.js`). */
+const MIME_NOS = 'application/x-notefy-nos'
 const ERASER_TOLERANCE = 10
 
 //: Cores de tinta padrão do canvas. A lista vive AQUI porque a
@@ -91,6 +98,11 @@ const CURSOR_LAPIS = `url("data:image/svg+xml,${encodeURIComponent(
     '<path d="M2 18l1.2-4.2L13.4 3.6a2 2 0 0 1 2.8 0l.2.2a2 2 0 0 1 0 2.8L6.2 16.8 2 18z" ' +
     'fill="#fff" stroke="#1a1816" stroke-width="1.4" stroke-linejoin="round"/></svg>',
 )}") 2 18, crosshair`
+
+/** Deixa passar só o ponteiro principal (o primeiro dedo, o mouse, a caneta). */
+const ignorarOutrosDedos = (event) => {
+  if (!event.isPrimary) event.stopPropagation()
+}
 
 export default function GraphEditor({
   kind,
@@ -143,14 +155,25 @@ export default function GraphEditor({
   const [selectRect, setSelectRect] = useState(null)
   //: Menu de botão direito sobre um nó, em pixels de tela do quadro.
   const [menu, setMenu] = useState(null)
+  //: No celular a paleta é gaveta: ao lado do quadro ela deixava só 150 px
+  //: para desenhar. Nas telas maiores ela fica sempre à mostra.
+  const [paletaAberta, setPaletaAberta] = useState(false)
   //: Cópia de nós/arestas entre Ctrl+C e Ctrl+V. Vive só nesta instância
   //: do editor — cada quadro tem o seu.
   const clipboardRef = useRef(null)
+  //: Ctrl+C/X viu uma seleção: o evento `copy`/`cut` que vem em seguida
+  //: deve levá-la para a área de transferência do sistema.
+  const copiaPendente = useRef(false)
+  //: Texto puro da última cópia feita aqui (ver `aoCopiar`).
+  const textoCopiado = useRef(null)
 
   // Ferramentas do whiteboard. `select` é o modo do diagrama e o padrão
   // do canvas: desenhar só começa quando o usuário escolhe uma caneta,
   // uma forma ou o texto.
   const [tool, setTool] = useState('select')
+  // Escolheu a ferramenta ou pôs uma forma: a gaveta da paleta (celular) sai
+  // da frente do desenho.
+  useEffect(() => setPaletaAberta(false), [tool, nodes.length])
   const [inkColor, setInkColor] = useState('#1a1816')
   // Espessura POR FERRAMENTA. Antes só a caneta tinha escolha e marcador e
   // marca-texto ficavam presos no valor da constante — quem queria um
@@ -370,8 +393,7 @@ export default function GraphEditor({
    * ENTRE os nós copiados e traços), desloca +24,+24 para não cair em
    * cima do original e seleciona o que nasceu.
    */
-  const colar = () => {
-    const buffer = clipboardRef.current
+  const colar = (buffer = clipboardRef.current) => {
     if (!buffer?.nodes?.length && !buffer?.strokes?.length) return
     const mapa = new Map()
     const novos = (buffer.nodes ?? []).map((n) => {
@@ -422,6 +444,9 @@ export default function GraphEditor({
   const handleNodeContextMenu = (event, node) => {
     event.preventDefault()
     event.stopPropagation()
+    // Segurar o dedo parado na alça de conectar ou de redimensionar dispara
+    // o menu no meio do gesto; ali o dedo está trabalhando, não pedindo menu.
+    if (connecting || drag?.mode === 'resize') return
     // Botão direito fora da seleção recolhe a seleção ao nó clicado —
     // o menu age sempre sobre o que está marcado.
     if (!selecionados.includes(node.id)) {
@@ -579,6 +604,7 @@ export default function GraphEditor({
 
   const handleCanvasPointerDown = (event) => {
     if (event.target !== svgRef.current && !event.target.dataset.canvasBackground) return
+    setPaletaAberta(false)
 
     const comCtrl = event.ctrlKey || event.metaKey
 
@@ -918,10 +944,10 @@ export default function GraphEditor({
     const comMod = event.ctrlKey || event.metaKey
     const tecla = event.key.toLowerCase()
 
-    // Copiar/recortar/colar a seleção. Só intercepta quando há o que
-    // copiar — senão o Ctrl+C do browser continua funcionando.
+    // Copiar/recortar a seleção. SEM `preventDefault`: é o atalho que
+    // dispara o evento `copy`/`cut` do navegador, e é nele (abaixo) que a
+    // seleção vai para a área de transferência do sistema.
     if (comMod && tecla === 'c' && (selecionados.length || strokesSelecionados.length)) {
-      event.preventDefault()
       const ids = new Set(selecionados)
       const tracos = new Set(strokesSelecionados)
       clipboardRef.current = {
@@ -929,10 +955,10 @@ export default function GraphEditor({
         edges: edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e })),
         strokes: strokes.filter((s) => tracos.has(s.id)).map((s) => ({ ...s })),
       }
+      copiaPendente.current = true
       return
     }
     if (comMod && tecla === 'x' && (selecionados.length || strokesSelecionados.length)) {
-      event.preventDefault()
       const ids = new Set(selecionados)
       const tracos = new Set(strokesSelecionados)
       clipboardRef.current = {
@@ -940,14 +966,13 @@ export default function GraphEditor({
         edges: edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ ...e })),
         strokes: strokes.filter((s) => tracos.has(s.id)).map((s) => ({ ...s })),
       }
+      copiaPendente.current = true
       apagarSelecao()
       return
     }
-    if (comMod && tecla === 'v') {
-      event.preventDefault()
-      colar()
-      return
-    }
+    // Ctrl+V NÃO é tratado aqui: um `preventDefault` no keydown cancela o
+    // evento `paste`, e era por isso que colar imagem nunca funcionava.
+    // Nós, imagem e texto entram todos pelo handler de `paste` abaixo.
 
     if (
       (event.key === 'Delete' || event.key === 'Backspace') &&
@@ -994,20 +1019,91 @@ export default function GraphEditor({
   /* usa `loose()`, então colar cinco imagens no canvas não enche a      */
   /* pasta de cinco arquivos que ninguém pediu.                          */
   /* ------------------------------------------------------------------ */
+  /** Centro da área visível, em coordenadas do quadro. */
+  const centroDaVista = () => {
+    const atual = dataRef.current
+    const box = svgRef.current?.getBoundingClientRect() ?? { width: 800, height: 600 }
+    return toWorld({ x: box.width / 2, y: box.height / 2 }, atual?.viewport ?? viewport)
+  }
+
+  // Copiar/recortar: a seleção vai para a área de transferência do
+  // SISTEMA, em formato próprio — colar em outro quadro (ou noutra janela)
+  // traz os nós. O texto puro vai junto: colar numa nota dá o texto dos
+  // nós, e é ele que reconhece, na volta, uma cópia feita daqui quando o
+  // formato próprio não sobrevive (WebView que o descarta).
+  const aoCopiar = (event) => {
+    if (!copiaPendente.current) return
+    copiaPendente.current = false
+    const buffer = clipboardRef.current
+    if (!buffer || !event.clipboardData) return
+    const texto =
+      (buffer.nodes ?? []).map((n) => n.text).filter(Boolean).join('\n') || t('Itens do Notefy')
+    textoCopiado.current = texto
+    event.clipboardData.setData(MIME_NOS, JSON.stringify(buffer))
+    event.clipboardData.setData('text/plain', texto)
+    event.preventDefault()
+  }
+  useListenerDeJanela('copy', aoCopiar)
+  useListenerDeJanela('cut', aoCopiar)
+
   useListenerDeJanela('paste', async (event) => {
-    if (!documentId) return
-    // O `clipboardRef` cuida de colar NÓS copiados daqui; imagem do
-    // sistema é outro caminho e não pode atropelar aquele.
-    if (clipboardRef.current) return
     const alvo = event.target
     if (alvo?.closest?.('input, textarea, [contenteditable="true"]')) return
+    // Com o "abrir ao lado" há dois quadros escutando o window.
+    if (!focado.current) return
 
-    const arquivo = [...(event.clipboardData?.items ?? [])]
+    const dados = event.clipboardData
+    // 1. Nós copiados de um quadro do Notefy.
+    const nosCopiados = dados?.getData(MIME_NOS)
+    if (nosCopiados) {
+      try {
+        event.preventDefault()
+        colar(JSON.parse(nosCopiados))
+        return
+      } catch {
+        // JSON corrompido: segue para os outros formatos.
+      }
+    }
+
+    const arquivo = [...(dados?.items ?? [])]
       .find((item) => item.type.startsWith('image/'))
       ?.getAsFile()
-    if (!arquivo) return
 
+    if (!arquivo) {
+      const texto = dados?.getData('text/plain') ?? ''
+      // 2. Cópia feita aqui, mas o formato próprio se perdeu no caminho.
+      if (clipboardRef.current && (!texto || texto === textoCopiado.current)) {
+        event.preventDefault()
+        colar()
+        return
+      }
+      // 3. Texto de fora vira um nó de texto no centro da vista.
+      if (texto.trim() && palette.nodes.text) {
+        event.preventDefault()
+        const linhas = texto.trim().split(/\r?\n/)
+        const maior = Math.max(...linhas.map((l) => l.length))
+        const meio = centroDaVista()
+        const w = Math.min(480, Math.max(palette.nodes.text.w, maior * 8))
+        const h = Math.max(palette.nodes.text.h, linhas.length * 22 + 16)
+        const node = {
+          ...buildNode('text', { x: meio.x - w / 2, y: meio.y - h / 2, w, h }),
+          text: texto.trim(),
+        }
+        onCommit?.(update({ nodes: [...(dataRef.current?.nodes ?? []), node] }))
+        setSelecionados([node.id])
+        setTool('select')
+      }
+      return
+    }
+
+    // 4. Imagem.
     event.preventDefault()
+    // Quadro novo ainda não existe no servidor: a imagem não tem a quem
+    // se anexar. Avisar em vez de engolir o Ctrl+V em silêncio.
+    if (!documentId) {
+      onError?.('Clique em Criar para salvar o quadro e depois cole a imagem.')
+      return
+    }
     try {
       const corpo = new FormData()
       corpo.append('files', arquivo)
@@ -1082,7 +1178,7 @@ export default function GraphEditor({
       // isso o backend não precisou mudar nada para guardar o vínculo.
       document_id: payload.id,
       document_kind: payload.kind,
-      text: payload.title || 'Documento',
+      text: payload.title || t('Documento'),
     }
     onCommit?.(update({ nodes: [...nodes, node] }))
     setSelecionados([node.id])
@@ -1102,9 +1198,15 @@ export default function GraphEditor({
     selecionados.length === 1 ? nodes.find((n) => n.id === selecionados[0]) : null
 
   return (
-    <div className="flex min-h-0 flex-1">
-      {/* Paleta */}
-      <div className="w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800">
+    <div className="relative flex min-h-0 flex-1">
+      {/* Paleta. No celular vira gaveta sobre o quadro (ver `paletaAberta`). */}
+      <div
+        className={cn(
+          'w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800',
+          'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-30 max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
+          !paletaAberta && 'max-sm:hidden',
+        )}
+      >
         {/* O diagrama também ganha ferramentas, só que duas: selecionar e
             texto. O texto solto é o que permite anotar um diagrama —
             legenda, observação, título de área — sem precisar inventar uma
@@ -1112,27 +1214,27 @@ export default function GraphEditor({
             esquema de diagrama no backend, então nada mais precisa mudar. */}
         <>
           <p className="px-1 pb-1.5 secao">
-            Ferramentas
+            {t('Ferramentas')}
           </p>
           <div className={cn('grid gap-1', isCanvas ? 'grid-cols-5' : 'grid-cols-2')}>
             {(isCanvas
               ? [
-                  { id: 'select', icon: MousePointer2, title: 'Selecionar (V)' },
-                  { id: 'select-area', icon: BoxSelect, title: 'Selecionar área (A): arraste para marcar vários' },
-                  { id: 'pen', icon: PenLine, title: 'Caneta (P)' },
-                  { id: 'marker', icon: Brush, title: 'Marcador (M)' },
-                  { id: 'highlighter', icon: Highlighter, title: 'Marca-texto (H)' },
-                  { id: 'eraser', icon: Eraser, title: 'Borracha (E)' },
-                  { id: 'text', icon: Type, title: 'Texto (T): clique para escrever' },
-                  { id: 'rect', icon: Square, title: 'Retângulo (R): arraste para desenhar' },
-                  { id: 'ellipse', icon: Circle, title: 'Elipse (O): arraste para desenhar' },
-                  { id: 'triangle', icon: Triangle, title: 'Triângulo: arraste para desenhar' },
-                  { id: 'line_shape', icon: Slash, title: 'Linha (L): arraste para desenhar' },
+                  { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
+                  { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
+                  { id: 'pen', icon: PenLine, title: t('Caneta (P)') },
+                  { id: 'marker', icon: Brush, title: t('Marcador (M)') },
+                  { id: 'highlighter', icon: Highlighter, title: t('Marca-texto (H)') },
+                  { id: 'eraser', icon: Eraser, title: t('Borracha (E)') },
+                  { id: 'text', icon: Type, title: t('Texto (T): clique para escrever') },
+                  { id: 'rect', icon: Square, title: t('Retângulo (R): arraste para desenhar') },
+                  { id: 'ellipse', icon: Circle, title: t('Elipse (O): arraste para desenhar') },
+                  { id: 'triangle', icon: Triangle, title: t('Triângulo: arraste para desenhar') },
+                  { id: 'line_shape', icon: Slash, title: t('Linha (L): arraste para desenhar') },
                 ]
               : [
-                  { id: 'select', icon: MousePointer2, title: 'Selecionar (V)' },
-                  { id: 'select-area', icon: BoxSelect, title: 'Selecionar área (A): arraste para marcar vários' },
-                  { id: 'text', icon: Type, title: 'Texto livre (T): clique para escrever' },
+                  { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
+                  { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
+                  { id: 'text', icon: Type, title: t('Texto livre (T): clique para escrever') },
                 ]
             ).map((item) => (
               <button
@@ -1160,7 +1262,7 @@ export default function GraphEditor({
                   key={color}
                   onClick={() => setInkColor(color)}
                   style={{ backgroundColor: color }}
-                  aria-label={`Tinta ${color}`}
+                  aria-label={t('Tinta {color}', { color })}
                   className={cn(
                     'h-5 w-5 rounded-full border-2 transition',
                     inkColor === color ? 'border-accent-500' : 'border-transparent',
@@ -1172,7 +1274,7 @@ export default function GraphEditor({
                 onChange={setInkColor}
                 selected={!CORES_TINTA.includes(inkColor)}
                 className="h-5 w-5"
-                title="Tinta personalizada"
+                title={t('Tinta personalizada')}
               />
             </div>
 
@@ -1181,12 +1283,12 @@ export default function GraphEditor({
                 raio, logo abaixo. */}
             {['pen', 'marker', 'highlighter'].includes(tool) && (
               <div className="mt-2 flex items-center gap-1.5 px-1">
-                <span className="text-[10px] text-ink-400">Espessura</span>
+                <span className="text-[10px] text-ink-400">{t('Espessura')}</span>
                 {STROKE_WIDTHS.map((width) => (
                   <button
                     key={width}
                     onClick={() => setInkWidths((atual) => ({ ...atual, [tool]: width }))}
-                    aria-label={`Espessura ${width}`}
+                    aria-label={t('Espessura {width}', { width })}
                     className={cn(
                       'flex h-5 w-5 items-center justify-center rounded transition',
                       inkWidths[tool] === width ? 'bg-accent-100 dark:bg-accent-500/25' : 'hover:bg-ink-100 dark:hover:bg-ink-800',
@@ -1203,14 +1305,14 @@ export default function GraphEditor({
 
             {tool === 'highlighter' && (
               <label className="mt-2 flex items-center gap-2 px-1">
-                <span className="shrink-0 text-[10px] text-ink-400">Opacidade</span>
+                <span className="shrink-0 text-[10px] text-ink-400">{t('Opacidade')}</span>
                 <input
                   type="range"
                   min={10}
                   max={80}
                   value={inkOpacity}
                   onChange={(e) => setInkOpacity(Number(e.target.value))}
-                  aria-label="Opacidade do marca-texto"
+                  aria-label={t('Opacidade do marca-texto')}
                   className="h-1 flex-1 accent-accent-600"
                 />
                 <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
@@ -1221,14 +1323,14 @@ export default function GraphEditor({
 
             {tool === 'eraser' && (
               <label className="mt-2 flex items-center gap-2 px-1">
-                <span className="shrink-0 text-[10px] text-ink-400">Raio</span>
+                <span className="shrink-0 text-[10px] text-ink-400">{t('Raio')}</span>
                 <input
                   type="range"
                   min={10}
                   max={80}
                   value={eraserRadius}
                   onChange={(e) => setEraserRadius(Number(e.target.value))}
-                  aria-label="Raio da borracha"
+                  aria-label={t('Raio da borracha')}
                   className="h-1 flex-1 accent-accent-600"
                 />
                 <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
@@ -1240,7 +1342,7 @@ export default function GraphEditor({
         )}
 
         <p className="px-1 pb-1.5 pt-4 secao">
-          Formas
+          {t('Formas')}
         </p>
         {palette.groups.map((group) => {
           const aberto = openGroups.has(group.id)
@@ -1281,7 +1383,7 @@ export default function GraphEditor({
         })}
 
         <p className="px-1 pb-1.5 pt-4 secao">
-          Conector
+          {t('Conector')}
         </p>
         {palette.edgeGroups.map((group) => (
           <div key={group.label} className="mb-2">
@@ -1307,9 +1409,11 @@ export default function GraphEditor({
 
         <p className="mt-3 rounded bg-ink-50 p-2 text-[10px] leading-relaxed text-ink-400 dark:bg-ink-800/60">
           {isCanvas
-            ? 'Caneta desenha à mão livre. Forma: arraste para definir o tamanho. Texto: clique e escreva. No modo seleção, arraste para mover, puxe a bolinha para conectar e o quadradinho para redimensionar.'
-            : 'Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.'}{' '}
-          Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Delete apaga, Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.
+            ? t('Caneta desenha à mão livre. Forma: arraste para definir o tamanho. Texto: clique e escreva. No modo seleção, arraste para mover, puxe a bolinha para conectar e o quadradinho para redimensionar.')
+            : t('Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.')}{' '}
+          {semMouse()
+            ? t('Toque e segure um objeto para duplicar ou excluir. Os botões no canto dão zoom e desfazem.')
+            : t('Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Delete apaga, Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.')}
         </p>
       </div>
 
@@ -1359,10 +1463,24 @@ export default function GraphEditor({
                 ? { cursor: CURSOR_LAPIS }
                 : undefined
           }
+          // Só o primeiro dedo desenha e arrasta: um segundo dedo (ou a
+          // palma) entrava no meio do gesto e o traço saltava de um lado a
+          // outro da tela. Na captura, para barrar também os nós lá dentro.
+          onPointerDownCapture={ignorarOutrosDedos}
+          onPointerMoveCapture={ignorarOutrosDedos}
+          onPointerUpCapture={ignorarOutrosDedos}
           onPointerDown={handleCanvasPointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          // Dedo parado com a caneta dispara o menu do toque longo no meio
+          // do traço. Enquanto o gesto dura, o menu não abre.
+          onContextMenu={(event) => {
+            if (!drawing && !rubber && !selectRect) return
+            event.preventDefault()
+            event.stopPropagation()
+          }}
           onPointerLeave={(event) => {
+            if (!event.isPrimary) return
             handlePointerUp(event)
             // A prévia da borracha acompanha o ponteiro; sem isto ela
             // ficaria congelada na borda depois que o mouse saiu.
@@ -1521,6 +1639,7 @@ export default function GraphEditor({
                 palette={palette.nodes}
                 selected={selecionados.includes(node.id)}
                 connecting={connecting?.from === node.id}
+                zoom={viewport.zoom}
                 onPointerDown={(e) => handleNodePointerDown(e, node)}
                 onContextMenu={(e) => handleNodeContextMenu(e, node)}
                 onDoubleClick={() => {
@@ -1660,29 +1779,49 @@ export default function GraphEditor({
           )}
         </svg>
 
+        {/* A paleta no celular: sem este botão ela não teria como abrir. */}
+        <button
+          onClick={() => setPaletaAberta((aberta) => !aberta)}
+          aria-expanded={paletaAberta}
+          className="absolute right-3 top-3 z-40 inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white/95 px-2.5 py-1.5 text-xs text-ink-600 shadow-subtle backdrop-blur sm:hidden dark:border-ink-700 dark:bg-ink-900/95 dark:text-ink-300"
+        >
+          <Shapes size={13} />
+          {t('Ferramentas')}
+        </button>
+
         {/* Controles de zoom */}
         <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-md border border-ink-200 bg-white/95 p-0.5 shadow-subtle backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
+          {/* Desfazer era só Ctrl+Z: no toque não havia como voltar um passo. */}
+          {onUndo && (
+            <>
+              <button onClick={onUndo} aria-label={t('Desfazer')} className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
+                <Undo2 size={14} />
+              </button>
+              <button onClick={onRedo} aria-label={t('Refazer')} className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
+                <Redo2 size={14} />
+              </button>
+              <span className="mx-0.5 h-4 w-px bg-ink-200 dark:bg-ink-700" />
+            </>
+          )}
           <button
             onClick={trocarTema}
-            aria-label="Tema do quadro"
-            title={`Tema do quadro: ${
-              { light: 'claro', dark: 'escuro', system: 'segue o app' }[boardTheme]
-            }`}
+            aria-label={t('Tema do quadro')}
+            title={t('Tema do quadro: {valor}', { valor: { light: t('claro'), dark: t('escuro'), system: t('segue o app') }[boardTheme] })}
             className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             {boardTheme === 'dark' ? <Moon size={14} /> : <Sun size={14} />}
           </button>
           <span className="mx-0.5 h-4 w-px bg-ink-200 dark:bg-ink-700" />
-          <button onClick={() => zoomBy(0.9)} aria-label="Diminuir zoom" className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
+          <button onClick={() => zoomBy(0.9)} aria-label={t('Diminuir zoom')} className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
             <Minus size={14} />
           </button>
           <span className="w-11 text-center text-[11px] tabular-nums text-ink-500">
             {Math.round(viewport.zoom * 100)}%
           </span>
-          <button onClick={() => zoomBy(1.1)} aria-label="Aumentar zoom" className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
+          <button onClick={() => zoomBy(1.1)} aria-label={t('Aumentar zoom')} className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
             <Plus size={14} />
           </button>
-          <button onClick={fit} aria-label="Enquadrar tudo" className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
+          <button onClick={fit} aria-label={t('Enquadrar tudo')} className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800">
             <Maximize size={14} />
           </button>
         </div>
@@ -1693,7 +1832,7 @@ export default function GraphEditor({
             className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white/95 px-2.5 py-1.5 text-xs text-ink-500 shadow-subtle backdrop-blur transition hover:text-red-600 dark:border-ink-700 dark:bg-ink-900/95"
           >
             <Eraser size={13} />
-            Limpar desenho ({strokes.length})
+            {t('Limpar desenho (')}{strokes.length})
           </button>
         )}
 
@@ -1701,8 +1840,8 @@ export default function GraphEditor({
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <p className="text-sm text-ink-400">
               {isCanvas
-                ? 'Escolha uma caneta para desenhar ou uma forma na lateral.'
-                : 'Escolha uma forma na lateral para começar.'}
+                ? t('Escolha uma caneta para desenhar ou uma forma na lateral.')
+                : t('Escolha uma forma na lateral para começar.')}
             </p>
           </div>
         )}
@@ -1732,7 +1871,7 @@ export default function GraphEditor({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-600 transition hover:bg-ink-50 dark:text-ink-300 dark:hover:bg-ink-700"
               >
                 <Copy size={13} />
-                Duplicar
+                {t('Duplicar')}
               </button>
               <button
                 onClick={() => {
@@ -1742,7 +1881,7 @@ export default function GraphEditor({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
               >
                 <Trash2 size={13} />
-                Excluir
+                {t('Excluir')}
               </button>
             </div>
           </>
@@ -1796,21 +1935,28 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
   const isSticky = node.type === 'sticky'
 
   return (
-    <div className="w-60 shrink-0 overflow-y-auto border-l border-ink-100 p-3 dark:border-ink-800">
+    <div
+      className={cn(
+        'w-60 shrink-0 overflow-y-auto border-l border-ink-100 p-3 dark:border-ink-800',
+        // No celular, ao lado do quadro ele esmagava o desenho a zero: vira
+        // uma folha embaixo, e o que está selecionado continua à vista.
+        'max-sm:absolute max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-30 max-sm:max-h-[45%] max-sm:w-auto max-sm:border-l-0 max-sm:border-t max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
+      )}
+    >
       <div className="mb-3 flex items-center justify-between">
         <span className="secao">
           {node.type}
         </span>
         <button
           onClick={onClose}
-          aria-label="Fechar inspetor"
+          aria-label={t('Fechar inspetor')}
           className="rounded p-1 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
         >
           <X size={14} />
         </button>
       </div>
 
-      <label className="label">Texto</label>
+      <label className="label">{t('Texto')}</label>
       <textarea
         value={node.text ?? ''}
         onChange={(e) => onChange({ text: e.target.value })}
@@ -1833,7 +1979,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
 
       {node.type === 'fragment' && (
         <>
-          <label className="label mt-3">Operador</label>
+          <label className="label mt-3">{t('Operador')}</label>
           <select
             value={node.label ?? 'alt'}
             onChange={(e) => onChange({ label: e.target.value })}
@@ -1850,46 +1996,46 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
 
       {hasCompartments && (
         <>
-          <label className="label mt-3">Estereótipo</label>
+          <label className="label mt-3">{t('Estereótipo')}</label>
           <input
             value={node.stereotype ?? ''}
             onChange={(e) => onChange({ stereotype: e.target.value })}
-            placeholder="«entity»"
+            placeholder={t('«entity»')}
             className="input h-8 py-0 text-sm"
           />
 
-          <label className="label mt-3">Atributos (um por linha)</label>
+          <label className="label mt-3">{t('Atributos (um por linha)')}</label>
           <textarea
             defaultValue={(node.fields ?? []).join('\n')}
             onBlur={(e) =>
               onChange({ fields: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })
             }
             rows={3}
-            placeholder="- nome: String"
+            placeholder={t('- nome: String')}
             className="input py-1.5 font-mono text-[12px]"
           />
 
-          <label className="label mt-3">Métodos (um por linha)</label>
+          <label className="label mt-3">{t('Métodos (um por linha)')}</label>
           <textarea
             defaultValue={(node.methods ?? []).join('\n')}
             onBlur={(e) =>
               onChange({ methods: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })
             }
             rows={3}
-            placeholder="+ salvar(): void"
+            placeholder={t('+ salvar(): void')}
             className="input py-1.5 font-mono text-[12px]"
           />
         </>
       )}
 
-      <label className="label mt-3">{isSticky ? 'Papel' : 'Cor'}</label>
+      <label className="label mt-3">{isSticky ? t('Papel') : t('Cor')}</label>
       <div className="flex flex-wrap gap-1.5">
         {(isSticky ? STICKY_COLORS : NODE_COLORS).map((color) => (
           <button
             key={color}
             onClick={() => onChange(isSticky ? { fill: color } : { color })}
             style={{ backgroundColor: color }}
-            aria-label={`Cor ${color}`}
+            aria-label={t('Cor {color}', { color })}
             className={cn(
               'h-6 w-6 rounded-full border-2 transition',
               (isSticky ? node.fill : node.color) === color
@@ -1903,7 +2049,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
       {!isSticky && (
         <>
           <label className="label mt-3 flex items-center gap-1">
-            <Palette size={11} /> Preenchimento
+            <Palette size={11} /> {t('Preenchimento')}
           </label>
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -1920,7 +2066,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
                 key={color}
                 onClick={() => onChange({ fill: color })}
                 style={{ backgroundColor: color }}
-                aria-label={`Preenchimento ${color}`}
+                aria-label={t('Preenchimento {color}', { color })}
                 className={cn(
                   'h-6 w-6 rounded-full border-2 transition',
                   node.fill === color ? 'border-ink-900 dark:border-white' : 'border-transparent',
@@ -1933,7 +2079,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div>
-          <label className="label">Largura</label>
+          <label className="label">{t('Largura')}</label>
           <input
             type="number"
             value={node.w ?? 160}
@@ -1944,7 +2090,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
           />
         </div>
         <div>
-          <label className="label">Altura</label>
+          <label className="label">{t('Altura')}</label>
           <input
             type="number"
             value={node.h ?? 90}
@@ -1958,7 +2104,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
 
       {connected.length > 0 && (
         <>
-          <label className="label mt-4">Conexões</label>
+          <label className="label mt-4">{t('Conexões')}</label>
           <div className="space-y-2">
             {connected.map((edge) => (
               <div key={edge.id} className="rounded-md border border-ink-200 p-1.5 dark:border-ink-700">
@@ -1968,7 +2114,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
                   </span>
                   <button
                     onClick={() => onDeleteEdge(edge.id)}
-                    aria-label="Remover conexão"
+                    aria-label={t('Remover conexão')}
                     className="rounded p-0.5 text-ink-400 transition hover:text-red-600"
                   >
                     <Trash2 size={11} />
@@ -1977,20 +2123,20 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
                 <input
                   value={edge.label ?? ''}
                   onChange={(e) => onChangeEdge(edge.id, { label: e.target.value })}
-                  placeholder="rótulo"
+                  placeholder={t('rótulo')}
                   className="input h-7 py-0 text-xs"
                 />
                 <div className="mt-1 grid grid-cols-2 gap-1">
                   <input
                     value={edge.source_label ?? ''}
                     onChange={(e) => onChangeEdge(edge.id, { source_label: e.target.value })}
-                    placeholder="origem (1)"
+                    placeholder={t('origem (1)')}
                     className="input h-7 py-0 text-xs"
                   />
                   <input
                     value={edge.target_label ?? ''}
                     onChange={(e) => onChangeEdge(edge.id, { target_label: e.target.value })}
-                    placeholder="destino (0..*)"
+                    placeholder={t('destino (0..*)')}
                     className="input h-7 py-0 text-xs"
                   />
                 </div>
@@ -2005,7 +2151,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
         className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-md border border-red-200 px-2 py-1.5 text-xs text-red-600 transition hover:bg-red-50 dark:border-red-500/30 dark:hover:bg-red-500/10"
       >
         <Trash2 size={13} />
-        Excluir {kind === 'diagram' ? 'forma' : 'objeto'}
+        {t('Excluir')} {kind === 'diagram' ? t('forma') : t('objeto')}
       </button>
     </div>
   )

@@ -1,6 +1,7 @@
 """Validadores reutilizáveis."""
 
 import ipaddress
+import unicodedata
 import uuid
 from urllib.parse import urlsplit
 
@@ -16,6 +17,28 @@ icon_name_validator = RegexValidator(
     regex=r"^[a-z0-9-]{1,64}$",
     message="Ícone deve ser um identificador kebab-case (ex.: 'book-open').",
 )
+
+
+#: Controles de direção que INVERTEM ou isolam o texto que vem depois.
+#: Num nome de arquivo, "fatura‮fdp.exe" aparece na tela como
+#: "faturaexe.pdf". LRM e RLM (U+200E/U+200F) ficam: eles só marcam a
+#: direção de um trecho e são usados de verdade em nomes em árabe e hebraico.
+_CONTROLES_DE_DIRECAO = dict.fromkeys(
+    map(ord, "‪‫‬‭‮⁦⁧⁨⁩")
+)
+
+
+def normalizar_nome(valor):
+    """Forma única de um nome digitado: NFC, sem controles de direção, sem
+    espaço nas pontas.
+
+    NFC porque "Cálculo" chega de dois jeitos. Digitado no Windows, o "á"
+    é UM caractere; colado de um PDF ou de um arquivo do macOS, é "a" mais
+    um acento solto. Na tela são idênticos, no banco são diferentes: a
+    regra de nome único deixava criar as duas pastas, e a busca por um não
+    achava o outro.
+    """
+    return unicodedata.normalize("NFC", valor).translate(_CONTROLES_DE_DIRECAO).strip()
 
 
 def e_uuid(valor):

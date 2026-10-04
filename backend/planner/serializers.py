@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from content.models import Document
 from organization.models import Category, Folder
+from core.validators import normalizar_nome
 from organization.serializers import CategoryMiniSerializer, OwnedPrimaryKeyRelatedField
 
 from . import recorrencia
@@ -41,10 +42,12 @@ class BoardSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "is_default", "task_count")
 
     def validate_name(self, value):
-        value = value.strip()
+        value = normalizar_nome(value)
         if not value:
             raise serializers.ValidationError("Dê um nome ao quadro.")
-        outros = Board.objects.filter(
+        # `.alive()`: sem ele, um quadro na lixeira seguia reservando o
+        # nome, e recriar "Pessoal" depois de apagá-lo dizia que já existia.
+        outros = Board.objects.alive().filter(
             owner=self.context["request"].user, name__iexact=value
         )
         if self.instance is not None:

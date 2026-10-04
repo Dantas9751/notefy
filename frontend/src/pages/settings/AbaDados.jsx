@@ -6,6 +6,7 @@ import { Button, ErrorState } from '@/components/ui'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { salvarArquivo } from '@/lib/desktop'
 import { Bloco, Chave } from './componentes'
+import { t } from '@/lib/i18n'
 
 export default function AbaDados() {
   const { refresh } = useWorkspace()
@@ -62,21 +63,21 @@ export default function AbaDados() {
   return (
     <>
       <Bloco
-        title="Backup"
-        description="Seu conteúdo fica neste computador. O backup leva tudo num arquivo .zip: categorias, pastas, itens, arquivos e tarefas."
+        title={t('Backup')}
+        description={t('Seu conteúdo fica neste computador. O backup leva tudo num arquivo .zip: categorias, pastas, itens, arquivos e tarefas.')}
       >
         {erro && <ErrorState message={erro} />}
         {resumo && (
           <p className="flex items-start gap-1.5 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
             <Check size={13} className="mt-0.5 shrink-0" />
-            Importação concluída: {resumo.categorias} categorias, {resumo.pastas} pastas,{' '}
-            {resumo.documentos} itens e {resumo.tarefas} tarefas.
+            {t('Importação concluída:')} {resumo.categorias} {t('categorias,')} {resumo.pastas} {t('pastas,')}{' '}
+            {resumo.documentos} {t('itens e')} {resumo.tarefas} {t('tarefas.')}
           </p>
         )}
 
         <div className="flex flex-wrap gap-2">
           <Button icon={Download} onClick={exportar} loading={exportando}>
-            {exportando ? 'Exportando...' : 'Exportar backup'}
+            {exportando ? t('Exportando...') : t('Exportar backup')}
           </Button>
 
           <input
@@ -92,23 +93,23 @@ export default function AbaDados() {
             onClick={() => arquivoRef.current?.click()}
             loading={importando}
           >
-            {importando ? 'Importando...' : 'Importar backup'}
+            {importando ? t('Importando...') : t('Importar backup')}
           </Button>
         </div>
 
         <Chave
           checked={substituir}
           onChange={setSubstituir}
-          label="Substituir o conteúdo atual"
-          description="Sem marcar, o backup é adicionado ao que você já tem e nada é apagado."
+          label={t('Substituir o conteúdo atual')}
+          description={t('Sem marcar, o backup é adicionado ao que você já tem e nada é apagado.')}
         />
       </Bloco>
 
       <ConfirmDialog
         open={!!confirmarSubstituir}
-        title="Substituir tudo?"
-        message="Seus dados atuais serão apagados permanentemente antes da importação."
-        confirmLabel="Importar"
+        title={t('Substituir tudo?')}
+        message={t('Seus dados atuais serão apagados permanentemente antes da importação.')}
+        confirmLabel={t('Importar')}
         onClose={() => {
           setConfirmarSubstituir(null)
           if (arquivoRef.current) arquivoRef.current.value = ''

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { CalendarClock, CalendarX2, Check, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import api from '@/lib/api'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { t } from '@/lib/i18n'
 
 /**
  * Ações de tarefa com os diálogos que elas pedem.
@@ -29,14 +30,14 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
     (task) => {
       const done = task.status === 'done'
       return [
-        { label: 'Editar', icon: Pencil, onClick: () => onEdit?.(task) },
+        { label: t('Editar'), icon: Pencil, onClick: () => onEdit?.(task) },
         {
-          label: task.starts_at ? 'Alterar data' : 'Agendar',
+          label: task.starts_at ? t('Alterar data') : t('Agendar'),
           icon: CalendarClock,
           onClick: () => onSchedule?.(task),
         },
         task.starts_at && {
-          label: 'Tirar da agenda',
+          label: t('Tirar da agenda'),
           icon: CalendarX2,
           onClick: async () => {
             await api.post(`/tasks/${task.id}/schedule/`, { starts_at: null })
@@ -45,7 +46,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
         },
         { separator: true },
         {
-          label: done ? 'Reabrir' : 'Marcar como concluída',
+          label: done ? t('Reabrir') : t('Marcar como concluída'),
           icon: done ? RotateCcw : Check,
           onClick: async () => {
             await api.post(`/tasks/${task.id}/toggle/`)
@@ -53,7 +54,7 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
           },
         },
         {
-          label: 'Excluir',
+          label: t('Excluir'),
           icon: Trash2,
           danger: true,
           onClick: () => setDeleting(task),
@@ -66,10 +67,10 @@ export function useTaskActions({ onChanged, onEdit, onSchedule } = {}) {
   const dialogs = (
     <ConfirmDialog
       open={!!deleting}
-      title="Excluir tarefa"
+      title={t('Excluir tarefa')}
       message={
         <>
-          <strong>{deleting?.title}</strong> será removida permanentemente.
+          <strong>{deleting?.title}</strong> {t('será removida permanentemente.')}
         </>
       }
       onClose={() => setDeleting(null)}

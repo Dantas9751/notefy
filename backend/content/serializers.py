@@ -1,8 +1,12 @@
+import copy
+
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from core.idioma import texto
+from core.validators import normalizar_nome
 from organization.models import Category, Folder
 from organization.serializers import (
     BREADCRUMB_SCHEMA,
@@ -10,7 +14,7 @@ from organization.serializers import (
     OwnedPrimaryKeyRelatedField,
 )
 
-from .models import Document
+from .models import Document, Template
 from .schemas import empty_data_for, validate_data
 
 
@@ -131,7 +135,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     # Validação
     # ------------------------------------------------------------------
     def validate_title(self, value):
-        value = value.strip()
+        value = normalizar_nome(value)
         if not value:
             raise serializers.ValidationError("O título não pode ficar vazio.")
         return value
@@ -143,6 +147,15 @@ class DocumentSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # O tipo nasce com o item e não muda. Um PATCH com outro `kind`
+        # passava: a nota virava "planilha" carregando dados de nota (o
+        # editor abria quebrado) ou "arquivo" sem arquivo nenhum. O editor
+        # manda o `kind` em todo salvamento, então só a MUDANÇA é recusada.
+        if self.instance is not None and "kind" in attrs and attrs["kind"] != self.instance.kind:
+            raise serializers.ValidationError(
+                {"kind": "O tipo de um item não muda depois de criado."}
+            )
+
         kind = attrs.get("kind", getattr(self.instance, "kind", Document.Kind.NOTE))
 
         # Um arquivo sem arquivo não é nada: só faz sentido exigir isso na
@@ -216,3 +229,89 @@ class DocumentUploadSerializer(serializers.Serializer):
                 "Não é possível anexar um arquivo a outro anexo."
             )
         return value
+
+
+class TemplateListSerializer(serializers.ModelSerializer):
+    """Modelo na listagem: sem o `data`, que pode ser uma nota inteira.
+
+    A galeria mostra nome, tipo e o começo do texto; o conteúdo só viaja
+    quando alguém abre o modelo para ver ou usar.
+    """
+
+    excerpt = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Template
+        fields = ("id", "name", "description", "kind", "excerpt", "created_at", "updated_at")
+        read_only_fields = fields
+
+
+class TemplateSerializer(serializers.ModelSerializer):
+    """Modelo completo.
+
+    Nasce de dois jeitos: com `kind` e `data` prontos, ou com `document`,
+    o item que a pessoa mandou "salvar como modelo". No segundo, tipo e
+    conteúdo são COPIADOS do documento no servidor: o cliente não precisa
+    baixar o item para mandá-lo de volta, e não tem como dizer que um
+    documento de outra conta é dele.
+    """
+
+    excerpt = serializers.CharField(read_only=True)
+    document = serializers.PrimaryKeyRelatedField(
+        queryset=Document.objects.none(), write_only=True, required=False
+    )
+
+    class Meta:
+        model = Template
+        fields = (
+            "id", "name", "description", "kind", "data", "excerpt",
+            "document", "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "excerpt", "created_at", "updated_at")
+        extra_kwargs = {
+            "kind": {"required": False},
+            "data": {"required": False},
+            "name": {"required": False},
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            self.fields["document"].queryset = Document.objects.alive().filter(
+                owner=request.user, kind__in=Document.EDITABLE_KINDS
+            )
+
+    def validate_name(self, value):
+        return normalizar_nome(value)
+
+    def validate(self, attrs):
+        documento = attrs.pop("document", None)
+        if self.instance is not None:
+            # Editar um modelo é trocar nome e descrição. O conteúdo de um
+            # molde muda salvando de novo a partir de um item.
+            attrs.pop("kind", None)
+            attrs.pop("data", None)
+            return attrs
+
+        if documento is not None:
+            attrs["kind"] = documento.kind
+            attrs["data"] = copy.deepcopy(documento.data or {})
+            attrs.setdefault("name", normalizar_nome(documento.title)[:120])
+        if attrs.get("kind") not in Document.EDITABLE_KINDS:
+            raise serializers.ValidationError(
+                {"kind": texto("Só nota, planilha, diagrama e canvas viram modelo.",
+                               "Only notes, spreadsheets, diagrams and canvases can become templates.")}
+            )
+        if not attrs.get("name"):
+            raise serializers.ValidationError({"name": texto("Dê um nome ao modelo.", "Give the template a name.")})
+        dados = attrs.get("data")
+        if dados is None:
+            attrs["data"] = empty_data_for(attrs["kind"])
+        elif not isinstance(dados, dict):
+            raise serializers.ValidationError({"data": texto("Conteúdo inválido.", "Invalid content.")})
+        try:
+            validate_data(attrs["kind"], attrs["data"])
+        except DjangoValidationError as erro:
+            raise serializers.ValidationError(getattr(erro, "message_dict", {"data": erro.messages}))
+        return attrs

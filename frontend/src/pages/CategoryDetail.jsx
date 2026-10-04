@@ -16,6 +16,7 @@ import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { useMultiSelect } from '@/hooks/useMultiSelect'
 import { canDrop, hasItemPayload, limparDragPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
 import { cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Segundo nível da navegação: as pastas de uma categoria.
@@ -40,7 +41,7 @@ export default function CategoryDetail({ id: idProp }) {
   // Título da aba: categoria abre como aba própria, e o nome real
   // substitui o "Categoria" padrão. No painel lateral o router pertence
   // à esquerda, então a aba não é mexida (enabled: false).
-  useTabState({ title: data?.category?.name ?? 'Categoria', enabled: !emPainel })
+  useTabState({ title: data?.category?.name ?? t('Categoria'), enabled: !emPainel })
 
   const [folderModal, setFolderModal] = useState(null)
   const [categoryModal, setCategoryModal] = useState(false)
@@ -183,7 +184,7 @@ export default function CategoryDetail({ id: idProp }) {
 
     if (bloqueados.length) {
       setBulkError(
-        `${bloqueados.length} de ${idsToDelete.length} pastas não foram excluídas. ${bloqueados[0]}`,
+        t('{falhas} de {total} pastas não foram excluídas. {motivo}', { falhas: bloqueados.length, total: idsToDelete.length, motivo: bloqueados[0] }),
       )
     }
 
@@ -237,7 +238,7 @@ export default function CategoryDetail({ id: idProp }) {
     }
 
     if (!arvore.length) {
-      setBulkError('Nada para exportar na seleção.')
+      setBulkError(t('Nada para exportar na seleção.'))
       return
     }
 
@@ -254,13 +255,13 @@ export default function CategoryDetail({ id: idProp }) {
     if (isMultiple) {
       return [
         {
-          label: `Exportar (${selectedIds.length}) como .zip`,
+          label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
           onClick: handleBulkExport,
         },
         { separator: true },
         {
-          label: `Excluir (${selectedIds.length} selecionadas)`,
+          label: t('Excluir ({length} selecionadas)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
           onClick: handleBulkDelete,
@@ -269,26 +270,26 @@ export default function CategoryDetail({ id: idProp }) {
     }
 
     return [
-      { label: 'Abrir', icon: FolderOpen, onClick: () => navigate(`/folders/${folder.id}`) },
+      { label: t('Abrir'), icon: FolderOpen, onClick: () => navigate(`/folders/${folder.id}`) },
       {
-        label: 'Nova subpasta',
+        label: t('Nova subpasta'),
         icon: FolderPlus,
         onClick: () => setFolderModal({ parent: folder, categoryId: id }),
       },
       { separator: true },
       {
-        label: 'Renomear',
+        label: t('Renomear'),
         icon: Pencil,
         onClick: () => setFolderModal({ folder, categoryId: id }),
       },
       {
-        label: 'Exportar como .zip',
+        label: t('Exportar como .zip'),
         icon: Download,
         onClick: () => handleFolderExport(folder),
       },
       { separator: true },
       {
-        label: 'Excluir',
+        label: t('Excluir'),
         icon: Trash2,
         danger: true,
         onClick: () => {
@@ -318,14 +319,15 @@ export default function CategoryDetail({ id: idProp }) {
     >
       <PageHeader
         title={category?.name}
-        subtitle={category?.description || `${folders.length} pasta(s) nesta categoria.`}
+        subtitle={category?.description || t('{length} pasta(s) nesta categoria.', { length: folders.length })}
         breadcrumb={
           <nav className="mb-2 flex items-center gap-1 text-xs text-ink-400">
             <Link to="/" className="hover:text-ink-700 dark:hover:text-ink-200">
-              Início
+              {t('Início')}
             </Link>
             <ChevronRight size={11} />
-            <span className="text-ink-500 dark:text-ink-300">Categorias</span>
+            {/* Termina no lugar atual, como o da pasta: "Categorias" não é uma tela. */}
+            <span className="text-ink-500 dark:text-ink-300">{category?.name}</span>
           </nav>
         }
         actions={
@@ -336,14 +338,14 @@ export default function CategoryDetail({ id: idProp }) {
               icon={Pencil}
               onClick={() => setCategoryModal(true)}
             >
-              Editar
+              {t('Editar')}
             </Button>
             <Button
               size="sm"
               icon={FolderPlus}
               onClick={() => setFolderModal({ parent: null, categoryId: id })}
             >
-              Nova pasta
+              {t('Nova pasta')}
             </Button>
           </>
         }
@@ -357,7 +359,7 @@ export default function CategoryDetail({ id: idProp }) {
         )}
 
         {folders.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {folders.map((folder) => {
               const selecionada = isSelected(folder.id)
               return (
@@ -398,7 +400,7 @@ export default function CategoryDetail({ id: idProp }) {
                       </p>
                     )}
                     <p className="mt-1.5 text-[11px] text-ink-400">
-                      {folder.document_count} item(ns) · {folder.child_count} subpasta(s) ·{' '}
+                      {folder.document_count} {t('item(ns) ·')} {folder.child_count} {t('subpasta(s) ·')}{' '}
                       {formatRelative(folder.updated_at)}
                     </p>
                   </div>
@@ -409,14 +411,14 @@ export default function CategoryDetail({ id: idProp }) {
         ) : (
           <EmptyState
             icon={FolderOpen}
-            title="Nenhuma pasta nesta categoria"
-            description="Crie uma pasta para começar a guardar notas, arquivos, planilhas e diagramas aqui."
+            title={t('Nenhuma pasta nesta categoria')}
+            description={t('Crie uma pasta para começar a guardar notas, arquivos, planilhas e diagramas aqui.')}
             action={
               <Button
                 icon={FolderPlus}
                 onClick={() => setFolderModal({ parent: null, categoryId: id })}
               >
-                Criar pasta
+                {t('Criar pasta')}
               </Button>
             }
           />
@@ -427,19 +429,19 @@ export default function CategoryDetail({ id: idProp }) {
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionada(s)
+            {selectedIds.length} {t('selecionada(s)')}
           </span>
           <div className="h-4 w-px bg-ink-700" />
           <button
             onClick={handleBulkDelete}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
-            <Trash2 size={14} /> Excluir
+            <Trash2 size={14} /> {t('Excluir')}
           </button>
           <button
             onClick={limparSelecao}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -485,14 +487,9 @@ export default function CategoryDetail({ id: idProp }) {
           `requestDelete` — que apagaria a primeira pasta antes de perguntar. */}
       <ConfirmDialog
         open={!!confirmarLote}
-        title="Excluir pastas selecionadas"
-        message={
-          <>
-            <strong>{confirmarLote?.length} pastas</strong> serão excluídas, com
-            tudo que estiver dentro delas. Isso não pode ser desfeito.
-          </>
-        }
-        confirmLabel="Excluir tudo"
+        title={t('Excluir pastas selecionadas')}
+        message={t('{n} pastas vão para a lixeira, junto com o que houver dentro delas.', { n: confirmarLote?.length })}
+        confirmLabel={t('Excluir {n} pastas', { n: confirmarLote?.length })}
         onClose={() => setConfirmarLote(null)}
         onConfirm={confirmarExclusaoEmLote}
       />

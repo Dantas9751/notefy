@@ -1,23 +1,65 @@
-import { format, formatDistanceToNow, isToday, isTomorrow, isYesterday } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
+import {
+  format,
+  formatDistanceToNow,
+  isToday,
+  isTomorrow,
+  isYesterday,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subDays,
+  subWeeks,
+} from 'date-fns'
+import { localeDatas, t } from './i18n.js'
 
 /** Junta classes condicionais. Substitui clsx para não adicionar dependência. */
 export function cn(...parts) {
   return parts.flat(Infinity).filter(Boolean).join(' ')
 }
 
-export function formatDate(value, pattern = "d 'de' MMM, yyyy") {
+export function formatDate(value, pattern = t("d 'de' MMM, yyyy")) {
   if (!value) return ''
-  return format(new Date(value), pattern, { locale: ptBR })
+  return format(new Date(value), pattern, { locale: localeDatas })
 }
 
 export function formatRelative(value) {
   if (!value) return ''
   const date = new Date(value)
-  if (isToday(date)) return `hoje, ${format(date, 'HH:mm')}`
-  if (isYesterday(date)) return `ontem, ${format(date, 'HH:mm')}`
-  if (isTomorrow(date)) return `amanhã, ${format(date, 'HH:mm')}`
-  return formatDistanceToNow(date, { addSuffix: true, locale: ptBR })
+  const hora = format(date, t('HH:mm'))
+  if (isToday(date)) return t('hoje, {hora}', { hora })
+  if (isYesterday(date)) return t('ontem, {hora}', { hora })
+  if (isTomorrow(date)) return t('amanhã, {hora}', { hora })
+  return formatDistanceToNow(date, { addSuffix: true, locale: localeDatas })
+}
+
+/**
+ * O grupo de uma data na lista, como os do Google Fotos: Hoje, Ontem, Esta
+ * semana, Semana passada, Este mês e, antes disso, o mês ("Agosto", ou
+ * "Agosto de 2025" se for de outro ano). A semana começa no domingo, como
+ * no Calendário.
+ */
+export function grupoDaData(valor, agora = new Date()) {
+  const data = new Date(valor)
+  const hoje = startOfDay(agora)
+  const semana = startOfWeek(agora, { weekStartsOn: 0 })
+  if (data >= hoje) return t('Hoje')
+  if (data >= subDays(hoje, 1)) return t('Ontem')
+  if (data >= semana) return t('Esta semana')
+  if (data >= subWeeks(semana, 1)) return t('Semana passada')
+  if (data >= startOfMonth(agora)) return t('Este mês')
+  const mes = format(data, data.getFullYear() === agora.getFullYear() ? 'MMMM' : t("MMMM 'de' yyyy"), { locale: localeDatas })
+  return mes.charAt(0).toUpperCase() + mes.slice(1)
+}
+
+/** Itens já em ordem de data (o mais novo primeiro), em grupos seguidos. */
+export function agruparPorData(itens, campo, agora = new Date()) {
+  const grupos = []
+  for (const item of itens) {
+    const rotulo = grupoDaData(item[campo], agora)
+    if (grupos.at(-1)?.rotulo === rotulo) grupos.at(-1).itens.push(item)
+    else grupos.push({ rotulo, itens: [item] })
+  }
+  return grupos
 }
 
 export function formatBytes(bytes) {
@@ -123,32 +165,34 @@ export function limparMarkdown(texto) {
  * Quem aceita "sem cor" usa `['', ...PRESET_COLORS]`.
  */
 export const PRESET_COLORS = [
-  '#4F46E5', '#0EA5E9', '#10B981', '#F59E0B',
-  '#EF4444', '#EC4899', '#8B5CF6', '#64748B',
+  // Os mesmos tons de material da cor de destaque (lib/accent.js): musgo,
+  // tinta azul, petróleo, mostarda, vinho, rosa antigo, ameixa e grafite.
+  '#70864C', '#3E6A8A', '#2F7A6B', '#B08A3E',
+  '#8A3B44', '#A0526D', '#6E5A8A', '#5B6470',
 ]
 
 /** Três colunas: o status é o lugar da tarefa no quadro. */
 export const TASK_STATUS = {
   todo: {
-    label: 'A fazer',
+    get label() { return t('A fazer') },
     className: 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300',
     accent: '#64748B',
   },
   in_progress: {
-    label: 'Em progresso',
+    get label() { return t('Em progresso') },
     className: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
     accent: '#0EA5E9',
   },
   done: {
-    label: 'Concluída',
+    get label() { return t('Concluída') },
     className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
     accent: '#10B981',
   },
 }
 
 export const TASK_PRIORITY = {
-  0: { label: 'Baixa', className: 'text-ink-400' },
-  1: { label: 'Média', className: 'text-blue-500' },
-  2: { label: 'Alta', className: 'text-amber-500' },
-  3: { label: 'Urgente', className: 'text-red-500' },
+  0: { get label() { return t('Baixa') }, className: 'text-ink-400' },
+  1: { get label() { return t('Média') }, className: 'text-blue-500' },
+  2: { get label() { return t('Alta') }, className: 'text-amber-500' },
+  3: { get label() { return t('Urgente') }, className: 'text-red-500' },
 }

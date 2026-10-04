@@ -7,6 +7,7 @@ import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/com
 import ColorWheel from '@/components/ui/ColorWheel'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import { PRESET_COLORS } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 //: Pasta aceita "sem cor" — herda a da categoria.
 const CORES = ['', ...PRESET_COLORS]
@@ -122,14 +123,14 @@ export default function FolderFormModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title={isEditing ? 'Editar pasta' : 'Nova pasta'}
+      title={isEditing ? t('Editar pasta') : t('Nova pasta')}
       footer={
         <>
           <Button variant="secondary" onClick={handleClose} type="button">
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button type="button" onClick={handleAction} loading={loading}>
-            {isEditing ? 'Salvar' : 'Criar pasta'}
+            {isEditing ? t('Salvar') : t('Criar pasta')}
           </Button>
         </>
       }
@@ -138,19 +139,19 @@ export default function FolderFormModal({
       <form ref={formRef} onSubmit={handleFormSubmit} className="space-y-4">
         {error && <ErrorState message={error} onRetry={() => setError(null)} />}
 
-        <Field label="Nome">
+        <Field label={t('Nome')}>
           <Input
             name="name"
             defaultValue={initialData.name}
-            placeholder="Ex.: Cálculo II"
+            placeholder={t('Ex.: Cálculo II')}
             autoFocus
             required
           />
         </Field>
 
-        <Field label="Dentro de" hint="Escolha uma pasta para criar subpasta, ou raiz.">
+        <Field label={t('Dentro de')} hint={t('Escolha uma pasta para criar subpasta, ou raiz.')}>
           <Select name="parent" value={parentVal} onChange={(e) => setParentVal(e.target.value)}>
-            <option value="">Raiz da categoria</option>
+            <option value="">{t('Raiz da categoria')}</option>
             {parentOptions.map((node) => (
               <option key={node.id} value={node.id}>
                 {'  '.repeat(node._depth)}
@@ -161,10 +162,10 @@ export default function FolderFormModal({
         </Field>
 
         {!isSubfolder && (
-          <Field label="Categoria" hint="Toda pasta raiz pertence a uma categoria.">
+          <Field label={t('Categoria')} hint={t('Toda pasta raiz pertence a uma categoria.')}>
             <div className="flex gap-2">
               <Select name="category" value={categoryVal} onChange={(e) => setCategoryVal(e.target.value)} required className="flex-1">
-                <option value="">Escolha</option>
+                <option value="">{t('Escolha')}</option>
                 {categoryList.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
@@ -172,12 +173,12 @@ export default function FolderFormModal({
                 ))}
               </Select>
               
-              <Button type="button" variant="secondary" icon={Tag} onClick={() => setCategoriaModal(true)} title="Nova categoria" />
+              <Button type="button" variant="secondary" icon={Tag} onClick={() => setCategoriaModal(true)} title={t('Nova categoria')} />
             </div>
           </Field>
         )}
 
-        <Field label="Cor">
+        <Field label={t('Cor')}>
           <div className="flex flex-wrap items-center gap-1.5">
             {CORES.map((c) => (
               <button
@@ -196,7 +197,7 @@ export default function FolderFormModal({
           </div>
         </Field>
 
-        <Field label="Descrição">
+        <Field label={t('Descrição')}>
           <Textarea name="description" rows={2} defaultValue={initialData.description} />
         </Field>
       </form>

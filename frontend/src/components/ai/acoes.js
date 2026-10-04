@@ -11,6 +11,9 @@
  * mapa mental" que só conversava.
  */
 
+import { idioma, t } from '../../lib/i18n.js'
+import { detectarAcaoEn } from './acoes.en.js'
+
 /** Remove acentos mantendo o resto minúsculo. */
 function normalizar(texto) {
   return texto
@@ -150,7 +153,12 @@ function padrao(expr) {
 
 const SEM_TOPICO = 'o conteudo do documento'
 
+/** Qual detector vale: o do idioma em que o app está. */
 export function detectarAcao(textoBruto, kind) {
+  return idioma === 'en-US' ? detectarAcaoEn(textoBruto, kind) : detectarAcaoPt(textoBruto, kind)
+}
+
+export function detectarAcaoPt(textoBruto, kind) {
   const t = corrigirVerbos(normalizar(textoBruto))
 
   // ----------------------------------------------------------------
@@ -300,17 +308,17 @@ export function detectarAcao(textoBruto, kind) {
  */
 export function rotuloAcao(task) {
   const mapa = {
-    'canvas.gerar': 'Quadro criado',
-    'diagrama.gerar': 'Diagrama criado',
-    'planilha.preencher': 'Planilha atualizada',
-    'nota.texto': 'Texto adicionado à nota',
-    'nota.resumir': 'Resumo adicionado',
-    'nota.corrigir': 'Texto corrigido',
-    'nota.continuar': 'Continuação adicionada',
-    'criar.nota': 'Nota criada',
-    'criar.planilha': 'Planilha criada',
-    'criar.diagrama': 'Diagrama criado',
-    'criar.canvas': 'Quadro criado',
+    'canvas.gerar': t('Quadro criado'),
+    'diagrama.gerar': t('Diagrama criado'),
+    'planilha.preencher': t('Planilha atualizada'),
+    'nota.texto': t('Texto adicionado à nota'),
+    'nota.resumir': t('Resumo adicionado'),
+    'nota.corrigir': t('Texto corrigido'),
+    'nota.continuar': t('Continuação adicionada'),
+    'criar.nota': t('Nota criada'),
+    'criar.planilha': t('Planilha criada'),
+    'criar.diagrama': t('Diagrama criado'),
+    'criar.canvas': t('Quadro criado'),
   }
-  return mapa[task] || 'Item atualizado'
+  return mapa[task] || t('Item atualizado')
 }

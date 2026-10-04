@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { ACCENT_PADRAO, aplicarAccent, corValida } from '@/lib/accent'
+import { ACCENT_PADRAO, ACCENT_PADRAO_ANTIGO, aplicarAccent, corValida } from '@/lib/accent'
+import { idioma } from '@/lib/i18n'
+import { FONTES_DA_NOTA, FONTES_DO_APP, pilha } from '@/lib/fontes'
 
 const UIContext = createContext(null)
 
@@ -7,6 +9,8 @@ const SIDEBAR_KEY = 'notefy.sidebar'
 const THEME_KEY = 'notefy.theme'
 const ACCENT_KEY = 'notefy.accent'
 const ZEN_KEY = 'notefy.zen'
+const FONTE_APP_KEY = 'notefy.fonteApp'
+const FONTE_NOTA_KEY = 'notefy.fonteNota'
 
 export function UIProvider({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -18,12 +22,24 @@ export function UIProvider({ children }) {
 
   const [accent, setAccentState] = useState(() => {
     const guardado = localStorage.getItem(ACCENT_KEY)
+    if (guardado?.toLowerCase() === ACCENT_PADRAO_ANTIGO.toLowerCase()) return ACCENT_PADRAO
     return corValida(guardado) ? guardado : ACCENT_PADRAO
   })
   // Modo zen: some com a sidebar e os cabecalhos para sobrar so o
   // conteudo. Persistido porque quem escreve muito quer entrar no app ja
   // dentro dele, sem reativar toda vez.
   const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true')
+  // Fontes do app e das notas: por aparelho, como o tema e a cor.
+  const [fonteApp, setFonteApp] = useState(() => localStorage.getItem(FONTE_APP_KEY) || 'padrao')
+  const [fonteNota, setFonteNota] = useState(() => localStorage.getItem(FONTE_NOTA_KEY) || 'app')
+
+  useEffect(() => {
+    localStorage.setItem(FONTE_APP_KEY, fonteApp)
+    localStorage.setItem(FONTE_NOTA_KEY, fonteNota)
+    const raiz = document.documentElement.style
+    raiz.setProperty('--fonte-app', pilha(FONTES_DO_APP, fonteApp))
+    raiz.setProperty('--fonte-nota', pilha(FONTES_DA_NOTA, fonteNota))
+  }, [fonteApp, fonteNota])
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed))
@@ -65,7 +81,9 @@ export function UIProvider({ children }) {
   // React não mexe no <html>: esta linha é só a garantia de que ninguém
   // perdeu o atributo numa edição do template.
   useEffect(() => {
-    document.documentElement.lang = 'pt-BR-u-hc-h23'
+    // Em inglês o relógio de 12 horas é o esperado; só o português fixa as 24.
+    // (`trocarIdioma` refaz isto quando a pessoa muda de língua.)
+    document.documentElement.lang = idioma === 'pt-BR' ? 'pt-BR-u-hc-h23' : idioma
   }, [])
 
   const toggleSidebar = useCallback(() => setSidebarCollapsed((v) => !v), [])
@@ -89,6 +107,10 @@ export function UIProvider({ children }) {
       toggleZen,
       accent,
       setAccent,
+      fonteApp,
+      setFonteApp,
+      fonteNota,
+      setFonteNota,
     }),
     [
       sidebarCollapsed,
@@ -99,6 +121,8 @@ export function UIProvider({ children }) {
       toggleZen,
       accent,
       setAccent,
+      fonteApp,
+      fonteNota,
     ],
   )
 

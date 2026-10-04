@@ -130,7 +130,14 @@ export function useMultiSelect(keys) {
         return
       }
 
-      if (event.ctrlKey || event.metaKey) {
+      // No toque não existe Ctrl. Com uma seleção aberta (o toque longo marca
+      // o item e abre o menu dele), cada toque soma ou tira um item, como no
+      // gerenciador de arquivos do Android; a barra de seleção mostra o modo
+      // e tem o X para sair dele.
+      const tocandoNaSelecao =
+        event.nativeEvent?.pointerType === 'touch' && selectedRef.current.length > 0
+
+      if (event.ctrlKey || event.metaKey || tocandoNaSelecao) {
         event.preventDefault()
         event.stopPropagation()
         limparSelecaoDeTexto()

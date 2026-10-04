@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import api, { extractError } from '@/lib/api'
 
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { t, traduzirMensagem } from '@/lib/i18n'
 
 /**
  * Exclusão de categoria e pasta — em cascata, com aviso.
@@ -22,14 +23,14 @@ import ConfirmDialog from '@/components/modals/ConfirmDialog'
  */
 
 const KIND = {
-  folder: { label: 'pasta', article: 'A pasta' },
-  category: { label: 'categoria', article: 'A categoria' },
+  folder: { get label() { return t('pasta') }, get article() { return t('A pasta') } },
+  category: { get label() { return t('categoria') }, get article() { return t('A categoria') } },
 }
 
 // Chaves de `counts` que o backend devolve.
 const COUNT_LABEL = {
-  folders: ['pasta', 'pastas'],
-  documents: ['item', 'itens'],
+  get folders() { return [t('pasta'), t('pastas')] },
+  get documents() { return [t('item'), t('itens')] },
 }
 
 // Todo `kind` que o hook recebe, e não só categoria: o `else` mandava
@@ -69,7 +70,7 @@ function describe(counts) {
     return parts[0] ?? ''
   }
 
-  return `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`
+  return t('{lista} e {ultimo}', { lista: parts.slice(0, -1).join(', '), ultimo: parts[parts.length - 1] })
 }
 
 /**
@@ -109,7 +110,7 @@ export function useCascadeDelete({ onDeleted, onError } = {}) {
 
         // TRAVA DE SEGURANÇA: Se for 423 Locked (contém favoritos), NUNCA abre diálogo de confirmação.
         if (status === 423) {
-          onError?.(data?.detail || "Este item contém favoritos e não pode ser excluído.")
+          onError?.(traduzirMensagem(data?.detail) || t('Este item contém favoritos e não pode ser excluído.'))
           return
         }
 
@@ -133,20 +134,21 @@ export function useCascadeDelete({ onDeleted, onError } = {}) {
   const dialogs = (
     <ConfirmDialog
       open={!!pending}
-      title={`Excluir ${KIND[pending?.kind]?.label ?? 'item'} com conteúdo`}
+      title={t('Excluir {valor} com conteúdo', { valor: KIND[pending?.kind]?.label ?? t('item') })}
       message={
         pending && (
           <>
-            Tem certeza?{' '}
+            {t('Tem certeza?')}{' '}
             {KIND[pending.kind].article}{' '}
             <strong>{pending.name}</strong>{' '}
-            ainda contém conteúdo
-            {summary && ` (${summary})`}. Tudo que está dentro
-            dela será excluído junto, e isso não pode ser desfeito.
+            {t('ainda contém conteúdo')}
+            {/* Vai para a lixeira, como tudo que se exclui: dizer "não pode ser
+                desfeito" contradizia a Lixeira, que guarda por 30 dias. */}
+            {summary && ` (${summary})`}{t('. Tudo que está dentro dela vai junto para a lixeira.')}
           </>
         )
       }
-      confirmLabel="Excluir tudo"
+      confirmLabel={t('Excluir tudo')}
       onClose={() => setPending(null)}
       onConfirm={async () => {
         /**
@@ -189,7 +191,7 @@ export function useCascadeDelete({ onDeleted, onError } = {}) {
 
           // Garante que se o force=true bater na parede do favorito, o erro aparece na tela
           if (status === 423) {
-            onError?.(data?.detail || "Este item contém favoritos e não pode ser excluído.")
+            onError?.(traduzirMensagem(data?.detail) || t('Este item contém favoritos e não pode ser excluído.'))
             return
           }
 

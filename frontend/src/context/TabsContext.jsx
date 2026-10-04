@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { semQuery } from '@/context/SplitContext'
+import { t } from '@/lib/i18n'
 
 const TabsContext = createContext(null)
 
@@ -46,15 +47,18 @@ const ABRIVEIS = [
  * tem título aqui: quem o conhece é quem carregou o conteúdo.
  */
 const TITULOS_PADRAO = {
-  home: 'Início',
-  category: 'Categoria',
-  folder: 'Pasta',
-  board: 'Quadro',
-  calendar: 'Calendário',
-  recent: 'Recentes',
-  trash: 'Lixeira',
-  roadmap: 'Roadmap',
+  get home() { return t('Início') },
+  get category() { return t('Categoria') },
+  get folder() { return t('Pasta') },
+  get board() { return t('Quadro') },
+  get calendar() { return t('Calendário') },
+  get recent() { return t('Recentes') },
+  get trash() { return t('Lixeira') },
+  get roadmap() { return t('Roadmap') },
 }
+
+/** Páginas cujo título é sempre o padrão (categoria e pasta levam o nome delas). */
+const TITULOS_FIXOS = new Set(['home', 'board', 'calendar', 'recent', 'trash', 'roadmap'])
 
 /** Descreve a aba de uma rota, ou `null` se a rota não é abrível. */
 export function tabDe(location) {
@@ -83,7 +87,11 @@ export function TabsProvider({ children }) {
     try {
       const bruto = sessionStorage.getItem(STORAGE_KEY)
       const lido = bruto ? JSON.parse(bruto) : []
-      return Array.isArray(lido) ? lido : []
+      // O título das páginas fixas é refeito na leitura: as abas sobrevivem
+      // à troca de idioma, e "Início" guardado precisa virar "Home".
+      return Array.isArray(lido)
+        ? lido.map((aba) => (TITULOS_FIXOS.has(aba.kind) ? { ...aba, title: TITULOS_PADRAO[aba.kind] } : aba))
+        : []
     } catch {
       return []
     }
@@ -126,6 +134,15 @@ export function TabsProvider({ children }) {
     anterior.current = activeKey
 
     setTabs((atuais) => {
+      // Nunca zero abas: a tela sempre mostra alguma rota, e ela precisa de
+      // uma aba que a represente. Cobre a primeira abertura (o login chega
+      // aqui por `replace`, que o resto do efeito ignora) e o fechamento da
+      // última aba, que volta ao Início e o reabre como aba.
+      if (atuais.length === 0 && atual) {
+        suprimirReaddicao.current = null
+        return [atual]
+      }
+
       // Navegação vinda do fechamento de aba (vizinha ou `/`): não é uma
       // visita real, e recriar a aba de lá deixaria o usuário preso numa
       // aba que ele acabou de fechar.
@@ -231,10 +248,12 @@ export function TabsProvider({ children }) {
   )
 
   const closeAll = useCallback(() => {
-    setTabs([])
-    suprimirReaddicao.current = '/'
-    if (activeKey) navigate('/', { replace: true })
-  }, [activeKey, navigate])
+    // "Fechar todas" deixa só o Início, como o navegador deixa a página
+    // nova: zero abas não existe.
+    setTabs([tabDe({ pathname: '/' })])
+    ultimaAtiva.current = null
+    navigate('/', { replace: true })
+  }, [navigate])
 
   /**
    * Abre uma SEGUNDA aba da mesma rota de página (dois "Início", duas
@@ -341,7 +360,7 @@ export function useTabState({ title, dirty = false, enabled = true } = {}) {
 
   useEffect(() => {
     if (enabled && activeKey && jaExiste) {
-      patchTab(activeKey, { title: title || 'Sem título', dirty: !!dirty })
+      patchTab(activeKey, { title: title || t('Sem título'), dirty: !!dirty })
     }
   }, [enabled, activeKey, jaExiste, title, dirty, patchTab])
 

@@ -552,8 +552,12 @@ def extract_text(kind, data, content=""):
             if not isinstance(node, dict):
                 continue
             for key in ("text", "title", "label", "url", "stereotype"):
-                if node.get(key):
-                    parts.append(str(node[key]))
+                valor = node.get(key)
+                # A imagem do nó é um arquivo do próprio app: o endereço não é
+                # texto de ninguém e aparecia cru no resumo dos cartões. Link
+                # de fora continua pesquisável.
+                if valor and not (key == "url" and "/media/" in str(valor)):
+                    parts.append(str(valor))
             for key in ("fields", "methods", "items"):
                 for entry in node.get(key) or []:
                     if isinstance(entry, str):

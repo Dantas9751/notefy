@@ -1,254 +1,807 @@
-import { Suspense, lazy, useRef, useState } from 'react'
-import { Code2, GripVertical, ListChecks, Table2, Trash2, Type } from 'lucide-react'
+import { Suspense, forwardRef, lazy, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, Copy, GripVertical, Trash2 } from 'lucide-react'
 import RichTextEditor from './RichTextEditor'
 import ChecklistSection from './ChecklistSection'
 import TableSection from './TableSection'
+import BarraDeFuncoes from './BarraDeFuncoes'
+import MenuDeComandos from './MenuDeComandos'
 import { Spinner } from '@/components/ui'
+import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import {
+  contarNos,
+  cursorNaPrimeiraLinha,
+  cursorNaUltimaLinha,
+  cursorNoInicio,
+  retanguloDoCursor,
+  textoAntesDoCursor,
+  textoDoBloco,
+} from '@/lib/cursor'
+import {
+  atalhoMarkdown,
+  consultaDaBarra,
+  duplicarBloco,
+  ehDivisor,
+  ehTexto,
+  filtrarComandos,
+  htmlVazio,
+  inserirBloco,
+  inserirDepois,
+  moverBloco,
+  normalizar,
+  novaSecao,
+  removerSecao,
+} from '@/lib/nota'
 import { cn } from '@/lib/utils'
+import { idioma, t } from '@/lib/i18n'
 
 // Carregado sob demanda: o bloco de código arrasta o highlight.js junto,
-// e uma nota só de texto não deve pagar por ele. Checklist e tabela não
-// entram nessa regra — são HTML comum, e um `lazy` para cada um custaria
-// mais em requisição do que economiza em bytes.
+// e uma nota só de texto não deve pagar por ele.
 const CodeSection = lazy(() => import('./CodeSection'))
 
 /**
- * Nota dividida em seções.
+ * A nota: uma página contínua, como no Word.
  *
- * Uma nota é uma sequência de blocos, e cada tipo existe porque guardar
- * aquilo como DADO vale mais do que desenhá-lo dentro do texto rico:
- * o código tem linguagem (dá para colorir e preservar a indentação, que
- * um contentEditable normalizaria), o checklist tem `done` (dá para
- * contar o que falta) e a tabela tem células endereçáveis (uma tabela
- * desenhada no texto só é tabela para os olhos).
+ * No banco ela continua sendo uma lista de seções (ver `lib/nota.js` e
+ * `backend/content/schemas.py`); na tela é uma folha só, com a barra de
+ * funções no topo e o texto correndo de um bloco para o outro. Nada aqui
+ * pede o mouse para criar coisas:
+ *
+ * - "/" abre o menu de inserir, filtrado pelo que se digita depois;
+ * - "[] ", "# ", "- ", "1. ", "> " e "```" no começo da linha viram
+ *   checklist, título, lista, lista numerada, citação e código;
+ * - as setas, o Enter e o Backspace atravessam os blocos como se a página
+ *   fosse um texto só (o resto está em cada bloco);
+ * - Ctrl+Z desfaz também o que não é digitação: inserir, mover e apagar
+ *   bloco entram no histórico do editor, junto com o texto.
+ *
+ * Desenha o cabeçalho (título) e o rodapé (anexos) que o DocumentEditor
+ * passa, DENTRO da folha: no Word o título é parte da página, e a barra
+ * de funções fica acima dela.
  */
 
-const uid = () => `s${Math.random().toString(36).slice(2, 9)}`
+const COMANDOS_DE_BLOCO = new Set(['checklist', 'table', 'code'])
 
-const MOLDES = {
-  code: () => ({ id: uid(), type: 'code', language: 'plaintext', code: '', title: '' }),
-  checklist: () => ({
-    id: uid(),
-    type: 'checklist',
-    items: [{ id: `i${Math.random().toString(36).slice(2, 9)}`, text: '', done: false }],
-  }),
-  // 2×2: cabeçalho e uma linha de dados, o mínimo para parecer tabela.
-  table: () => ({ id: uid(), type: 'table', rows: [['', ''], ['', '']] }),
-  text: () => ({ id: uid(), type: 'text', html: '' }),
+const dataDeHoje = () =>
+  new Date().toLocaleDateString(idioma, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+/** Apaga n caracteres antes do cursor pela via do navegador (o atalho digitado). */
+function apagarAntes(n) {
+  for (let i = 0; i < n; i += 1) document.execCommand('delete')
 }
 
-const newSection = (type) => (MOLDES[type] ?? MOLDES.text)()
-
-/** Botão de inserir que aparece entre dois blocos. */
-function InsertBar({ onAdd, always = false }) {
+/** Alça de um bloco, na margem: menu no clique (e no toque), arraste no mouse. */
+function AlcaDoBloco({ rotulo, onMenu, onArrastar, onSoltarArraste }) {
   return (
     <div
-      className={cn(
-        'group/insert relative flex items-center justify-center py-1 transition',
-        !always && 'opacity-0 focus-within:opacity-100 hover:opacity-100',
-      )}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', rotulo)
+        onArrastar()
+      }}
+      onDragEnd={onSoltarArraste}
+      role="button"
+      tabIndex={-1}
+      title={t('Arraste para mover, clique para opções')}
+      aria-label={t('Opções do bloco')}
+      onClick={onMenu}
+      onContextMenu={onMenu}
+      className="absolute -left-7 top-1 cursor-grab rounded p-1 text-ink-300 opacity-0 transition hover:bg-ink-100 hover:text-ink-600 active:cursor-grabbing group-focus-within/bloco:opacity-100 group-hover/bloco:opacity-100 dark:hover:bg-ink-800"
     >
-      <div className="absolute inset-x-0 top-1/2 h-px bg-ink-200 dark:bg-ink-800" />
-      <div className="relative flex gap-1 rounded-full border border-ink-200 bg-white p-0.5 shadow-subtle dark:border-ink-700 dark:bg-ink-900">
-        <button
-          onClick={() => onAdd('text')}
-          title="Inserir seção de texto"
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800"
-        >
-          <Type size={11} /> Texto
-        </button>
-        <button
-          onClick={() => onAdd('code')}
-          title="Inserir bloco de código"
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800"
-        >
-          <Code2 size={11} /> Código
-        </button>
-        <button
-          onClick={() => onAdd('checklist')}
-          title="Inserir checklist"
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800"
-        >
-          <ListChecks size={11} /> Checklist
-        </button>
-        <button
-          onClick={() => onAdd('table')}
-          title="Inserir tabela"
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800"
-        >
-          <Table2 size={11} /> Tabela
-        </button>
-      </div>
+      <GripVertical size={14} />
     </div>
   )
 }
 
-export default function NoteEditor({ data, onChange, documentId, onError }) {
-  // A seção de rascunho que aparece enquanto a nota ainda não tem
-  // nenhuma — e uma nota RECÉM-CRIADA passa por aqui, porque nasce com
-  // `data: null` e só ganha seções na primeira gravação.
-  //
-  // Em `useRef`, e não montada na hora: `newSection()` sorteia um id, e
-  // um id novo a cada render troca a `key` do bloco. O React desmonta e
-  // remonta o editor de texto por baixo do cursor — quem estivesse
-  // digitando o título perdia o ponto de inserção no corpo.
-  const rascunho = useRef(newSection('text'))
-  const sections = data?.sections?.length ? data.sections : [rascunho.current]
-  const [dragIndex, setDragIndex] = useState(null)
-  const [overIndex, setOverIndex] = useState(null)
-  // Id da seção que acabou de ser inserida. Ela recebe o cursor ao
-  // aparecer: clicar em "Checklist" e ainda ter que clicar dentro do
-  // bloco para escrever é um passo que ninguém pediu.
-  const [recemInserida, setRecemInserida] = useState(null)
+const NoteEditor = forwardRef(function NoteEditor({
+  data,
+  onChange,
+  documentId,
+  onError,
+  //: Título (e o que mais vier antes do texto), desenhado dentro da folha.
+  cabecalho,
+  //: Anexos, no pé da folha.
+  rodape,
+  //: Conteúdo logo abaixo da primeira linha de uma nota vazia — os
+  //: modelos sugeridos, num item recém-criado.
+  aoComecar,
+  //: Histórico do DocumentEditor: grava um passo, desfaz, refaz.
+  onCommit,
+  onUndo,
+  onRedo,
+}, ref) {
+  const pagina = useMemo(() => normalizar(data?.sections), [data?.sections])
+  const notaVazia = pagina.length === 1 && htmlVazio(pagina[0].html)
 
-  const update = (next) => onChange({ ...data, sections: next })
+  // O dado mais novo, para duas operações seguidas no mesmo evento não
+  // trabalharem sobre a mesma versão velha (o render ainda não veio).
+  const dadosRef = useRef(data)
+  dadosRef.current = data
+  const paginaAtual = () => normalizar(dadosRef.current?.sections)
+
+  // Cada seção registra aqui o que a página precisa dela (focar, cortar…).
+  const alvosRef = useRef({})
+  const refs = useRef(new Map())
+  const refDe = (id) => {
+    if (!refs.current.has(id)) {
+      refs.current.set(id, (alvo) => {
+        if (alvo) alvosRef.current[id] = alvo
+        else delete alvosRef.current[id]
+      })
+    }
+    return refs.current.get(id)
+  }
+
+  const [foco, setFoco] = useState(null)
+  const ultimoTextoRef = useRef(null)
+  const [estadoDaBarra, setEstadoDaBarra] = useState({ marcas: {} })
+  const [barra, setBarra] = useState(null)
+  const barraRef = useRef(null)
+  barraRef.current = barra
+  const [arrastando, setArrastando] = useState(null)
+  const { menu, openMenu, closeMenu } = useContextMenu()
+
+  // ----------------------------------------------------------------
+  // Foco depois do render: o bloco que acabou de nascer ainda não existe
+  // quando a operação acontece.
+  // ----------------------------------------------------------------
+  const focoPendente = useRef(null)
+  useLayoutEffect(() => {
+    const pendente = focoPendente.current
+    if (!pendente) return
+    const alvo = alvosRef.current[pendente.id]
+    // O bloco de código pode estar carregando (lazy): ele se foca sozinho
+    // ao montar, pelo `autoFocus` que recebeu neste mesmo render.
+    if (!alvo) return
+    focoPendente.current = null
+    alvo.focar(pendente.onde)
+  })
+
+  // ----------------------------------------------------------------
+  // Mudanças e histórico
+  // ----------------------------------------------------------------
+  const trechoRef = useRef(null)
+
+  /** O que foi digitado até aqui vira um passo do desfazer. */
+  const fecharTrechoDigitado = () => {
+    if (!trechoRef.current) return
+    clearTimeout(trechoRef.current)
+    trechoRef.current = null
+    onCommit?.(dadosRef.current)
+  }
+
+  /** Esquece o passo em aberto (o atalho apagou os próprios caracteres). */
+  const descartarTrechoDigitado = () => {
+    clearTimeout(trechoRef.current)
+    trechoRef.current = null
+  }
+
+  const emitir = (secoes, { estrutural = false, focar = null } = {}) => {
+    if (estrutural) fecharTrechoDigitado()
+    const proximo = { ...(dadosRef.current ?? {}), sections: secoes }
+    dadosRef.current = proximo
+    onChange(proximo)
+    if (estrutural) {
+      onCommit?.(proximo)
+    } else {
+      // Digitação vira passo depois de uma pausa: desfazer letra por
+      // letra seria inútil, e desfazer a nota inteira, pior.
+      clearTimeout(trechoRef.current)
+      trechoRef.current = setTimeout(() => {
+        trechoRef.current = null
+        onCommit?.(dadosRef.current)
+      }, 700)
+    }
+    if (focar) focoPendente.current = focar
+  }
+
+  useEffect(() => () => clearTimeout(trechoRef.current), [])
+
+  const mudarSecao = (id, patch) => {
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    if (i === -1) return
+    emitir(atual.map((s, k) => (k === i ? { ...s, ...patch } : s)))
+  }
+
+  // Depois de desfazer/refazer o texto é reescrito por fora e o cursor
+  // some; ele volta para o fim do trecho que mudou.
+  const paginaAntesDoHistorico = useRef(null)
+  useEffect(() => {
+    const antiga = paginaAntesDoHistorico.current
+    if (!antiga) return
+    paginaAntesDoHistorico.current = null
+    const k = pagina.findIndex((s, i) => JSON.stringify(s) !== JSON.stringify(antiga[i]))
+    const alvo = pagina[k === -1 ? pagina.length - 1 : k]
+    if (alvo) alvosRef.current[alvo.id]?.focar('fim')
+  }, [pagina])
+
+  const desfazer = () => {
+    fecharTrechoDigitado()
+    paginaAntesDoHistorico.current = paginaAtual()
+    onUndo?.()
+  }
+  const refazer = () => {
+    fecharTrechoDigitado()
+    paginaAntesDoHistorico.current = paginaAtual()
+    onRedo?.()
+  }
+
+  // ----------------------------------------------------------------
+  // Navegação e blocos
+  // ----------------------------------------------------------------
+  const focar = (id, onde) => alvosRef.current[id]?.focar(onde)
+
+  /** Sai de uma seção para a vizinha, com o cursor na ponta certa. */
+  const sair = (id, direcao) => {
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    const alvo = atual[direcao === 'cima' ? i - 1 : i + 1]
+    if (alvo) focar(alvo.id, direcao === 'cima' ? 'fim' : 'inicio')
+  }
+
+  /** O bloco nasce onde o cursor está: o texto é cortado em antes e depois. */
+  const inserirBlocoNoTexto = (id, tipo, opcoes = {}) => {
+    const editor = alvosRef.current[id]
+    if (!editor?.cortar) return
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    if (i === -1) return
+    const { antes, linha, depois } = editor.cortar()
+    const bloco = novaSecao(tipo, { texto: linha, ...opcoes })
+    emitir(inserirBloco(atual, i, { antes, depois }, bloco), {
+      estrutural: true,
+      focar: { id: bloco.id, onde: linha ? 'fim' : 'inicio' },
+    })
+  }
+
+  const removerBloco = (id) => {
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    if (i === -1) return
+    const anterior = atual[i - 1]
+    const proxima = removerSecao(atual, i)
+    // Os textos de cima e de baixo viram um, com o id do de cima: o cursor
+    // vai para a emenda.
+    const alvo = anterior && ehTexto(anterior) ? anterior : proxima[Math.min(i, proxima.length - 1)]
+    emitir(proxima, {
+      estrutural: true,
+      focar: alvo && {
+        id: alvo.id,
+        onde: alvo === anterior && !htmlVazio(anterior.html) ? { no: contarNos(anterior.html) } : 'inicio',
+      },
+    })
+  }
+
+  const mover = (id, direcao) => {
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    const proxima = moverBloco(atual, i, direcao)
+    if (proxima !== atual) emitir(proxima, { estrutural: true, focar: { id, onde: 'inicio' } })
+  }
+
+  const moverPara = (de, para) => {
+    const atual = paginaAtual()
+    if (de === para || de + 1 === para) return
+    const bloco = atual[de]
+    const sem = atual.filter((_, i) => i !== de)
+    sem.splice(para > de ? para - 1 : para, 0, bloco)
+    emitir(normalizar(sem), { estrutural: true })
+  }
+
+  const duplicar = (id) => {
+    const atual = paginaAtual()
+    emitir(duplicarBloco(atual, atual.findIndex((s) => s.id === id)), { estrutural: true })
+  }
+
+  // ----------------------------------------------------------------
+  // A barra de funções
+  // ----------------------------------------------------------------
+  /** O trecho de texto onde a barra age: o último que teve o cursor, ou o último da página. */
+  const textoAtivo = () => {
+    const id = ultimoTextoRef.current
+    if (id && alvosRef.current[id]?.el) return { id, editor: alvosRef.current[id] }
+    const ultimo = [...paginaAtual()].reverse().find(ehTexto)
+    return ultimo && alvosRef.current[ultimo.id] ? { id: ultimo.id, editor: alvosRef.current[ultimo.id] } : {}
+  }
+  const editorAtivo = () => textoAtivo().editor ?? null
+
+  /** Comando de texto na seleção do trecho ativo (ou de volta nela). */
+  const comando = (cmd, argumento = null) => {
+    const editor = editorAtivo()
+    if (!editor?.el) return
+    const sel = window.getSelection()
+    if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    document.execCommand(cmd, false, argumento)
+    editor.emitir()
+  }
 
   /**
-   * Altera UMA seção, endereçada pela posição.
-   *
-   * Era por `id`, e isso destruía conteúdo: o backend aceita seção sem
-   * `id` (`schemas.py` só recusa ids duplicados), e com duas seções sem
-   * id o `s.id === id` virava `undefined === undefined` — verdadeiro para
-   * as duas. Digitar numa sobrescrevia a outra, sem aviso.
-   *
-   * Índice é o endereço que o resto do componente já usa (`insertAt`,
-   * `removeAt`, `moveSection`), então também fica tudo coerente.
+   * Cor da letra ou do marca-texto. `null` tira a cor: pinta com uma cor
+   * sentinela (o navegador divide os trechos já coloridos no ponto certo)
+   * e depois remove a sentinela, deixando a letra na cor do tema.
    */
-  const patchSection = (index, patch) =>
-    update(sections.map((s, i) => (i === index ? { ...s, ...patch } : s)))
-
-  const insertAt = (index, type) => {
-    const next = [...sections]
-    const nova = newSection(type)
-    next.splice(index, 0, nova)
-    setRecemInserida(nova.id)
-    update(next)
+  const aplicarCor = (tipo, cor) => {
+    const editor = editorAtivo()
+    if (!editor?.el) return
+    const sel = window.getSelection()
+    if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    const cmd = tipo === 'texto' ? 'foreColor' : 'hiliteColor'
+    if (cor) {
+      document.execCommand(cmd, false, cor)
+      editor.emitir()
+      return
+    }
+    const SENTINELA = '#010203'
+    document.execCommand(cmd, false, SENTINELA)
+    for (const el of [...editor.el.querySelectorAll('font, [style]')]) {
+      if (tipo === 'texto') {
+        if ((el.getAttribute('color') || '').toLowerCase() === SENTINELA) el.removeAttribute('color')
+        if (el.style?.color === 'rgb(1, 2, 3)') el.style.removeProperty('color')
+      } else if (el.style?.backgroundColor === 'rgb(1, 2, 3)') {
+        el.style.removeProperty('background-color')
+      }
+      if (el.getAttribute('style') === '') el.removeAttribute('style')
+      if (/^(FONT|SPAN)$/.test(el.tagName) && el.attributes.length === 0) el.replaceWith(...el.childNodes)
+    }
+    editor.emitir()
   }
 
-  const removeAt = (index) => {
-    // A nota nunca fica sem nenhum bloco: sem um lugar para escrever, o
-    // único caminho de volta seria recriar a nota.
-    const next = sections.filter((_, i) => i !== index)
-    update(next.length ? next : [newSection('text')])
+  const inserir = (tipo) => {
+    if (COMANDOS_DE_BLOCO.has(tipo)) {
+      // Cursor num bloco: o novo entra logo depois dele.
+      if (foco && !foco.texto) {
+        const atual = paginaAtual()
+        const i = atual.findIndex((s) => s.id === foco.id)
+        if (i !== -1) {
+          const bloco = novaSecao(tipo)
+          emitir(inserirDepois(atual, i, bloco), { estrutural: true, focar: { id: bloco.id, onde: 'inicio' } })
+          return
+        }
+      }
+      const { id } = textoAtivo()
+      if (id) inserirBlocoNoTexto(id, tipo)
+      return
+    }
+    if (tipo === 'divisor') comando('insertHorizontalRule')
+    else if (tipo === 'data') comando('insertText', dataDeHoje())
+    else if (tipo === 'link') editorAtivo()?.inserirLink()
+    else if (tipo === 'imagem') editorAtivo()?.escolherImagem()
   }
 
-  const moveSection = (from, to) => {
-    if (from === to) return
-    const next = [...sections]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    update(next)
+  // Estado dos botões (negrito ligado, estilo do parágrafo…) segue o cursor.
+  useEffect(() => {
+    let quadro = 0
+    const ler = () => {
+      quadro = 0
+      const sel = window.getSelection()
+      if (!sel?.rangeCount) return
+      const editor = Object.values(alvosRef.current).find((a) => a?.el?.contains(sel.anchorNode))
+      if (!editor) return
+      try {
+        const q = (c) => document.queryCommandState(c)
+        setEstadoDaBarra({
+          marcas: Object.fromEntries(
+            [
+              'bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList',
+              'justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull',
+            ].map((c) => [c, q(c)]),
+          ),
+          bloco: String(document.queryCommandValue('formatBlock') || 'p').replace(/[<>]/g, '').toLowerCase(),
+          fonte: String(document.queryCommandValue('fontName') || '').replace(/["']/g, ''),
+          tamanho: String(document.queryCommandValue('fontSize') || '3'),
+        })
+      } catch {
+        /* queryCommandState lança sem seleção viva */
+      }
+    }
+    const agendar = () => {
+      if (!quadro) quadro = requestAnimationFrame(ler)
+    }
+    document.addEventListener('selectionchange', agendar)
+    return () => {
+      document.removeEventListener('selectionchange', agendar)
+      cancelAnimationFrame(quadro)
+    }
+  }, [])
+
+  // ----------------------------------------------------------------
+  // O menu do "/"
+  // ----------------------------------------------------------------
+  const comandos = filtrarComandos(barra?.consulta ?? '').filter((c) => c.id !== 'imagem' || documentId)
+
+  const executarComando = (id, cmd) => {
+    const editor = alvosRef.current[id]
+    if (!editor?.el) return
+    // A barra e o que veio depois dela saem; o passo anterior (com o
+    // "/tab" escrito) é o que um Ctrl+Z traz de volta.
+    fecharTrechoDigitado()
+    apagarAntes((barraRef.current?.consulta.length ?? 0) + 1)
+    descartarTrechoDigitado()
+    setBarra(null)
+    if (COMANDOS_DE_BLOCO.has(cmd.id)) {
+      inserirBlocoNoTexto(id, cmd.id)
+      return
+    }
+    const porId = {
+      texto: () => document.execCommand('formatBlock', false, 'p'),
+      h1: () => document.execCommand('formatBlock', false, 'h1'),
+      h2: () => document.execCommand('formatBlock', false, 'h2'),
+      h3: () => document.execCommand('formatBlock', false, 'h3'),
+      citacao: () => document.execCommand('formatBlock', false, 'blockquote'),
+      ul: () => document.execCommand('insertUnorderedList'),
+      ol: () => document.execCommand('insertOrderedList'),
+      divisor: () => document.execCommand('insertHorizontalRule'),
+      data: () => document.execCommand('insertText', false, dataDeHoje()),
+      link: () => editor.inserirLink(),
+      imagem: () => editor.escolherImagem(),
+    }
+    porId[cmd.id]?.()
+    editor.emitir()
   }
+
+  /** Depois de cada letra: atalho de Markdown, abrir ou filtrar o menu do "/". */
+  const digitou = (id, evento) => {
+    const nativo = evento.nativeEvent
+    const editor = alvosRef.current[id]
+    if (!editor?.el || nativo?.isComposing) return
+    const inserindo = String(nativo?.inputType || '').startsWith('insert')
+    const antes = textoAntesDoCursor(editor.el)
+    if (antes == null) return
+
+    const consulta = consultaDaBarra(antes)
+    if (barraRef.current?.id === id) {
+      // Menu aberto: filtra, ou fecha se a barra sumiu ou a pessoa seguiu
+      // escrevendo outra coisa.
+      if (consulta == null || (consulta.endsWith(' ') && !filtrarComandos(consulta.trim()).length)) setBarra(null)
+      else setBarra((b) => b && { ...b, consulta, ativo: 0 })
+      return
+    }
+    if (!inserindo) return
+
+    if (consulta === '' && antes.endsWith('/')) {
+      setBarra({ id, consulta: '', ativo: 0, ancora: retanguloDoCursor(editor.el) })
+      return
+    }
+
+    const atalho = atalhoMarkdown(antes)
+    if (!atalho) return
+    // Depois do evento atual: mexer no DOM dentro do próprio `input`
+    // dispararia outro `input` no meio deste.
+    requestAnimationFrame(() => {
+      if (textoAntesDoCursor(editor.el) !== antes) return
+      fecharTrechoDigitado()
+      apagarAntes(antes.length)
+      descartarTrechoDigitado()
+      if (atalho.bloco) {
+        inserirBlocoNoTexto(id, atalho.bloco, { feito: atalho.feito })
+        return
+      }
+      if (atalho.formato) document.execCommand('formatBlock', false, atalho.formato)
+      if (atalho.lista) document.execCommand(atalho.lista)
+      editor.emitir()
+    })
+  }
+
+  // ----------------------------------------------------------------
+  // Teclado no texto
+  // ----------------------------------------------------------------
+  const teclaNoTexto = (id, e) => {
+    const editor = alvosRef.current[id]
+    const el = editor?.el
+    if (!el) return
+
+    if (barraRef.current?.id === id) {
+      const total = comandos.length
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (!total) return
+        const passo = e.key === 'ArrowDown' ? 1 : -1
+        setBarra((b) => b && { ...b, ativo: (b.ativo + passo + total) % total })
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (!total) {
+          setBarra(null)
+          return
+        }
+        e.preventDefault()
+        executarComando(id, comandos[Math.min(barraRef.current.ativo, total - 1)])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setBarra(null)
+        return
+      }
+    }
+
+    const mod = e.ctrlKey || e.metaKey
+    // Ctrl+Shift+7/8/9: as listas do Google Docs. `code`, e não `key`: no
+    // teclado ABNT o Shift+9 é "(", e a tecla física é a mesma.
+    if (mod && e.shiftKey && !e.altKey) {
+      if (e.code === 'Digit7') {
+        e.preventDefault()
+        comando('insertOrderedList')
+        return
+      }
+      if (e.code === 'Digit8') {
+        e.preventDefault()
+        comando('insertUnorderedList')
+        return
+      }
+      if (e.code === 'Digit9') {
+        e.preventDefault()
+        fecharTrechoDigitado()
+        inserirBlocoNoTexto(id, 'checklist')
+        return
+      }
+    }
+    // Ctrl+Alt+0 a 3: texto normal e títulos, como no Word. O AltGr do
+    // teclado brasileiro também chega como Ctrl+Alt — e AltGr+2 é o "²",
+    // que precisa continuar sendo digitado.
+    if (mod && e.altKey && !e.getModifierState?.('AltGraph')) {
+      const formato = { Digit0: 'p', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3' }[e.code]
+      if (formato) {
+        e.preventDefault()
+        comando('formatBlock', formato)
+        return
+      }
+    }
+    if (mod || e.altKey) return
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const linha = textoDoBloco(el)
+      if (ehDivisor(linha) && textoAntesDoCursor(el) === linha) {
+        e.preventDefault()
+        fecharTrechoDigitado()
+        apagarAntes(linha.length)
+        descartarTrechoDigitado()
+        document.execCommand('insertHorizontalRule')
+        editor.emitir()
+      }
+      return
+    }
+    if (e.shiftKey) return
+
+    const atual = paginaAtual()
+    const i = atual.findIndex((s) => s.id === id)
+    if (e.key === 'ArrowUp' && i > 0 && cursorNaPrimeiraLinha(el)) {
+      e.preventDefault()
+      sair(id, 'cima')
+    } else if (e.key === 'ArrowDown' && i < atual.length - 1 && cursorNaUltimaLinha(el)) {
+      e.preventDefault()
+      sair(id, 'baixo')
+    } else if (e.key === 'Backspace' && i > 0 && cursorNoInicio(el)) {
+      // Antes do texto há um bloco (dois textos seguidos não existem na
+      // página): o Backspace entra nele, como no Word depois de uma tabela.
+      e.preventDefault()
+      sair(id, 'cima')
+    }
+  }
+
+  /** Ctrl+Z e Ctrl+Y em qualquer seção vão para o histórico da nota. */
+  const capturarHistorico = (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+    const tecla = e.key.toLowerCase()
+    if (tecla === 'z' && !e.shiftKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      desfazer()
+    } else if (tecla === 'y' || (tecla === 'z' && e.shiftKey)) {
+      e.preventDefault()
+      e.stopPropagation()
+      refazer()
+    }
+  }
+
+  /** Clique no branco da folha, abaixo do texto: o cursor vai para o fim. */
+  const focarFim = (e) => {
+    e.preventDefault()
+    const ultimo = paginaAtual()[paginaAtual().length - 1]
+    if (ultimo) focar(ultimo.id, 'fim')
+  }
+
+  // O título (no DocumentEditor) desce para o texto pelo Enter.
+  useImperativeHandle(ref, () => ({
+    focar: (onde = 'inicio') => {
+      const atual = paginaAtual()
+      const alvo = onde === 'inicio' ? atual[0] : atual[atual.length - 1]
+      if (alvo) focar(alvo.id, onde)
+    },
+  }))
+
+  // ----------------------------------------------------------------
+  // Desenho
+  // ----------------------------------------------------------------
+  const propsDeBloco = (secao) => ({
+    ref: refDe(secao.id),
+    section: secao,
+    onChange: (patch) => mudarSecao(secao.id, patch),
+    onSair: (direcao) => sair(secao.id, direcao),
+    onApagarBloco: () => removerBloco(secao.id),
+  })
+
+  const blocoAberto = menu?.payload?.id
+  const indiceDoMenu = blocoAberto ? pagina.findIndex((s) => s.id === blocoAberto) : -1
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mx-auto w-full max-w-prose flex-1 pb-16">
-        {sections.map((section, index) => (
-          // Sem `id` o React reconcilia por índice e ainda avisa no
-          // console; o backend agora preenche o id que falta, mas notas
-          // gravadas antes disso continuam por aí.
-          <div key={section.id ?? `pos-${index}`}>
-            {index === 0 ? (
-              <InsertBar onAdd={(type) => insertAt(0, type)} />
-            ) : (
-              <InsertBar onAdd={(type) => insertAt(index, type)} />
-            )}
+      <div className="sticky top-0 z-20 border-b border-ink-150 bg-white/95 backdrop-blur dark:border-ink-800 dark:bg-ink-950/95">
+        <BarraDeFuncoes
+          estado={{ ...estadoDaBarra, emTexto: !!foco?.texto }}
+          podeImagem={!!documentId}
+          acoes={{
+            desfazer,
+            refazer,
+            comando,
+            cor: aplicarCor,
+            inserir,
+            guardarSelecao: () => editorAtivo()?.guardarSelecao(),
+          }}
+        />
+      </div>
 
-            <div
-              onDragOver={(e) => {
-                if (dragIndex === null) return
-                e.preventDefault()
-                setOverIndex(index)
-              }}
-              onDrop={(e) => {
-                if (dragIndex === null) return
-                e.preventDefault()
-                moveSection(dragIndex, index)
-                setDragIndex(null)
-                setOverIndex(null)
-              }}
-              className={cn(
-                'group/section relative rounded-lg transition',
-                overIndex === index && dragIndex !== null && 'ring-2 ring-accent-400',
-                dragIndex === index && 'opacity-40',
-              )}
-            >
-              {/* Alça de arrastar fica na margem para não roubar o clique
-                  do texto nem do código. */}
-              <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = 'move'
-                  e.dataTransfer.setData('text/plain', section.id)
-                  setTimeout(() => setDragIndex(index), 0)
-                }}
-                onDragEnd={() => {
-                  setDragIndex(null)
-                  setOverIndex(null)
-                }}
-                title="Arraste para reordenar a seção"
-                className="absolute -left-7 top-2 cursor-grab rounded p-1 text-ink-300 opacity-0 transition hover:text-ink-600 active:cursor-grabbing group-hover/section:opacity-100"
-              >
-                <GripVertical size={14} />
-              </div>
+      {/* A mesa e a folha: no celular a folha ocupa a tela, sem margem. */}
+      <div className="flex-1 bg-ink-50 pb-10 sm:px-6 sm:pt-6 dark:bg-black/25">
+        <div className="folha mx-auto w-full max-w-[816px] bg-white px-5 pt-5 sm:rounded-md sm:border sm:border-ink-150 sm:px-12 sm:pt-10 sm:shadow-subtle dark:bg-ink-900 sm:dark:border-ink-800">
+          {cabecalho}
 
-              {section.type === 'code' ? (
-                <Suspense
-                  fallback={
-                    <div className="flex h-24 items-center justify-center rounded-lg border border-ink-200 dark:border-ink-700">
-                      <Spinner size={16} />
-                    </div>
-                  }
+          <div className="mt-5 max-sm:pl-6" onKeyDownCapture={capturarHistorico}>
+            {pagina.map((secao, indice) => {
+              if (ehTexto(secao)) {
+                return (
+                  <div
+                    key={secao.id}
+                    onDragOver={(e) => {
+                      if (arrastando === null) return
+                      e.preventDefault()
+                    }}
+                    onDrop={(e) => {
+                      if (arrastando === null) return
+                      e.preventDefault()
+                      moverPara(arrastando, indice)
+                      setArrastando(null)
+                    }}
+                  >
+                    <RichTextEditor
+                      ref={refDe(secao.id)}
+                      value={secao.html}
+                      onChange={(html) => mudarSecao(secao.id, { html })}
+                      documentId={documentId}
+                      onError={onError}
+                      dicaSempre={notaVazia}
+                      placeholder={
+                        notaVazia
+                          ? t('Comece a escrever. Digite / para inserir checklist, tabela, código...')
+                          : t('Digite / para inserir um bloco')
+                      }
+                      onKeyDown={(e) => teclaNoTexto(secao.id, e)}
+                      onInput={(e) => digitou(secao.id, e)}
+                      onFocus={() => {
+                        ultimoTextoRef.current = secao.id
+                        setFoco({ id: secao.id, texto: true })
+                      }}
+                      onBlur={() => {
+                        if (barraRef.current?.id === secao.id) setBarra(null)
+                      }}
+                    />
+                    {notaVazia && aoComecar}
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  key={secao.id}
+                  onFocus={() => setFoco({ id: secao.id, texto: false })}
+                  onDragOver={(e) => {
+                    if (arrastando === null) return
+                    e.preventDefault()
+                  }}
+                  onDrop={(e) => {
+                    if (arrastando === null) return
+                    e.preventDefault()
+                    moverPara(arrastando, indice)
+                    setArrastando(null)
+                  }}
+                  // Botão direito (e toque longo) em qualquer ponto do bloco abre
+                  // o menu dele: era só pela alça, e ninguém achava como apagar
+                  // uma tabela. Parar aqui deixa o menu do Laviel para o texto.
+                  onContextMenu={(e) => openMenu(e, { id: secao.id })}
+                  className={cn('group/bloco relative', arrastando === indice && 'opacity-40')}
                 >
-                  <CodeSection
-                    section={section}
-                    onChange={(patch) => patchSection(index, patch)}
-                    onDelete={() => removeAt(index)}
+                  <AlcaDoBloco
+                    rotulo={secao.id}
+                    onMenu={(e) => openMenu(e, { id: secao.id })}
+                    onArrastar={() => setTimeout(() => setArrastando(indice), 0)}
+                    onSoltarArraste={() => setArrastando(null)}
                   />
-                </Suspense>
-              ) : section.type === 'checklist' ? (
-                <ChecklistSection
-                  section={section}
-                  autoFocus={section.id === recemInserida}
-                  onChange={(patch) => patchSection(index, patch)}
-                  onDelete={() => removeAt(index)}
-                />
-              ) : section.type === 'table' ? (
-                <TableSection
-                  section={section}
-                  autoFocus={section.id === recemInserida}
-                  onChange={(patch) => patchSection(index, patch)}
-                  onDelete={() => removeAt(index)}
-                />
-              ) : (
-                <div className="relative">
-                  <RichTextEditor
-                    documentId={documentId}
-                    onError={onError}
-                    autoFocus={section.id === recemInserida}
-                    value={section.html}
-                    onChange={(html) => patchSection(index, { html })}
-                    placeholder={index === 0 ? 'Comece a escrever...' : 'Continue aqui...'}
-                    compact
-                  />
-                  {sections.length > 1 && (
+                  {/* A lixeira à vista, na margem direita. O código já tem a dele
+                      no cabeçalho; no celular a margem não existe e excluir fica
+                      no menu da alça. */}
+                  {secao.type !== 'code' && (
                     <button
-                      onClick={() => removeAt(index)}
-                      title="Excluir seção"
-                      className="absolute -right-7 top-2 rounded p-1 text-ink-300 opacity-0 transition hover:text-red-600 group-hover/section:opacity-100"
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => removerBloco(secao.id)}
+                      title={secao.type === 'table' ? t('Excluir tabela') : t('Excluir checklist')}
+                      aria-label={secao.type === 'table' ? t('Excluir tabela') : t('Excluir checklist')}
+                      className="absolute -right-8 top-1 rounded p-1 text-ink-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-focus-within/bloco:opacity-100 group-hover/bloco:opacity-100 max-sm:hidden dark:hover:bg-red-500/10"
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={14} />
                     </button>
                   )}
+                  {secao.type === 'checklist' && <ChecklistSection {...propsDeBloco(secao)} />}
+                  {secao.type === 'table' && <TableSection {...propsDeBloco(secao)} />}
+                  {secao.type === 'code' && (
+                    <div className="my-2">
+                      <Suspense
+                        fallback={
+                          <div className="flex h-24 items-center justify-center rounded-lg border border-ink-200 dark:border-ink-700">
+                            <Spinner size={16} />
+                          </div>
+                        }
+                      >
+                        <CodeSection
+                          {...propsDeBloco(secao)}
+                          autoFocus={focoPendente.current?.id === secao.id}
+                          onDelete={() => removerBloco(secao.id)}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              )
+            })}
           </div>
-        ))}
 
-        {/* Sempre visível no fim: é o caminho natural para continuar. */}
-        <InsertBar onAdd={(type) => insertAt(sections.length, type)} always />
+          <div className="min-h-[18vh] cursor-text" onMouseDown={focarFim} aria-hidden />
+
+          {rodape && <div className="pb-8">{rodape}</div>}
+        </div>
       </div>
+
+      {barra && (
+        <MenuDeComandos
+          ancora={barra.ancora}
+          itens={comandos}
+          ativo={Math.min(barra.ativo, Math.max(0, comandos.length - 1))}
+          onPassar={(i) => setBarra((b) => b && { ...b, ativo: i })}
+          onEscolher={(cmd) => executarComando(barra.id, cmd)}
+        />
+      )}
+
+      <ContextMenu
+        open={!!menu}
+        x={menu?.x ?? 0}
+        y={menu?.y ?? 0}
+        onClose={closeMenu}
+        items={
+          menu
+            ? [
+                {
+                  label: t('Mover para cima'),
+                  icon: ArrowUp,
+                  disabled: indiceDoMenu === -1 || moverBloco(pagina, indiceDoMenu, -1) === pagina,
+                  onClick: () => mover(blocoAberto, -1),
+                },
+                {
+                  label: t('Mover para baixo'),
+                  icon: ArrowDown,
+                  disabled: indiceDoMenu === -1 || moverBloco(pagina, indiceDoMenu, 1) === pagina,
+                  onClick: () => mover(blocoAberto, 1),
+                },
+                { label: t('Duplicar'), icon: Copy, onClick: () => duplicar(blocoAberto) },
+                { separator: true },
+                { label: t('Excluir bloco'), icon: Trash2, danger: true, onClick: () => removerBloco(blocoAberto) },
+              ]
+            : []
+        }
+      />
     </div>
   )
-}
+})
+
+export default NoteEditor

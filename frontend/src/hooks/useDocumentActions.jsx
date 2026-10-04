@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderDown, Sparkles } from 'lucide-react'
+import { FolderDown, LayoutTemplate, Sparkles } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useSplit } from '@/context/SplitContext'
@@ -11,9 +11,14 @@ import { runIA } from '@/lib/ai'
 import { kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import ModeloModal from '@/components/modals/ModeloModal'
+import { t } from '@/lib/i18n'
 
 //: Tipos que a IA sabe gerar a partir de outro item.
 const KINDS_DERIVAVEIS = ['note', 'spreadsheet', 'diagram', 'canvas', 'file']
+
+//: Tipos que viram modelo (arquivo não: o modelo guarda o conteúdo editável).
+const KINDS_DE_MODELO = ['note', 'spreadsheet', 'diagram', 'canvas']
 
 //: Tarefa do backend por tipo alvo.
 const TAREFA_POR_KIND = {
@@ -47,6 +52,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   //: então não havia onde mostrar o motivo: duplicar sem `catch` virava
   //: promessa rejeitada e sumia, e exportar tinha um `catch` vazio.
   const [erroAcao, setErroAcao] = useState(null)
+  const [salvandoModelo, setSalvandoModelo] = useState(null)
 
   const done = useCallback(() => {
     refresh()
@@ -93,7 +99,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           apply: 'create',
           folderId: doc.folder,
           kind,
-          title: `${doc.title || 'Sem título'} (${kindMeta(kind).label})`,
+          title: `${doc.title || t('Sem título')} (${kindMeta(kind).label})`,
         })
         done()
         navigate(`${kindMeta(kind).route}/${resultado.document_id}`)
@@ -128,6 +134,17 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
         onError: setErroAcao,
       })
 
+      // Salvar como modelo, logo depois de Duplicar: é a mesma ideia (uma
+      // cópia), só que guardada para servir de ponto de partida.
+      if (KINDS_DE_MODELO.includes(doc.kind)) {
+        const depoisDeDuplicar = itens.findIndex((i) => i.label === t('Duplicar')) + 1
+        itens.splice(depoisDeDuplicar, 0, {
+          label: t('Salvar como modelo'),
+          icon: LayoutTemplate,
+          onClick: () => setSalvandoModelo(doc),
+        })
+      }
+
       // Detectar .zip pela extensão do título ou nome original
       const nome = (doc.title || doc.original_name || '').toLowerCase()
       const isZip = doc.kind === 'file' && nome.endsWith('.zip')
@@ -139,7 +156,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           ...itens,
           { separator: true },
           {
-            label: `Extrair "${doc.title || 'Sem título'}"`,
+            label: t('Extrair "{valor}"', { valor: doc.title || t('Sem título') }),
             icon: FolderDown,
             onClick: () => {
               setErroExtract(null)
@@ -164,19 +181,19 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
         ...itens,
         { separator: true },
         {
-          label: `Criar a partir de "${doc.title || 'Sem título'}"`,
+          label: t('Criar a partir de "{valor}"', { valor: doc.title || t('Sem título') }),
           icon: Sparkles,
           disabled: !configurada || !!gerando,
           submenu: configurada
             ? alvos.map((k) => {
                 const meta = kindMeta(k)
                 return {
-                  label: `Como ${meta.label}`,
+                  label: t('Como {label}', { label: meta.label }),
                   icon: meta.icon,
                   onClick: () => criarAPartirDe(doc, k),
                 }
               })
-            : [{ label: 'Ative o Laviel em Configurações', disabled: true }],
+            : [{ label: t('Ative o Laviel em Configurações'), disabled: true }],
         },
       ]
     },
@@ -197,7 +214,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
       } catch (e) {
         // `extractError` e nao a mao: aqui `e.message` era a frase em
         // inglês do axios quando o corpo não trazia `detail`.
-        setErroExtract(extractError(e, 'Falha ao extrair.'))
+        setErroExtract(extractError(e, t('Falha ao extrair.')))
       }
     },
     [extrair, done, navigate],
@@ -206,7 +223,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const dialogs = (
     <>
       <AvisoIA
-        rodando={gerando && `Gerando ${gerando}`}
+        rodando={gerando && t('Gerando {tipo}', { tipo: gerando })}
         erro={erroIA}
         onFechar={() => setErroIA(null)}
       />
@@ -214,10 +231,12 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           desenha um recado no topo — de IA ele tem o nome. */}
       <AvisoIA rodando={null} erro={erroAcao} onFechar={() => setErroAcao(null)} />
 
+      <ModeloModal open={!!salvandoModelo} documento={salvandoModelo} onClose={() => setSalvandoModelo(null)} />
+
       <DestinationModal
         open={!!moving}
-        title="Mover item"
-        confirmLabel="Mover"
+        title={t('Mover item')}
+        confirmLabel={t('Mover')}
         currentFolderId={moving?.folder}
         onClose={() => setMoving(null)}
         onPick={async (folderId) => {
@@ -230,12 +249,12 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
 
       <ConfirmDialog
         open={!!deleting}
-        title="Excluir item"
+        title={t('Excluir item')}
         message={
           <>
-            <strong>{deleting?.title}</strong> será removido permanentemente
+            <strong>{deleting?.title}</strong> {t('será removido permanentemente')}
             {deleting?.attachment_count > 0 &&
-              `, junto com ${deleting.attachment_count} anexo(s)`}
+              t(', junto com {attachment_count} anexo(s)', { attachment_count: deleting.attachment_count })}
             .
           </>
         }
@@ -248,8 +267,8 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
 
       <DestinationModal
         open={!!extrair}
-        title="Extrair .zip"
-        confirmLabel="Extrair"
+        title={t('Extrair .zip')}
+        confirmLabel={t('Extrair')}
         currentFolderId={extrair?.folder}
         // Extrair na pasta em que o .zip já está é o caso comum: o
         // backend cria uma subpasta com o nome do arquivo.

@@ -6,6 +6,7 @@ import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/com
 import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
 import { OPCOES as RECORRENCIAS } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
 function toLocalInput(iso) {
@@ -129,14 +130,14 @@ export default function TaskFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar tarefa' : 'Nova tarefa'}
+      title={isEditing ? t('Editar tarefa') : t('Nova tarefa')}
       footer={
         <>
           <Button variant="secondary" type="button" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button onClick={handleSubmit} loading={loading}>
-            {isEditing ? 'Salvar' : 'Criar tarefa'}
+            {isEditing ? t('Salvar') : t('Criar tarefa')}
           </Button>
         </>
       }
@@ -144,12 +145,12 @@ export default function TaskFormModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <ErrorState message={error} onRetry={() => setError(null)} />}
 
-        <Field label="Título">
+        <Field label={t('Título')}>
           <Input value={form.title} onChange={set('title')} autoFocus required />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Status">
+          <Field label={t('Status')}>
             <Select value={form.status} onChange={set('status')}>
               {Object.entries(TASK_STATUS).map(([value, { label }]) => (
                 <option key={value} value={value}>
@@ -158,20 +159,20 @@ export default function TaskFormModal({
               ))}
             </Select>
           </Field>
-          <Field label="Quadro">
+          <Field label={t('Quadro')}>
             <Select value={form.board} onChange={set('board')}>
               {/* Sem opcao vazia: toda tarefa vive num quadro, e deixar
                   "nenhum" sugeriria um estado que nao existe. */}
               {boardList.map((board) => (
                 <option key={board.id} value={board.id}>
                   {board.name}
-                  {board.is_default ? ' (padrão)' : ''}
+                  {board.is_default ? t(' (padrão)') : ''}
                 </option>
               ))}
             </Select>
           </Field>
 
-          <Field label="Prioridade">
+          <Field label={t('Prioridade')}>
             <Select value={form.priority} onChange={set('priority')}>
               {Object.entries(TASK_PRIORITY).map(([value, { label }]) => (
                 <option key={value} value={value}>
@@ -183,7 +184,7 @@ export default function TaskFormModal({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Início">
+          <Field label={t('Início')}>
             <Input
               type="datetime-local"
               value={form.starts_at}
@@ -193,7 +194,7 @@ export default function TaskFormModal({
               onChange={set('starts_at')}
             />
           </Field>
-          <Field label="Fim">
+          <Field label={t('Fim')}>
             <Input
               type="datetime-local"
               value={form.ends_at}
@@ -212,10 +213,10 @@ export default function TaskFormModal({
             onChange={set('all_day')}
             className="rounded border-ink-300 text-accent-600 focus:ring-accent-500"
           />
-          Dia inteiro
+          {t('Dia inteiro')}
         </label>
 
-        <Field label="Repetir">
+        <Field label={t('Repetir')}>
           <Select value={form.recurrence_rule} onChange={set('recurrence_rule')}>
             {RECORRENCIAS.map((opcao) => (
               <option key={opcao.valor} value={opcao.valor}>
@@ -230,15 +231,15 @@ export default function TaskFormModal({
           {form.recurrence_rule && (
             <p className="mt-1 text-[11px] text-ink-400">
               {form.starts_at
-                ? 'Ao concluir, a próxima é criada automaticamente.'
-                : 'Defina um início: a repetição precisa de uma data de onde partir.'}
+                ? t('Ao concluir, a próxima é criada automaticamente.')
+                : t('Defina um início: a repetição precisa de uma data de onde partir.')}
             </p>
           )}
         </Field>
 
-        <Field label="Pasta">
+        <Field label={t('Pasta')}>
           <Select value={form.folder} onChange={set('folder')}>
-            <option value="">Sem pasta</option>
+            <option value="">{t('Sem pasta')}</option>
             {flattenFolders(categories).map((node) => (
               <option key={node.id} value={node.id}>
                 {' '.repeat(node._depth * 3)}
@@ -248,7 +249,7 @@ export default function TaskFormModal({
           </Select>
         </Field>
 
-        <Field label="Descrição">
+        <Field label={t('Descrição')}>
           <Textarea rows={3} value={form.description} onChange={set('description')} />
         </Field>
       </form>

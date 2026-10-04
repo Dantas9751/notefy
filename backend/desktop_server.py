@@ -12,7 +12,6 @@ aplicativo de desktop.
 """
 
 import os
-import sys
 from pathlib import Path
 
 #: Porta fixa. O frontend é compilado apontando para ela, então mudar aqui
@@ -32,12 +31,6 @@ def data_dir() -> Path:
     path = Path(base) / "Notefy"
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def bundle_dir() -> Path:
-    """Raiz dos arquivos embutidos — difere entre empacotado e código solto."""
-    # `_MEIPASS` só existe dentro de um executável do PyInstaller.
-    return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 
 def main() -> None:

@@ -82,9 +82,6 @@ class Category(BaseModel):
 
 
 class FolderQuerySet(SoftDeleteQuerySet):
-    def roots(self):
-        return self.filter(parent__isnull=True)
-
     def active(self):
         return self.filter(is_archived=False)
 

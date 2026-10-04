@@ -1,10 +1,11 @@
-import { useRef } from 'react'
-import { Columns3, Rows3, Trash2 } from 'lucide-react'
+import { forwardRef, useImperativeHandle, useRef } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { MAX_COLUNAS_TABELA, MAX_ITENS_SECAO } from '@/lib/limites'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
- * Bloco de tabela de uma nota.
+ * Tabela da página.
  *
  * A primeira linha é o cabeçalho — sem campo separado declarando isso.
  * Um `header: true` seria um segundo lugar guardando a mesma verdade, e
@@ -17,7 +18,11 @@ import { cn } from '@/lib/utils'
  *
  * Isto não substitui a planilha: aqui não há fórmula, tipo de coluna nem
  * agregação. É a tabela que cabe DENTRO de um texto — comparar três
- * abordagens, listar um cronograma — e que hoje obrigava a sair da nota.
+ * abordagens, listar um cronograma.
+ *
+ * Teclado do Word: Tab anda célula a célula e cria a linha no fim; as
+ * setas sobem e descem (e saem da tabela nas pontas); Enter desce, e na
+ * última linha volta ao texto; Ctrl+Enter sai de qualquer célula.
  */
 
 const celulaVazia = () => ''
@@ -29,39 +34,46 @@ function redimensionar(rows, linhas, colunas) {
   )
 }
 
-export default function TableSection({
-  section,
-  onChange,
-  onDelete,
-  readOnly = false,
-  //: Recém-inserida pela barra: o cursor cai na primeira célula.
-  autoFocus = false,
-}) {
+const TableSection = forwardRef(function TableSection(
+  { section, onChange, readOnly = false, onSair, onApagarBloco },
+  ref,
+) {
   const bruto = (section.rows ?? []).filter(Array.isArray)
   // Uma tabela recém-criada nasce 2×2: uma linha de cabeçalho e uma de
   // dados é o mínimo em que dá para ver que aquilo é uma tabela.
   const largura = Math.max(2, ...bruto.map((r) => r.length))
   // Piso de duas linhas: cabeçalho e um registro. Uma tabela gravada com
-  // uma linha só (backup, versão anterior) exibia "0 × 2" e ficava com a
-  // linha impossível de apagar, presa pelo guarda de `removerLinha`.
+  // uma linha só (backup, versão anterior) ficava com a linha impossível
+  // de apagar, presa pelo guarda de `removerLinha`.
   const rows = redimensionar(bruto, Math.max(2, bruto.length), largura)
 
   // Os campos, endereçados por `linha:coluna`. Com o mapa em mãos, mover
-  // o cursor é chamar `focus()` no elemento certo — sem `querySelector`
-  // e sem esperar um render quando nada nos dados mudou.
+  // o cursor é chamar `focus()` no elemento certo.
   const camposRef = useRef({})
   // Qual célula focar depois do PRÓXIMO render: a criada por Tab na
   // última linha ainda não existe no render atual.
-  const focarRef = useRef(autoFocus ? '0:0' : null)
+  const focarRef = useRef(null)
 
-  const focar = (chave) => camposRef.current[chave]?.focus()
+  const focar = (chave, posicao = 'fim') => {
+    const campo = camposRef.current[chave]
+    if (!campo) {
+      focarRef.current = chave
+      return
+    }
+    campo.focus()
+    const p = posicao === 'inicio' ? 0 : campo.value.length
+    campo.setSelectionRange(p, p)
+  }
+
+  useImperativeHandle(ref, () => ({
+    // Vindo de cima, a primeira célula; vindo de baixo, a primeira da última linha.
+    focar: (onde = 'fim') => focar(onde === 'inicio' ? '0:0' : `${rows.length - 1}:0`, onde),
+  }))
 
   const atualizar = (proximas) => onChange({ rows: proximas })
 
   const patch = (linha, coluna, valor) =>
-    atualizar(
-      rows.map((r, l) => (l === linha ? r.map((c, i) => (i === coluna ? valor : c)) : r)),
-    )
+    atualizar(rows.map((r, l) => (l === linha ? r.map((c, i) => (i === coluna ? valor : c)) : r)))
 
   const adicionarLinha = (depoisDe = rows.length - 1) => {
     // Impedir aqui é o que importa: passando do teto, o backend recusa o
@@ -76,12 +88,12 @@ export default function TableSection({
 
   const adicionarColuna = () => {
     if (largura >= MAX_COLUNAS_TABELA) return
+    focarRef.current = `0:${largura}`
     atualizar(rows.map((r) => [...r, celulaVazia()]))
   }
 
   const removerLinha = (linha) => {
-    // O cabeçalho e uma linha de dados são o piso: sem eles não sobra
-    // tabela nenhuma para editar.
+    // O cabeçalho e uma linha de dados são o piso.
     if (rows.length <= 2) return
     atualizar(rows.filter((_, l) => l !== linha))
   }
@@ -91,33 +103,67 @@ export default function TableSection({
     atualizar(rows.map((r) => r.filter((_, c) => c !== coluna)))
   }
 
+  const tabelaVazia = () => rows.every((r) => r.every((c) => !c))
+
   /**
-   * Tab anda célula a célula; na última, cria a linha seguinte.
-   *
-   * O percurso é explícito, e não o do navegador, porque a ordem natural
-   * de foco passa pelo botão de remover linha que mora na margem —
-   * invisível até o mouse chegar perto. Preenchendo a tabela pelo
-   * teclado, o cursor sumia entre uma coluna e outra e as letras iam
-   * parar num botão que ninguém estava vendo.
-   *
-   * Criar a linha no fim é o que o Word e o Google Docs fazem, e é o que
-   * deixa preencher a tabela inteira sem tocar no mouse.
+   * O percurso do Tab é explícito, e não o do navegador, porque a ordem
+   * natural de foco passava pelo botão de remover linha da margem — e as
+   * letras iam parar num botão que ninguém estava vendo.
    */
   const aoTeclar = (event, linha, coluna) => {
+    const campo = event.target
+    const ultimaLinha = linha === rows.length - 1
+
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      onSair?.('baixo')
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      if (ultimaLinha) onSair?.('baixo')
+      else focar(`${linha + 1}:${coluna}`)
+      return
+    }
+    if (event.key === 'ArrowUp' && !event.shiftKey) {
+      event.preventDefault()
+      if (linha === 0) onSair?.('cima')
+      else focar(`${linha - 1}:${coluna}`)
+      return
+    }
+    if (event.key === 'ArrowDown' && !event.shiftKey) {
+      event.preventDefault()
+      if (ultimaLinha) onSair?.('baixo')
+      else focar(`${linha + 1}:${coluna}`)
+      return
+    }
+    // Backspace na primeira célula de uma tabela toda vazia: desistiu dela.
+    if (
+      event.key === 'Backspace' &&
+      linha === 0 &&
+      coluna === 0 &&
+      campo.selectionStart === 0 &&
+      campo.selectionEnd === 0 &&
+      tabelaVazia()
+    ) {
+      event.preventDefault()
+      onApagarBloco?.('cima')
+      return
+    }
     if (event.key !== 'Tab') return
 
-    // No canto de cima à esquerda, Shift+Tab sai do bloco: dentro de uma
-    // nota, prender o foco numa tabela seria pior do que a confusão que
-    // isto conserta.
-    if (event.shiftKey && linha === 0 && coluna === 0) return
-
+    // No canto de cima à esquerda, Shift+Tab sai do bloco.
+    if (event.shiftKey && linha === 0 && coluna === 0) {
+      event.preventDefault()
+      onSair?.('cima')
+      return
+    }
     event.preventDefault()
-
     if (event.shiftKey) {
       focar(coluna > 0 ? `${linha}:${coluna - 1}` : `${linha - 1}:${largura - 1}`)
       return
     }
-    if (linha === rows.length - 1 && coluna === largura - 1) {
+    if (ultimaLinha && coluna === largura - 1) {
       adicionarLinha()
       return
     }
@@ -125,58 +171,11 @@ export default function TableSection({
   }
 
   return (
-    // A mesma casca do bloco de código e do checklist. Ver ali o porquê.
-    <div className="group/tabela overflow-hidden rounded-lg border border-ink-200 dark:border-ink-700">
-      <div className="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-2 py-1.5 dark:border-ink-700 dark:bg-ink-900">
-        {/* "3 × 2" no lugar de "TABELA": a grade abaixo já diz que é uma
-            tabela, e o tamanho é o que some quando ela rola na
-            horizontal. Conta as linhas de DADOS — o cabeçalho não é um
-            registro. */}
-        <span className="flex-1 text-[10px] tabular-nums text-ink-400">
-          {rows.length - 1} × {largura}
-        </span>
-        {!readOnly && (
-          <>
-            <button
-              onClick={() => adicionarLinha()}
-              title="Adicionar linha"
-              className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700"
-            >
-              <Rows3 size={12} />
-            </button>
-            <button
-              onClick={adicionarColuna}
-              disabled={largura >= MAX_COLUNAS_TABELA}
-              title={
-                largura >= MAX_COLUNAS_TABELA
-                  ? `Máximo de ${MAX_COLUNAS_TABELA} colunas`
-                  : 'Adicionar coluna'
-              }
-              className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 disabled:opacity-40 dark:hover:bg-ink-700"
-            >
-              <Columns3 size={12} />
-            </button>
-          </>
-        )}
-        {onDelete && !readOnly && (
-          <button
-            onClick={onDelete}
-            title="Excluir seção"
-            className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-red-600 dark:hover:bg-ink-700"
-          >
-            <Trash2 size={12} />
-          </button>
-        )}
-      </div>
-
+    <div className="group/tabela relative my-2">
       {/* Rola no eixo X: uma tabela de dez colunas não pode espremer a
-          coluna da nota nem vazar por cima do texto ao lado.
-
-          O respiro não é enfeite: encostada na borda do bloco, a borda de
-          1px das células soma com ela e o contorno externo sai com o
-          dobro da espessura do resto da grade. */}
-      <div className="overflow-x-auto p-2">
-        <table className="w-full border-collapse text-[13px]">
+          coluna da nota nem vazar por cima do texto ao lado. */}
+      <div className="overflow-x-auto pb-1">
+        <table className="w-full border-collapse text-[13.5px]">
           <tbody>
             {rows.map((row, linha) => (
               <tr key={linha} className="group/linha">
@@ -202,8 +201,8 @@ export default function TableSection({
                       readOnly={readOnly}
                       onChange={(e) => patch(linha, coluna, e.target.value)}
                       onKeyDown={(e) => aoTeclar(e, linha, coluna)}
-                      placeholder={linha === 0 ? 'Coluna' : ''}
-                      aria-label={`Linha ${linha + 1}, coluna ${coluna + 1}`}
+                      placeholder={linha === 0 ? t('Coluna') : ''}
+                      aria-label={t('Linha {valor}, coluna {valor2}', { valor: linha + 1, valor2: coluna + 1 })}
                       className={cn(
                         'w-full min-w-[7rem] bg-transparent px-2 py-1.5 outline-none placeholder:text-ink-300 focus:bg-accent-50/60 dark:focus:bg-accent-500/10',
                         linha === 0 && 'font-medium text-ink-700 dark:text-ink-200',
@@ -213,18 +212,41 @@ export default function TableSection({
                 ))}
                 {!readOnly && (
                   // Fora da tabela, na margem: dentro de uma <td> ele
-                  // roubaria largura de uma coluna de dados.
-                  <td className="w-0 border-0 p-0">
+                  // roubaria largura de uma coluna de dados. Na linha do
+                  // cabeçalho moram também o "+" de coluna: solto na borda,
+                  // no toque (onde tudo fica à vista) ele caía em cima da
+                  // lixeira de uma linha.
+                  <td className="w-0 whitespace-nowrap border-0 p-0">
+                    {linha === 0 && (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={adicionarColuna}
+                        disabled={largura >= MAX_COLUNAS_TABELA}
+                        title={
+                          largura >= MAX_COLUNAS_TABELA
+                            ? t('Máximo de {MAX_COLUNAS_TABELA} colunas', { MAX_COLUNAS_TABELA })
+                            : t('Adicionar coluna')
+                        }
+                        aria-label={t('Adicionar coluna')}
+                        className="ml-1 rounded p-1 text-ink-300 opacity-0 transition hover:text-accent-600 disabled:opacity-0 group-focus-within/tabela:opacity-100 group-hover/tabela:opacity-100"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    )}
                     <button
-                      // Fora da ordem de tabulação: é um atalho de mouse
-                      // que duplicaria os botões do cabeçalho, e no
-                      // caminho do Tab ele engolia o cursor de quem
-                      // estava preenchendo a tabela.
+                      type="button"
+                      // Fora da ordem de tabulação: no caminho do Tab ele
+                      // engolia o cursor de quem preenchia a tabela.
                       tabIndex={-1}
                       onClick={() => (linha === 0 ? removerColuna(largura - 1) : removerLinha(linha))}
                       disabled={linha === 0 ? largura <= 1 : rows.length <= 2}
-                      title={linha === 0 ? 'Remover a última coluna' : 'Remover esta linha'}
-                      className="ml-1 rounded p-1 text-ink-300 opacity-0 transition hover:text-red-600 disabled:opacity-0 group-hover/linha:opacity-100"
+                      title={linha === 0 ? t('Remover a última coluna') : t('Remover esta linha')}
+                      className={cn(
+                        'rounded p-1 text-ink-300 opacity-0 transition hover:text-red-600 disabled:opacity-0 group-hover/linha:opacity-100',
+                        linha !== 0 && 'ml-1',
+                      )}
                     >
                       <Trash2 size={11} />
                     </button>
@@ -235,6 +257,27 @@ export default function TableSection({
           </tbody>
         </table>
       </div>
+
+      {/* Alça de crescer, na borda de baixo: cria linha. Aparece com o
+          mouse por cima ou com o cursor dentro da tabela; no toque fica
+          sempre à vista (index.css). */}
+      {!readOnly && (
+        <>
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => adicionarLinha()}
+            title={t('Adicionar linha')}
+            aria-label={t('Adicionar linha')}
+            className="absolute -bottom-2 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-500 opacity-0 shadow-subtle transition hover:text-accent-600 group-focus-within/tabela:opacity-100 group-hover/tabela:opacity-100 dark:border-ink-700 dark:bg-ink-900"
+          >
+            <Plus size={12} />
+          </button>
+        </>
+      )}
     </div>
   )
-}
+})
+
+export default TableSection

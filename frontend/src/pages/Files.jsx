@@ -10,7 +10,7 @@ import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Button, EmptyState, ErrorState, ListSkeleton, Select, Modal } from '@/components/ui'
+import { Button, EmptyState, ErrorState, ListSkeleton, Select } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FilterBar from '@/components/filters/FilterBar'
 import DestinationModal from '@/components/modals/DestinationModal'
@@ -19,15 +19,17 @@ import DocumentCard from '@/components/DocumentCard'
 import { hasFilePayload } from '@/lib/dnd'
 import { documentPath } from '@/lib/documents'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const FILE_KINDS = [
-  { value: 'image', label: 'Imagens' },
-  { value: 'audio', label: 'Áudios' },
-  { value: 'video', label: 'Vídeos' },
-  { value: 'pdf', label: 'PDFs' },
-  { value: 'document', label: 'Documentos' },
-  { value: 'archive', label: 'Compactados' },
-  { value: 'other', label: 'Outros' },
+  { value: 'image', get label() { return t('Imagens') } },
+  { value: 'audio', get label() { return t('Áudios') } },
+  { value: 'video', get label() { return t('Vídeos') } },
+  { value: 'pdf', get label() { return t('PDFs') } },
+  { value: 'document', get label() { return t('Documentos') } },
+  { value: 'archive', get label() { return t('Compactados') } },
+  { value: 'other', get label() { return t('Outros') } },
 ]
 
 export default function Files() {
@@ -44,7 +46,6 @@ export default function Files() {
 
   // Estado para o Modal de Exclusão em Massa
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   const { data, loading, error, refetch } = useFetch('/documents/', {
     params: {
@@ -164,7 +165,6 @@ export default function Files() {
 
     const idsToDelete = [...selectedIds]
     setActionError(null)
-    setIsDeletingBulk(true)
 
     try {
       for (const selectionKey of idsToDelete) {
@@ -175,7 +175,6 @@ export default function Files() {
     } finally {
       clear()
       setBulkDeleteModalOpen(false)
-      setIsDeletingBulk(false)
       
       await refetch()
       refresh()
@@ -215,7 +214,7 @@ export default function Files() {
     const selecionados = files.filter((doc) => isSelected(`document:${doc.id}`))
 
     if (!selecionados.length) {
-      setActionError('Nada para exportar na seleção.')
+      setActionError(t('Nada para exportar na seleção.'))
       return
     }
 
@@ -256,17 +255,17 @@ export default function Files() {
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-accent-50/80 dark:bg-accent-500/10">
           <p className="flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-accent-700 shadow-pop dark:bg-ink-900 dark:text-accent-300">
             <FileUp size={16} />
-            Soltar para escolher a pasta de destino
+            {t('Soltar para escolher a pasta de destino')}
           </p>
         </div>
       )}
 
       <PageHeader
-        title="Arquivos"
+        title={t('Arquivos')}
         subtitle={
           data
-            ? `${data.count} arquivo(s)`
-            : 'Carregando...'
+            ? t('{count} arquivo(s)', { count: data.count })
+            : t('Carregando...')
         }
         actions={
           <>
@@ -278,7 +277,7 @@ export default function Files() {
               onChange={(e) => chooseDestination(Array.from(e.target.files ?? []))}
             />
             <Button size="sm" icon={FileUp} onClick={() => fileInputRef.current?.click()}>
-              Importar arquivo
+              {t('Importar arquivo')}
             </Button>
           </>
         }
@@ -290,7 +289,7 @@ export default function Files() {
             setQuery(v)
             setPage(1)
           }}
-          placeholder="Buscar arquivos..."
+          placeholder={t('Buscar arquivos...')}
           category={category}
           onCategoryChange={(v) => {
             setCategory(v)
@@ -304,9 +303,9 @@ export default function Files() {
                 setPage(1)
               }}
               className="h-9 w-auto py-0 text-sm"
-              aria-label="Filtrar por formato"
+              aria-label={t('Filtrar por formato')}
             >
-              <option value="">Todos os formatos</option>
+              <option value="">{t('Todos os formatos')}</option>
               {FILE_KINDS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -327,7 +326,7 @@ export default function Files() {
           <ErrorState message={error} onRetry={refetch} />
         ) : files.length ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {files.map((doc) => {
                 const selectionKey = `document:${doc.id}`
                 const selecionado = isSelected(selectionKey)
@@ -375,17 +374,17 @@ export default function Files() {
                   onClick={() => setPage((p) => p - 1)}
                   className="rounded border border-ink-200 px-2.5 py-1 disabled:opacity-40 dark:border-ink-700"
                 >
-                  Anterior
+                  {t('Anterior')}
                 </button>
                 <span>
-                  Página {page} de {totalPages}
+                  {t('Página')} {page} {t('de')} {totalPages}
                 </span>
                 <button
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                   className="rounded border border-ink-200 px-2.5 py-1 disabled:opacity-40 dark:border-ink-700"
                 >
-                  Próxima
+                  {t('Próxima')}
                 </button>
               </div>
             )}
@@ -393,16 +392,16 @@ export default function Files() {
         ) : (
           <EmptyState
             icon={Paperclip}
-            title={hasFilters ? 'Nenhum resultado' : 'Nenhum arquivo ainda'}
+            title={hasFilters ? t('Nenhum resultado') : t('Nenhum arquivo ainda')}
             description={
               hasFilters
-                ? 'Tente outro termo ou remova os filtros.'
-                : 'Use “Importar arquivo” ou arraste arquivos para cá. Depois é só escolher a pasta.'
+                ? t('Tente outro termo ou remova os filtros.')
+                : t('Use “Importar arquivo” ou arraste arquivos para cá. Depois é só escolher a pasta.')
             }
             action={
               !hasFilters && (
                 <Button icon={FileUp} onClick={() => fileInputRef.current?.click()}>
-                  Importar arquivo
+                  {t('Importar arquivo')}
                 </Button>
               )
             }
@@ -414,19 +413,19 @@ export default function Files() {
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionado(s)
+            {selectedIds.length} {t('selecionado(s)')}
           </span>
           <div className="h-4 w-px bg-ink-700" />
           <button
             onClick={handleBulkDeleteWithDialog}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
-            <Trash2 size={14} /> Excluir
+            <Trash2 size={14} /> {t('Excluir')}
           </button>
           <button
             onClick={clear}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -436,8 +435,8 @@ export default function Files() {
       <DestinationModal
         open={!!pending}
         kind="file"
-        title="Enviar para qual pasta?"
-        confirmLabel="Enviar"
+        title={t('Enviar para qual pasta?')}
+        confirmLabel={t('Enviar')}
         onClose={() => {
           setPending(null)
           if (fileInputRef.current) fileInputRef.current.value = ''
@@ -456,13 +455,13 @@ export default function Files() {
           menu?.payload?.isMultiple
             ? [
                 {
-                  label: `Exportar (${selectedIds.length}) como .zip`,
+                  label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
                   icon: Download,
                   onClick: handleBulkExport,
                 },
                 { separator: true },
                 {
-                  label: `Excluir (${selectedIds.length} selecionados)`,
+                  label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
                   onClick: handleBulkDeleteWithDialog,
@@ -473,7 +472,7 @@ export default function Files() {
                   ...(menu.payload.document.folder
                     ? [
                         {
-                          label: 'Ir para pasta',
+                          label: t('Ir para pasta'),
                           icon: FolderIcon,
                           onClick: () => navigate(`/folders/${menu.payload.document.folder}`),
                         },
@@ -490,30 +489,14 @@ export default function Files() {
       {deleteDialogs}
       {docActionDialogs}
 
-      <Modal
+      <ConfirmDialog
         open={bulkDeleteModalOpen}
         onClose={() => setBulkDeleteModalOpen(false)}
-        title="Excluir múltiplos itens"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              loading={isDeletingBulk}
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
-            >
-              Sim, excluir {selectedIds.length} arquivos
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          Você está prestes a excluir <strong>{selectedIds.length}</strong> arquivos de forma permanente.
-          Deseja continuar?
-        </p>
-      </Modal>
+        title={t('Excluir itens selecionados')}
+        message={t('{n} arquivos vão para a lixeira.', { n: selectedIds.length })}
+        confirmLabel={t('Excluir {n} arquivos', { n: selectedIds.length })}
+        onConfirm={handleBulkDelete}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
+from core.idioma import texto
 from core.models import BaseModel, SoftDeleteQuerySet
 from core.validators import hex_color_validator
 from organization.models import Category, Folder
@@ -71,7 +72,7 @@ class Board(BaseModel):
         if board is not None:
             return board
         board, _ = cls.objects.get_or_create(
-            owner=owner, name="Meu quadro", defaults={"is_default": True}
+            owner=owner, name=texto("Meu quadro", "My board"), defaults={"is_default": True}
         )
         if not board.is_default:
             board.is_default = True
@@ -313,6 +314,24 @@ class Task(BaseModel):
         proximo_inicio = recorrencia.proxima(self.starts_at, self.recurrence_rule)
         if proximo_inicio is None:
             return None
+
+        # Concluir, reabrir e concluir de novo passa por aqui duas vezes, e
+        # cada passagem criava uma "próxima": a série ganhava uma cópia a
+        # cada clique arrependido. A próxima ocorrência é a mesma tarefa na
+        # mesma data, então se ela já existe, é ela.
+        ja_criada = (
+            Task.objects.alive()
+            .filter(
+                owner_id=self.owner_id,
+                title=self.title,
+                recurrence_rule=self.recurrence_rule,
+                starts_at=proximo_inicio,
+            )
+            .exclude(pk=self.pk)
+            .first()
+        )
+        if ja_criada is not None:
+            return ja_criada
 
         deslocamento = proximo_inicio - self.starts_at
         proxima = Task(

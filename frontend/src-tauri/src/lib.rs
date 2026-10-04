@@ -10,25 +10,36 @@
 //! janela aberta antes do servidor mostraria um erro de conexão para um
 //! usuário que não tem o que fazer a respeito.
 
+#[cfg(desktop)]
 use std::net::TcpStream;
+#[cfg(desktop)]
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::AppHandle;
+#[cfg(desktop)]
+use tauri::{Manager, RunEvent, WindowEvent};
+#[cfg(desktop)]
 use tauri_plugin_dialog::DialogExt;
+#[cfg(desktop)]
 use tauri_plugin_shell::process::CommandChild;
+#[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
 
 /// Mesma porta gravada no `desktop_server.py` e compilada no frontend.
+#[cfg(desktop)]
 const BACKEND_ADDR: &str = "127.0.0.1:8756";
 
 /// Teto para o primeiro arranque. O executável do backend se descompacta
 /// antes de subir, e num disco lento isso passa de dez segundos.
+#[cfg(desktop)]
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Guarda o processo filho para poder encerrá-lo quando o app fechar.
+#[cfg(desktop)]
 struct Backend(std::sync::Mutex<Option<CommandChild>>);
 
 /// Espera a porta aceitar conexão — é o sinal de que o Django está pronto.
+#[cfg(desktop)]
 fn wait_for_backend() -> bool {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     while Instant::now() < deadline {
@@ -46,6 +57,7 @@ fn wait_for_backend() -> bool {
 /// mas os nomes aqui são de gente que escreve em português ("Relatório
 /// anual.pdf"). O JavaScript manda `encodeURIComponent`, e o que volta ao
 /// byte original é isto.
+#[cfg(desktop)]
 fn decodificar_nome(texto: &str) -> String {
     let bytes = texto.as_bytes();
     let mut saida = Vec::with_capacity(bytes.len());
@@ -70,6 +82,7 @@ fn decodificar_nome(texto: &str) -> String {
 ///
 /// O que aparece ali é "Documento PDF (*.pdf)", e não "PDF (*.pdf)" — o
 /// diálogo do Windows monta o "(*.ext)" sozinho a partir do filtro.
+#[cfg(desktop)]
 fn rotulo_do_formato(extensao: &str) -> &str {
     match extensao {
         "pdf" => "Documento PDF",
@@ -110,6 +123,7 @@ fn rotulo_do_formato(extensao: &str) -> &str {
 /// Devolve o caminho escolhido, ou `None` se a pessoa cancelou — cancelar
 /// não é erro, e a interface precisa saber diferenciar para não mostrar
 /// "falha ao exportar" para quem só desistiu.
+#[cfg(desktop)]
 #[tauri::command]
 async fn salvar_arquivo(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<Option<String>, String> {
     let tauri::ipc::InvokeBody::Raw(dados) = request.body() else {
@@ -152,13 +166,29 @@ async fn salvar_arquivo(app: AppHandle, request: tauri::ipc::Request<'_>) -> Res
     Ok(Some(caminho.display().to_string()))
 }
 
+/// No celular o "Salvar como" do sistema não é um diálogo que o Rust abre:
+/// exportar precisa do compartilhamento nativo do Android, que ainda não foi
+/// ligado. A SPA já trata o erro e mostra a mensagem em vez de fingir que
+/// gravou.
+#[cfg(mobile)]
+#[tauri::command]
+async fn salvar_arquivo(_app: AppHandle, _request: tauri::ipc::Request<'_>) -> Result<Option<String>, String> {
+    Err("exportar arquivos ainda não é suportado no Android".into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let construtor = tauri::Builder::default();
+
+    // O backend empacotado só existe no desktop.
+    #[cfg(desktop)]
+    let construtor = construtor
         .plugin(tauri_plugin_shell::init())
+        .manage(Backend(std::sync::Mutex::new(None)));
+
+    construtor
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![salvar_arquivo])
-        .manage(Backend(std::sync::Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -168,6 +198,7 @@ pub fn run() {
                 )?;
             }
 
+            #[cfg(desktop)]
             let (_rx, child) = app
                 .shell()
                 .sidecar("notefy-server")
@@ -175,31 +206,37 @@ pub fn run() {
                 .spawn()
                 .expect("não foi possível iniciar o backend do Notefy");
 
-            app.state::<Backend>().0.lock().unwrap().replace(child);
+            #[cfg(desktop)]
+            {
+                app.state::<Backend>().0.lock().unwrap().replace(child);
 
-            if !wait_for_backend() {
-                // A janela abre mesmo assim: a SPA já sabe mostrar erro de
-                // conexão e oferecer "tentar de novo", o que é melhor do
-                // que um app que não abre.
-                eprintln!("Notefy: o backend não respondeu a tempo em {BACKEND_ADDR}");
+                if !wait_for_backend() {
+                    // A janela abre mesmo assim: a SPA já sabe mostrar erro de
+                    // conexão e oferecer "tentar de novo", o que é melhor do
+                    // que um app que não abre.
+                    eprintln!("Notefy: o backend não respondeu a tempo em {BACKEND_ADDR}");
+                }
             }
 
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("erro ao construir o aplicativo")
-        .run(|app, event| {
+        .run(|_app, _event| {
             // Fechar a janela precisa levar o servidor junto: um processo
             // órfão continuaria segurando a porta e o banco, e a próxima
             // abertura falharia sem explicação.
-            let encerrar = matches!(
-                event,
-                RunEvent::ExitRequested { .. } | RunEvent::WindowEvent { event: WindowEvent::Destroyed, .. }
-            );
+            #[cfg(desktop)]
+            {
+                let encerrar = matches!(
+                    _event,
+                    RunEvent::ExitRequested { .. } | RunEvent::WindowEvent { event: WindowEvent::Destroyed, .. }
+                );
 
-            if encerrar {
-                if let Some(child) = app.state::<Backend>().0.lock().unwrap().take() {
-                    let _ = child.kill();
+                if encerrar {
+                    if let Some(child) = _app.state::<Backend>().0.lock().unwrap().take() {
+                        let _ = child.kill();
+                    }
                 }
             }
         });

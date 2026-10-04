@@ -162,7 +162,7 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
                   F2 existe — um atalho que só aparece na documentação não
                   existe. */}
               {item.atalho && (
-                <kbd className="shrink-0 rounded border border-ink-200 px-1 font-sans text-[10px] text-ink-400 dark:border-ink-700">
+                <kbd className="shrink-0 rounded border border-ink-200 px-1 font-sans text-[10px] text-ink-400 dark:border-ink-700 [@media(hover:none)]:hidden">
                   {item.atalho}
                 </kbd>
               )}

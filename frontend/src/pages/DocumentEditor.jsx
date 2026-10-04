@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Check,
   ChevronRight,
   Download,
+  LayoutTemplate,
   Paperclip,
   Settings2,
   Star,
@@ -28,6 +29,7 @@ import SpreadsheetEditor from '@/components/editors/SpreadsheetEditor'
 import GraphEditor from '@/components/editors/GraphEditor'
 import DocumentMetaModal from '@/components/modals/DocumentMetaModal'
 import DestinationModal from '@/components/modals/DestinationModal'
+import ModeloModal from '@/components/modals/ModeloModal'
 import ExportMenu from '@/components/ExportMenu'
 import { baixarArquivoNoClique } from '@/components/FilePreview'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
@@ -36,6 +38,7 @@ import { runIA } from '@/lib/ai'
 import { copiarTexto, idDeInstancia } from '@/lib/desktop'
 import { escaparTexto } from '@/lib/sanitizar'
 import { DOCUMENT_STATUS, kindMeta } from '@/lib/documents'
+import { MODELOS_PRONTOS, modeloPronto } from '@/lib/modelos'
 import {
   criar,
   empilhar,
@@ -45,6 +48,7 @@ import {
   podeRefazer,
 } from '@/lib/history'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const AUTOSAVE_MS = 1500
 
@@ -56,7 +60,7 @@ const AUTOSAVE_MS = 1500
 function corpoDoDocumento(payload) {
   return {
     kind: payload.kind,
-    title: payload.title?.trim() || 'Sem título',
+    title: payload.title?.trim() || t('Sem título'),
     status: payload.status,
     color: payload.color ?? '',
     folder: payload.folder,
@@ -84,7 +88,7 @@ function corpoDoDocumento(payload) {
  * assim que "um lugar para cada" não virou quatro telas com mecânicas
  * diferentes: o usuário reaprende nada ao mudar de tipo.
  */
-export default function DocumentEditor({ mode, kind: routeKind, id: idProp, folderId: folderIdProp, emPainel: emPainelProp }) {
+export default function DocumentEditor({ mode, kind: routeKind, id: idProp, folderId: folderIdProp, modelo: modeloProp, emPainel: emPainelProp }) {
   const params = useParams()
   // `idProp` vence a rota: no painel da direita do split o React Router
   // continua apontando para o documento da ESQUERDA — há uma location só
@@ -93,7 +97,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const emPainel = emPainelProp ?? !!idProp
 
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
+  // O corpo da nota, para o Enter no título levar o cursor até ele.
+  const notaRef = useRef(null)
   const { refresh: refreshTree } = useWorkspace()
   const { closeTab, activeKey } = useTabs()
   const { fecharPainel } = useSplit()
@@ -102,6 +109,9 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   // Pasta de destino da criação: a prop vence a query — no painel a query
   // é a da ESQUERDA, e a pasta certa viaja na prop.
   const folderParaCriar = folderIdProp ?? searchParams.get('folder')
+  // Modelo de partida: "notefy:aula" (galeria do app) ou o id de um modelo
+  // salvo pela pessoa. Ver `pages/Templates.jsx`.
+  const modeloParaCriar = modeloProp ?? searchParams.get('modelo')
   const { data, loading, error, errorStatus, refetch, setData } = useFetch(
     `/documents/${id}/`,
     { enabled: !isCreate, deps: [id] },
@@ -129,6 +139,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const [saveError, setSaveError] = useState(null)
   const [showMeta, setShowMeta] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [salvandoModelo, setSalvandoModelo] = useState(false)
   const autosaveRef = useRef(null)
   // Payload do autosave agendado. Existe para o flush de saída poder
   // mandá-lo — sem isto, sair dentro da janela do debounce descartava
@@ -234,8 +245,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   // salvamento — assim abrir um editor não polui a pasta com rascunhos
   // vazios que o usuário desistiu de escrever.
   useEffect(() => {
-    if (!isCreate) return
-    setDoc({
+    if (!isCreate) return undefined
+    const base = {
       kind: routeKind,
       title: '',
       content: '',
@@ -245,8 +256,45 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       folder: folderParaCriar,
       is_favorite: false,
       attachments: [],
-    })
-  }, [isCreate, routeKind, folderParaCriar])
+    }
+    setDoc(base)
+    if (!modeloParaCriar) return undefined
+
+    // Criar a partir de um modelo é este mesmo fluxo de criação, só que
+    // começando cheio: a pessoa escolhe nome e pasta e clica em Criar.
+    let vivo = true
+    const pronto = modeloPronto(modeloParaCriar)
+    const carregar = pronto
+      ? Promise.resolve({ data: pronto.dados(), title: pronto.titulo() })
+      : api.get(`/templates/${modeloParaCriar}/`).then(({ data: modelo }) => ({
+          data: modelo.data,
+          title: `${modelo.name} — ${new Date().toLocaleDateString()}`,
+        }))
+    carregar
+      .then(({ data: conteudo, title }) => {
+        if (!vivo) return
+        const cheio = { ...base, data: conteudo, title }
+        setDoc(cheio)
+        setDirty(true)
+        // O modelo é o ponto de partida do desfazer, não um passo dele.
+        historyRef.current = criar(cheio)
+      })
+      .catch((err) => vivo && setSaveError(extractError(err)))
+    return () => {
+      vivo = false
+    }
+  }, [isCreate, routeKind, folderParaCriar, modeloParaCriar])
+
+  // Nota criada pelo Enter do título: abre com o cursor no corpo. Lido a
+  // cada navegação, e não guardado na montagem: de /notes/new para
+  // /notes/<id> o React reaproveita ESTE componente, que nasceu sem o aviso.
+  const focarCorpo = !!location.state?.focarCorpo
+  const corpoFocadoRef = useRef(null)
+  useEffect(() => {
+    if (!focarCorpo || isCreate || doc?.kind !== 'note' || !doc.id || corpoFocadoRef.current === doc.id) return
+    corpoFocadoRef.current = doc.id
+    requestAnimationFrame(() => notaRef.current?.focar('inicio'))
+  }, [focarCorpo, doc, isCreate])
 
   // Sem pasta não há onde criar. Em vez de deixar salvar e receber um 400,
   // o seletor abre de saída e a escolha vira parte do fluxo de criação.
@@ -280,7 +328,12 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         )
 
         if (isCreate) {
-          navigate(`${meta.route}/${response.data.id}`, { replace: true })
+          // A nota recém-criada abre com o cursor no corpo: quem criou pelo
+          // Enter do título segue escrevendo sem procurar onde clicar.
+          navigate(`${meta.route}/${response.data.id}`, {
+            replace: true,
+            state: payload.kind === 'note' ? { focarCorpo: true } : undefined,
+          })
         } else if (edicoesRef.current === edicoesNoEnvio) {
           // Ninguém desenhou enquanto o PATCH viajava: a resposta é a
           // versão corrente e pode virar a base. Se tivesse havido edição,
@@ -551,16 +604,16 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <Trash2 size={28} className="text-ink-300 dark:text-ink-600" />
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          Este item foi movido para a lixeira.
+          {t('Este item foi movido para a lixeira.')}
         </p>
         <div className="flex gap-2">
           {!emPainel && (
             <Button variant="secondary" onClick={() => navigate('/trash')}>
-              Ver lixeira
+              {t('Ver lixeira')}
             </Button>
           )}
           <Button onClick={() => (emPainel ? fecharPainel() : activeKey && closeTab(activeKey))}>
-            {emPainel ? 'Fechar painel' : 'Fechar aba'}
+            {emPainel ? t('Fechar painel') : t('Fechar aba')}
           </Button>
         </div>
       </div>
@@ -586,8 +639,153 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const status = DOCUMENT_STATUS[doc.status] ?? DOCUMENT_STATUS.draft
   const Icon = meta.icon
 
+  // Título e anexos são os mesmos para todo tipo; a nota os desenha DENTRO
+  // da folha (o título é a primeira linha da página, como no Word), os
+  // outros editores em volta do quadro.
+  //
+  // A sugestão da IA aparece como texto fantasma atrás do campo; Enter (ou
+  // Tab) aceita, digitar qualquer coisa descarta.
+  const blocoDoTitulo = (
+        <div className={cn('relative shrink-0', kind !== 'note' && 'px-4 pt-4')}>
+          {sugestaoTitulo && !(doc.title || '').trim() && (
+            <div
+              aria-hidden
+              className={cn('pointer-events-none absolute truncate font-semibold tracking-tight text-ink-300 dark:text-ink-700', kind === 'note' ? 'inset-x-0 top-0 text-3xl' : 'inset-x-4 top-4 text-2xl')}
+            >
+              {sugestaoTitulo}
+              <span className="ml-2 align-middle text-[11px] font-normal">{t('Enter para usar')}</span>
+            </div>
+          )}
+          <input
+            value={doc.title}
+            onChange={(e) => {
+              if (sugestaoTitulo) setSugestaoTitulo('')
+              patch({ title: e.target.value })
+            }}
+            onKeyDown={(e) => {
+              // Enter aceita a sugestão fantasma quando ela está na tela.
+              if (sugestaoTitulo && !(doc.title || '').trim()) {
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault()
+                  patch({ title: sugestaoTitulo })
+                  setSugestaoTitulo('')
+                }
+                return
+              }
+              // Na nota já criada, Enter e seta para baixo descem para o
+              // texto, como no Word: o título é a primeira linha da página.
+              if (kind === 'note' && !isCreate && (e.key === 'Enter' || e.key === 'ArrowDown')) {
+                e.preventDefault()
+                notaRef.current?.focar('inicio')
+                return
+              }
+              // Enter no título cria o item novo / salva a edição: quem
+              // digitou o nome quer concluir, não caçar o botão Salvar.
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (isCreate || dirty) save()
+                else e.currentTarget.blur()
+              }
+            }}
+            placeholder={sugestaoTitulo ? '' : t('{label} sem título', { label: meta.label })}
+            autoFocus={isCreate}
+            className={cn('relative w-full border-0 bg-transparent p-0 font-semibold tracking-tight text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-0 dark:text-ink-50 dark:placeholder:text-ink-700', kind === 'note' ? 'text-3xl' : 'text-2xl')}
+          />
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {doc.category && (
+              <Badge color={doc.category.color}>{doc.category.name}</Badge>
+            )}
+            {!isCreate && (
+              <span className="text-[11px] text-ink-400">
+                {t('editado')} {formatRelative(doc.updated_at)}
+              </span>
+            )}
+          </div>
+        </div>
+  )
+
+  const blocoDosAnexos = (
+    <>
+            {/* Anexos: só quando existem.
+                A seção com "Nenhum anexo" ocupava espaço no rodapé de toda
+                nota para dizer que não havia nada — e como o botão de anexar
+                vive na barra de ações, ela não era o único caminho para
+                criar o primeiro. */}
+            {doc.attachments?.length > 0 && (
+              <div className={cn('shrink-0 border-t border-ink-100 pt-4 dark:border-ink-800', kind !== 'note' && 'mt-5')}>
+                <h3 className="mb-2 flex items-center gap-1.5 secao">
+                  <Paperclip size={12} />
+                  {t('Anexos (')}{doc.attachments.length})
+                </h3>
+                <ul className="flex flex-wrap gap-2">
+                  {doc.attachments.map((file) => (
+                    <li key={file.id}>
+                      <a
+                        href={file.file_url}
+                        rel="noreferrer"
+                        onClick={(event) => {
+                          // Sem isto o anexo não abre no aplicativo: o
+                          // `target="_blank"` não tem para onde ir numa janela
+                          // sem abas, e o `file_url` é absoluto para a origem
+                          // do backend, que a janela carrega de outro lugar.
+                          // Mesmo tratamento que o FileViewer já dava.
+                          event.preventDefault()
+                          baixarArquivoNoClique(file)
+                        }}
+                        className="flex items-center gap-2 rounded-md border border-ink-200 px-2.5 py-1.5 text-xs text-ink-600 transition hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                      >
+                        <Download size={12} />
+                        <span className="max-w-[180px] truncate">{file.title}</span>
+                        <span className="text-ink-400">{formatBytes(file.size)}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+    </>
+  )
+
+  // Nota vazia: os modelos de nota mais usados, a um clique (ou toque) de
+  // distância. É a pergunta que o Evernote faz numa nota nova.
+  const aplicarModelo = (modelo) => {
+    const conteudo = modelo.dados()
+    patch({ data: conteudo, title: (doc.title || '').trim() ? doc.title : modelo.titulo() })
+    commitHistory(conteudo)
+    requestAnimationFrame(() => notaRef.current?.focar('inicio'))
+  }
+
+  const sugestoesDeModelo = (
+    <div className="mt-8 rounded-lg border border-dashed border-ink-200 p-3 dark:border-ink-700">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-400">{t('Ou comece com um modelo')}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {MODELOS_PRONTOS.filter((m) => m.kind === 'note').slice(0, 6).map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => aplicarModelo(m)}
+            title={m.descricao}
+            className="rounded-full border border-ink-200 px-3 py-1 text-xs text-ink-600 transition hover:border-accent-400 hover:text-accent-700 dark:border-ink-700 dark:text-ink-300 dark:hover:text-accent-300 [@media(pointer:coarse)]:py-2"
+          >
+            {m.nome}
+          </button>
+        ))}
+        <Link
+          to="/templates"
+          className="rounded-full px-3 py-1 text-xs text-ink-500 underline-offset-2 hover:underline dark:text-ink-400 [@media(pointer:coarse)]:py-2"
+        >
+          {t('Ver todos os modelos')}
+        </Link>
+      </div>
+    </div>
+  )
+
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // Nota cresce com o texto e a página rola; com altura fixa, uma nota
+    // longa passava por cima da lista de anexos. Quadro e planilha precisam
+    // da altura da tela para desenhar e rolar por dentro.
+    <div className={cn('flex min-h-0 flex-col', kind === 'note' ? 'min-h-full' : 'h-full')}>
       {/* Barra de ações */}
       <div className="flex shrink-0 items-center gap-2 border-b border-ink-100 px-4 py-2 dark:border-ink-800">
         {/* No painel lateral não há "voltar": o histórico pertence ao lado
@@ -598,7 +796,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             dele é o histórico do navegador mesmo. */}
         <button
           onClick={() => navigate(-1)}
-          aria-label="Voltar"
+          aria-label={t('Voltar')}
           className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800"
         >
           <ArrowLeft size={16} />
@@ -608,8 +806,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
 
         {doc.breadcrumb?.length > 0 && (
           <nav className="hidden min-w-0 items-center gap-1 text-xs text-ink-400 sm:flex">
-            {doc.breadcrumb.map((crumb) => (
+            {doc.breadcrumb.map((crumb, i) => (
               <span key={crumb.id} className="flex shrink-0 items-center gap-1">
+                {/* Separador só ENTRE os lugares: o título não entra aqui. */}
+                {i > 0 && <ChevronRight size={11} />}
                 {/* O `<Link>` navega no router de quem o renderiza: na
                     esquerda troca a rota principal, e no painel o
                     SplitContext intercepta e navega o próprio painel de
@@ -624,7 +824,6 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
                 >
                   {crumb.name}
                 </Link>
-                <ChevronRight size={11} />
               </span>
             ))}
           </nav>
@@ -634,7 +833,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
           {saving && <Spinner size={13} />}
           {savedAt && !dirty && !saving && (
             <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-              <Check size={12} /> salvo
+              <Check size={12} /> {t('salvo')}
             </span>
           )}
 
@@ -644,33 +843,51 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             <>
               <button
                 onClick={toggleFavorite}
-                aria-label="Favoritar"
+                aria-label={t('Favoritar')}
                 className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
               >
                 <Star size={15} className={cn(doc.is_favorite && 'fill-amber-400 text-amber-400')} />
               </button>
               <ExportMenu document={doc} disabled={dirty} onError={setSaveError} />
               <button
-                onClick={() => setConfirmDelete(true)}
-                aria-label="Excluir"
-                className="rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+                onClick={async () => {
+                  // O modelo copia o que está GRAVADO: a edição dos últimos
+                  // segundos (ainda no debounce do autosave) vai antes.
+                  if (dirty) await persist(docRef.current).catch(() => {})
+                  setSalvandoModelo(true)
+                }}
+                aria-label={t('Salvar como modelo')}
+                title={t('Salvar como modelo')}
+                className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
               >
-                <Trash2 size={15} />
+                <LayoutTemplate size={15} />
               </button>
             </>
           )}
 
           <button
             onClick={() => setShowMeta(true)}
-            aria-label="Propriedades"
-            title="Pasta, categorias e status"
+            aria-label={t('Propriedades')}
+            title={t('Pasta, categorias e status')}
             className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             <Settings2 size={15} />
           </button>
 
+          {/* Excluir por último, junto do botão principal: a mesma ordem da
+              tela de arquivo (propriedades, depois excluir). */}
+          {!isCreate && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              aria-label={t('Excluir')}
+              className="rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+
           <Button size="sm" onClick={save} loading={saving} disabled={!dirty}>
-            {isCreate ? 'Criar' : 'Salvar'}
+            {isCreate ? t('Criar') : t('Salvar')}
           </Button>
         </div>
       </div>
@@ -681,72 +898,23 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         </div>
       )}
 
-      {/* Título. A sugestão da IA aparece como texto fantasma atrás do
-          campo; Enter (ou Tab) aceita, digitar qualquer coisa descarta. */}
-      <div className="relative shrink-0 px-4 pt-4">
-        {sugestaoTitulo && !(doc.title || '').trim() && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-4 top-4 truncate text-2xl font-semibold tracking-tight text-ink-300 dark:text-ink-700"
-          >
-            {sugestaoTitulo}
-            <span className="ml-2 align-middle text-[11px] font-normal">Enter para usar</span>
-          </div>
-        )}
-        <input
-          value={doc.title}
-          onChange={(e) => {
-            if (sugestaoTitulo) setSugestaoTitulo('')
-            patch({ title: e.target.value })
-          }}
-          onKeyDown={(e) => {
-            // Enter aceita a sugestão fantasma quando ela está na tela.
-            if (sugestaoTitulo && !(doc.title || '').trim()) {
-              if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault()
-                patch({ title: sugestaoTitulo })
-                setSugestaoTitulo('')
-              }
-              return
-            }
-            // Enter no título cria o item novo / salva a edição: quem
-            // digitou o nome quer concluir, não caçar o botão Salvar.
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              if (isCreate || dirty) save()
-              else e.currentTarget.blur()
-            }
-          }}
-          placeholder={sugestaoTitulo ? '' : `${meta.label} sem título`}
-          autoFocus={isCreate}
-          className="relative w-full border-0 bg-transparent p-0 text-2xl font-semibold tracking-tight text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-0 dark:text-ink-50 dark:placeholder:text-ink-700"
-        />
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {doc.category && (
-            <Badge color={doc.category.color}>{doc.category.name}</Badge>
-          )}
-          {!isCreate && (
-            <span className="text-[11px] text-ink-400">
-              editado {formatRelative(doc.updated_at)}
-            </span>
-          )}
-        </div>
-      </div>
+      {kind !== 'note' && blocoDoTitulo}
 
       {/* Editor conforme o tipo.
           O botão direito em qualquer ponto do editor traz o item "IA" com
           as mecânicas daquele tipo. O menu do GraphEditor (duplicar,
           excluir sobre um nó) continua vindo primeiro: ele para o evento
           antes de chegar aqui. */}
-      <div
-        className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-4"
-        onContextMenu={(e) => {
-          if (isCreate) return
-          abrirMenuIA(e, { items: [itemIA] })
-        }}
-      >
-        {kind === 'note' && (
+      {kind === 'note' && (
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          onContextMenu={(e) => {
+            if (isCreate) return
+            abrirMenuIA(e, { items: [itemIA] })
+          }}
+        >
           <NoteEditor
+            ref={notaRef}
             documentId={doc.id}
             data={doc.data}
             onChange={(next) => patch({ data: next })}
@@ -754,8 +922,24 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             // falha no upload não pode terminar em silêncio, com a pessoa
             // olhando para a nota sem entender por que nada apareceu.
             onError={setSaveError}
+            cabecalho={blocoDoTitulo}
+            rodape={blocoDosAnexos}
+            aoComecar={sugestoesDeModelo}
+            onCommit={commitHistory}
+            onUndo={undo}
+            onRedo={redo}
           />
-        )}
+        </div>
+      )}
+
+      {kind !== 'note' && (
+      <div
+        className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-4"
+        onContextMenu={(e) => {
+          if (isCreate) return
+          abrirMenuIA(e, { items: [itemIA] })
+        }}
+      >
 
         {kind === 'spreadsheet' && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-ink-200 dark:border-ink-800">
@@ -781,44 +965,9 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
           </div>
         )}
 
-        {/* Anexos: só quando existem.
-            A seção com "Nenhum anexo" ocupava espaço no rodapé de toda
-            nota para dizer que não havia nada — e como o botão de anexar
-            vive na barra de ações, ela não era o único caminho para
-            criar o primeiro. */}
-        {doc.attachments?.length > 0 && (
-          <div className="mt-5 shrink-0 border-t border-ink-100 pt-4 dark:border-ink-800">
-            <h3 className="mb-2 flex items-center gap-1.5 secao">
-              <Paperclip size={12} />
-              Anexos ({doc.attachments.length})
-            </h3>
-            <ul className="flex flex-wrap gap-2">
-              {doc.attachments.map((file) => (
-                <li key={file.id}>
-                  <a
-                    href={file.file_url}
-                    rel="noreferrer"
-                    onClick={(event) => {
-                      // Sem isto o anexo não abre no aplicativo: o
-                      // `target="_blank"` não tem para onde ir numa janela
-                      // sem abas, e o `file_url` é absoluto para a origem
-                      // do backend, que a janela carrega de outro lugar.
-                      // Mesmo tratamento que o FileViewer já dava.
-                      event.preventDefault()
-                      baixarArquivoNoClique(file)
-                    }}
-                    className="flex items-center gap-2 rounded-md border border-ink-200 px-2.5 py-1.5 text-xs text-ink-600 transition hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
-                  >
-                    <Download size={12} />
-                    <span className="max-w-[180px] truncate">{file.title}</span>
-                    <span className="text-ink-400">{formatBytes(file.size)}</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {blocoDosAnexos}
       </div>
+      )}
 
       <ContextMenu
         open={!!menuIA}
@@ -831,6 +980,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       <AvisoIA rodando={rodandoIA} erro={erroIA} onFechar={limparErro} />
 
       {modalIA}
+
+      <ModeloModal open={salvandoModelo} documento={doc} onClose={() => setSalvandoModelo(false)} />
 
       <DocumentMetaModal
         open={showMeta}
@@ -862,23 +1013,23 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title={`Excluir ${meta.label.toLowerCase()}`}
-        description="Esta ação não pode ser desfeita."
+        title={t('Excluir {valor}', { valor: meta.label.toLowerCase() })}
+        description={t('Esta ação não pode ser desfeita.')}
         size="sm"
         footer={
           <>
             <Button variant="secondary" onClick={() => setConfirmDelete(false)}>
-              Cancelar
+              {t('Cancelar')}
             </Button>
             <Button variant="danger" onClick={handleDelete}>
-              Excluir
+              {t('Excluir')}
             </Button>
           </>
         }
       >
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          <strong>{doc.title || 'Sem título'}</strong> será removido permanentemente
-          {doc.attachments?.length > 0 && `, junto com ${doc.attachments.length} anexo(s)`}.
+          <strong>{doc.title || t('Sem título')}</strong> {t('será removido permanentemente')}
+          {doc.attachments?.length > 0 && t(', junto com {length} anexo(s)', { length: doc.attachments.length })}.
         </p>
       </Modal>
     </div>

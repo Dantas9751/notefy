@@ -11,12 +11,12 @@ import {
 } from 'lucide-react'
 import { Badge, ColorDot } from '@/components/ui'
 import FavoriteButton from '@/components/FavoriteButton'
-import SpotlightCard from '@/components/ui/SpotlightCard'
 import { DOCUMENT_STATUS, documentPath, kindMeta } from '@/lib/documents'
 import { limparDragPayload, setDragPayload } from '@/lib/dnd'
 import { exportDocument, FORMATS } from '@/components/ExportMenu'
 import api, { extractError } from '@/lib/api'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Card de um item — serve os cinco tipos.
@@ -54,8 +54,7 @@ export default function DocumentCard({
   const isFile = doc.kind === 'file'
 
   return (
-    <SpotlightCard
-      as="article"
+    <article
       // Arrastar precisa sair do caminho durante a edição: o campo fica
       // dentro do cartão, e selecionar texto com o mouse iniciaria um
       // arraste em vez de marcar as letras.
@@ -127,7 +126,9 @@ export default function DocumentCard({
             )}
           </span>
         ) : (
-          <h3 className="titulo min-w-0 flex-1 truncate text-[15px] group-hover:text-accent-700 dark:group-hover:text-accent-300">
+          // Primeira letra maiúscula só na TELA: o nome salvo continua como
+          // a pessoa digitou ("a" vira "A" no cartão, não no banco).
+          <h3 className="titulo min-w-0 flex-1 truncate text-[15px] first-letter:uppercase group-hover:text-accent-700 dark:group-hover:text-accent-300">
             {doc.title}
           </h3>
         )}
@@ -191,7 +192,7 @@ export default function DocumentCard({
           {formatRelative(doc.updated_at)}
         </span>
       </div>
-    </SpotlightCard>
+    </article>
   )
 }
 
@@ -201,10 +202,10 @@ export function documentMenuItems(
   { navigate, onMove, onDuplicate, onDelete, onOpenAside, onRename, onError },
 ) {
   return [
-    { label: 'Abrir', icon: ExternalLink, onClick: () => navigate(documentPath(doc)) },
+    { label: t('Abrir'), icon: ExternalLink, onClick: () => navigate(documentPath(doc)) },
     ...(onOpenAside
       ? [{
-          label: 'Abrir ao lado',
+          label: t('Abrir ao lado'),
           icon: Columns2,
           disabled: !doc.id || String(doc.id).length < 8,
           onClick: () => onOpenAside({ path: documentPath(doc), title: doc.title }),
@@ -216,13 +217,13 @@ export function documentMenuItems(
     // nenhum — o editor de texto renomeia pelo título, mas arquivo abre
     // no visualizador, que não tem campo de título.
     ...(onRename
-      ? [{ label: 'Renomear', icon: PenLine, atalho: 'F2', onClick: onRename }]
+      ? [{ label: t('Renomear'), icon: PenLine, atalho: 'F2', onClick: onRename }]
       : []),
-    { label: 'Mover para...', icon: FolderInput, onClick: onMove },
-    { label: 'Duplicar', icon: Copy, onClick: onDuplicate },
+    { label: t('Mover para...'), icon: FolderInput, onClick: onMove },
+    { label: t('Duplicar'), icon: Copy, onClick: onDuplicate },
     ...((FORMATS[doc.kind] ?? []).length
       ? [{
-          label: 'Exportar',
+          label: t('Exportar'),
           icon: Download,
           // A lista de uma pasta/recentes não traz o `data` do documento;
           // buscar o payload completo é o que permite converter de fato.
@@ -240,6 +241,6 @@ export function documentMenuItems(
         }]
       : []),
     { separator: true },
-    { label: 'Excluir', icon: Trash2, danger: true, onClick: onDelete },
+    { label: t('Excluir'), icon: Trash2, danger: true, onClick: onDelete },
   ]
 }

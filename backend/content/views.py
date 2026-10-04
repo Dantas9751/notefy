@@ -4,9 +4,9 @@ import io
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.db.models import Count, Q
 
-from core.validators import e_uuid
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters import rest_framework as filters
@@ -14,15 +14,18 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.excecoes import JSONParserSeguro
+from core.idioma import texto
+from core.validators import e_uuid
 from core.views import OwnedModelViewSet
 
 from .export_pdf import pdf_filename, render_pdf
-from .models import Document
+from .models import Document, Template, titulo_de_arquivo
 from .schemas import (
     AGGREGATE_TYPES,
     CANVAS_EDGE_TYPES,
@@ -38,6 +41,8 @@ from .serializers import (
     DocumentListSerializer,
     DocumentSerializer,
     DocumentUploadSerializer,
+    TemplateListSerializer,
+    TemplateSerializer,
 )
 
 
@@ -82,7 +87,7 @@ class DocumentViewSet(OwnedModelViewSet):
     ordering_fields = ("title", "created_at", "updated_at", "status", "word_count", "position")
     ordering = ("-is_favorite", "-updated_at")
     # JSON para os editores, multipart para upload de arquivo.
-    parser_classes = (JSONParser, MultiPartParser, FormParser)
+    parser_classes = (JSONParserSeguro, MultiPartParser, FormParser)
 
     def get_serializer_class(self):
         return DocumentListSerializer if self.action == "list" else DocumentSerializer
@@ -91,11 +96,15 @@ class DocumentViewSet(OwnedModelViewSet):
         qs = super().get_queryset().with_relations()
         if self.action == "list":
             # Anexos pertencem ao documento pai e apareceriam soltos na
-            # pasta; a listagem mostra só o que é de topo.
+            # pasta; a listagem mostra só o que é de topo. `?anexos=true`
+            # os inclui: a imagem colada numa nota também serve de capa
+            # do Início, e era quase sempre a única imagem da conta.
+            if self.request.query_params.get("anexos") not in ("1", "true"):
+                qs = qs.loose()
             # Só os anexos vivos: a exclusão é suave, então sem o filtro
             # o clipe do cartão continuava anunciando um arquivo que já
             # estava na lixeira e não aparecia mais ao abrir o documento.
-            qs = qs.loose().annotate(
+            qs = qs.annotate(
                 attachment_count=Count(
                     "attachments",
                     filter=Q(attachments__deleted_at__isnull=True),
@@ -203,7 +212,7 @@ class DocumentViewSet(OwnedModelViewSet):
         for uploaded in payload["files"]:
             document = Document(
                 kind=Document.Kind.FILE,
-                title=uploaded.name,
+                title=titulo_de_arquivo(uploaded.name),
                 file=uploaded,
                 # Anexo herda a pasta do documento que o hospeda.
                 folder=payload.get("folder") or (parent.folder if parent else None),
@@ -221,6 +230,7 @@ class DocumentViewSet(OwnedModelViewSet):
     @action(detail=True, methods=["post"])
     def duplicate(self, request, pk=None):
         original = self.get_object()
+        id_original = original.pk
         # PK é UUID com default gerado no __init__: zerar o campo faria o
         # INSERT tentar gravar NULL. É preciso atribuir um UUID novo.
         original.pk = uuid.uuid4()
@@ -228,7 +238,8 @@ class DocumentViewSet(OwnedModelViewSet):
         # O título é único por pasta: duplicar o MESMO item duas vezes
         # geraria "(cópia)" duas vezes e a segunda estouraria a constraint
         # do model como 500. Desambigua como o resto do app faz.
-        titulo = f"{original.title} (cópia)"
+        copia = texto("cópia", "copy")
+        titulo = f"{original.title} ({copia})"
         irmaos = set(
             Document.objects.alive()
             .filter(owner=request.user, folder=original.folder, kind=original.kind)
@@ -236,7 +247,7 @@ class DocumentViewSet(OwnedModelViewSet):
         )
         n = 2
         while titulo in irmaos:
-            titulo = f"{original.title} (cópia {n})"
+            titulo = f"{original.title} ({copia} {n})"
             n += 1
         original.title = titulo
         # A cópia nasce sem estrela: favoritar é uma escolha sobre AQUELE
@@ -244,7 +255,9 @@ class DocumentViewSet(OwnedModelViewSet):
         # original sem ninguém ter pedido.
         original.is_favorite = False
         try:
-            original.save()
+            with transaction.atomic():
+                original.save()
+                self._copiar_anexos(de=id_original, para=original)
         except DjangoValidationError as erro:
             # Mesmo com a desambiguação, o clean() do model pode recusar
             # (ex.: pasta cheia de cópias numeradas). Sem este catch, isso
@@ -257,6 +270,23 @@ class DocumentViewSet(OwnedModelViewSet):
             )
             return Response({"detail": mensagens}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(original).data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _copiar_anexos(de, para):
+        """A cópia ganha anexos PRÓPRIOS, apontando para os mesmos arquivos.
+
+        A imagem colada numa nota é um anexo dela, citado pelo caminho no
+        HTML. Sem anexo próprio, a cópia citava os anexos do original: ao
+        apagar o original de vez, os anexos iam junto e a cópia ficava com
+        as imagens quebradas. Os bytes não são copiados; o arquivo é
+        compartilhado, e `signals.delete_file_from_storage` só o apaga
+        quando nenhuma linha aponta mais para ele.
+        """
+        for anexo in Document.objects.alive().filter(attached_to_id=de):
+            anexo.pk = uuid.uuid4()
+            anexo._state.adding = True
+            anexo.attached_to = para
+            anexo.save()
 
     @action(detail=True, methods=["get", "post"], url_path="pdf")
     def pdf(self, request, pk=None):
@@ -316,7 +346,7 @@ class DocumentViewSet(OwnedModelViewSet):
         document.save()
         return Response(self.get_serializer(document).data)
 
-    @action(detail=True, methods=["post"], parser_classes=[JSONParser])
+    @action(detail=True, methods=["post"], parser_classes=[JSONParserSeguro])
     def extract(self, request, pk=None):
         """Extrai um .zip para a pasta indicada, criando arquivos.
 
@@ -554,3 +584,18 @@ class FavoritesView(APIView):
 
         itens.sort(key=lambda i: i["updated_at"], reverse=True)
         return Response({"count": len(itens), "results": itens})
+
+
+class TemplateViewSet(OwnedModelViewSet):
+    """Os modelos salvos pela pessoa (a galeria do app mora no frontend).
+
+    Usar um modelo não passa por aqui: o editor abre em modo de criação com
+    o conteúdo do modelo, e o item nasce pelo POST de documentos de sempre,
+    com a pasta e o nome que a pessoa escolher.
+    """
+
+    queryset = Template.objects.all()
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_serializer_class(self):
+        return TemplateListSerializer if self.action == "list" else TemplateSerializer

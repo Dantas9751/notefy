@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { limparMarkdown } from '../lib/utils.js'
+import { agruparPorData, grupoDaData, limparMarkdown } from '../lib/utils.js'
 
 // Negrito
 test('remove **negrito**', () => {
@@ -150,4 +150,42 @@ test('durante o streaming, a tag aberta esconde o rascunho', () => {
 
 test('texto sem think passa intacto', () => {
   assert.equal(limparMarkdown('Resposta direta.'), 'Resposta direta.')
+})
+
+// Grupos por data (Recentes). "Agora" fixo: terça, 20 de outubro de 2026.
+const AGORA = new Date(2026, 9, 20, 15, 0)
+
+test('grupos por data, do mais novo ao mais velho', () => {
+  const casos = [
+    [new Date(2026, 9, 20, 22, 0), 'Hoje'], // relógio adiantado também é hoje
+    [new Date(2026, 9, 20, 0, 5), 'Hoje'],
+    [new Date(2026, 9, 19, 23, 59), 'Ontem'],
+    [new Date(2026, 9, 18, 10, 0), 'Esta semana'], // domingo: a semana começa nele
+    [new Date(2026, 9, 17, 23, 0), 'Semana passada'],
+    [new Date(2026, 9, 11, 0, 0), 'Semana passada'],
+    [new Date(2026, 9, 5, 12, 0), 'Este mês'],
+    [new Date(2026, 8, 30, 12, 0), 'Setembro'],
+    [new Date(2025, 6, 2, 12, 0), 'Julho de 2025'],
+  ]
+  for (const [data, grupo] of casos) assert.equal(grupoDaData(data.toISOString(), AGORA), grupo, data.toString())
+})
+
+test('semana passada que começou no mês anterior fica inteira em "Semana passada"', () => {
+  const domingo = new Date(2026, 9, 4, 9, 0) // 4/10: a semana passada foi de 27/9 a 3/10
+  assert.equal(grupoDaData(new Date(2026, 8, 28), domingo), 'Semana passada')
+  assert.equal(grupoDaData(new Date(2026, 9, 1), domingo), 'Semana passada')
+  assert.equal(grupoDaData(new Date(2026, 8, 26), domingo), 'Setembro')
+})
+
+test('agrupa itens seguidos com o mesmo grupo', () => {
+  const itens = [
+    { id: 1, updated_at: new Date(2026, 9, 20, 9) },
+    { id: 2, updated_at: new Date(2026, 9, 20, 8) },
+    { id: 3, updated_at: new Date(2026, 9, 19, 8) },
+    { id: 4, updated_at: new Date(2026, 7, 1) },
+  ]
+  assert.deepEqual(
+    agruparPorData(itens, 'updated_at', AGORA).map((g) => [g.rotulo, g.itens.map((i) => i.id)]),
+    [['Hoje', [1, 2]], ['Ontem', [3]], ['Agosto', [4]]],
+  )
 })

@@ -11,20 +11,23 @@ apenas o `/admin`.
 ```
 notefy/
 ├── backend/          Django 5 + DRF + SQLite
-│   ├── core/         Modelos abstratos, paginação, permissões, viewset base
-│   ├── users/        Usuário (login por e-mail), JWT, preferências
+│   ├── core/         Modelos abstratos, paginação, permissões, viewset base, idioma da requisição
+│   ├── users/        Usuário (login por nome de usuário), JWT, preferências, backup
 │   ├── organization/ Categorias e pastas hierárquicas
 │   ├── content/      Document: nota, arquivo, planilha, diagrama, canvas
-│   ├── planner/      Tarefas e checklists
-│   └── search/       Busca global unificada
-└── frontend/         React 18 + Vite + Tailwind + React Router + Axios
+│   ├── planner/      Tarefas, quadros e checklists
+│   ├── search/       Busca global unificada
+│   └── ai/           Laviel, o assistente de estudos (provedor e chave do próprio usuário)
+├── frontend/         React 18 + Vite + Tailwind + React Router + Axios
+│   └── src-tauri/    Casca do aplicativo (Windows e Android), em Tauri 2
+└── docs/             Idiomas e Android; nota, modelos e Início
 ```
 
 ## Os cinco tipos de conteúdo
 
 | Tipo | Rota | O que é |
 | --- | --- | --- |
-| **Nota** | `/notes` | Seções de texto rico e de código com destaque de sintaxe; exporta em PDF. |
+| **Nota** | `/notes` | Página contínua, com barra de funções: texto rico, checklist, tabela e código com destaque de sintaxe, tudo inserido pelo teclado (`/`, `[] `, `# `). Exporta em PDF. |
 | **Planilha** | `/sheets` | 14 tipos de coluna, fórmulas com condicionais e texto, resumo por coluna, ordenação e filtros. |
 | **Diagrama** | `/diagrams` | Classes, casos de uso, sequência, atividade, estado, ER e fluxograma — 40+ formas e 20+ conectores. |
 | **Canvas** | `/canvas` | Quadro branco: caneta, marcador, marca-texto, borracha, post-its, formas livres e conectores. |
@@ -145,17 +148,39 @@ cd frontend && npm install && npm run dev
 App em `http://localhost:5173`. O Vite faz proxy de `/api` e `/media` para o
 Django, então em desenvolvimento não há CORS envolvido.
 
+### 3. Testes
+
+```bash
+cd backend && .venv/Scripts/python manage.py test
+cd frontend && npm test && npm run lint
+```
+
+Os testes do backend gravam os uploads numa pasta temporária, que some no fim
+(`core/testrunner.py`); o `backend/media` só guarda arquivos de verdade.
+
+### 4. Aplicativo, idiomas e Android
+
+- `build-desktop.ps1` gera o instalador do Windows (o Django vai junto,
+  empacotado, e o Tauri o liga e desliga com a janela).
+- O app fala português (Brasil) e inglês (EUA); a escolha fica em
+  Configurações. Como funciona, e como adicionar um idioma:
+  [`docs/idiomas-e-android.md`](docs/idiomas-e-android.md).
+- O mesmo documento diz o que já está pronto para o Android e o que falta.
+- A nota como página, os atalhos de teclado, os modelos e o Início
+  personalizável: [`docs/nota-modelos-inicio.md`](docs/nota-modelos-inicio.md).
+
 ---
 
 ## Modelagem
 
 | Modelo | Módulo | Papel |
 | --- | --- | --- |
-| `User` | users | Login por e-mail, sem username. PK em UUID. |
-| `UserPreferences` | users | Tema, tela inicial, estado da sidebar. |
+| `User` | users | Login por nome de usuário, sem e-mail. PK em UUID. |
+| `UserPreferences` | users | Tema, estado da sidebar, layout do Início e o bloco de rascunho. |
 | `Category` | organization | Tag global do usuário, com cor e ícone. |
 | `Folder` | organization | Pasta auto-relacionável, com `path` materializado. |
 | `Document` | content | Nota, arquivo, planilha, diagrama ou canvas — `kind` decide. |
+| `Template` | content | Modelo salvo pela pessoa: o conteúdo de partida de um item novo. |
 | `Task` | planner | Tarefa com janela temporal, prioridade e status. |
 | `ChecklistItem` | planner | Subitem de tarefa. |
 
@@ -297,7 +322,8 @@ renderiza um resultado sem saber de qual tabela ele veio.
 - **Estados de carregamento** em toda tela (skeletons que preservam o layout),
   modais para criação rápida e navegação sem reload.
 - **Tema claro/escuro** com opção de seguir o sistema.
-- `Ctrl/Cmd+K` abre a busca global; `Ctrl/Cmd+S` salva a nota aberta.
+- `Ctrl/Cmd+K` abre a busca global; `Ctrl/Cmd+S` salva a nota aberta;
+  `Ctrl/Cmd+/` lista todos os atalhos.
 
 ### Design
 

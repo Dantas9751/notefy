@@ -3,6 +3,7 @@ import { Check } from 'lucide-react'
 import { Button, Field, Input, Select } from '@/components/ui'
 import { Bloco } from './componentes'
 import { usePreferencias } from './index'
+import { t } from '@/lib/i18n'
 
 export default function AbaLaviel() {
   const { prefs, savePrefs } = usePreferencias()
@@ -52,21 +53,21 @@ export default function AbaLaviel() {
 
   return (
     <Bloco
-      title="Laviel"
-      description="O assistente de estudos do Notefy: o chat (Ctrl+J), as ações de IA dos editores e a busca por pergunta. Escolha um provedor para ligá-lo. A chave fica guardada só neste computador."
+      title={t('Laviel')}
+      description={t('O assistente de estudos do Notefy: o chat (Ctrl+J), as ações de IA dos editores e a busca por pergunta. Escolha um provedor para ligá-lo. A chave fica guardada só neste computador.')}
     >
       {iniciado && (
         <>
-          <Field label="Provedor">
+          <Field label={t('Provedor')}>
             <Select
               value={ai.provider}
               onChange={(e) => setAi((a) => ({ ...a, provider: e.target.value }))}
             >
-              <option value="">Desativado</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="ollama">Ollama (local)</option>
-              <option value="custom">Personalizado (compatível com OpenAI)</option>
+              <option value="">{t('Desativado')}</option>
+              <option value="openai">{t('OpenAI')}</option>
+              <option value="anthropic">{t('Anthropic')}</option>
+              <option value="ollama">{t('Ollama (local)')}</option>
+              <option value="custom">{t('Personalizado (compatível com OpenAI)')}</option>
             </Select>
           </Field>
 
@@ -74,11 +75,11 @@ export default function AbaLaviel() {
             <>
               {(ai.provider === 'custom' || ai.provider === 'ollama') && (
                 <Field
-                  label="URL base"
+                  label={t('URL base')}
                   hint={
                     ai.provider === 'ollama'
-                      ? 'Opcional. Vazio usa http://localhost:11434/v1.'
-                      : 'Endereço do serviço, com ou sem /v1. Ex.: https://api.9router.com/v1'
+                      ? t('Opcional. Vazio usa http://localhost:11434/v1.')
+                      : t('Endereço do serviço, com ou sem /v1. Ex.: https://api.9router.com/v1')
                   }
                 >
                   <Input
@@ -94,11 +95,11 @@ export default function AbaLaviel() {
               )}
 
               <Field
-                label="Chave de API"
+                label={t('Chave de API')}
                 hint={
                   ai.provider === 'ollama'
-                    ? 'O Ollama roda na sua máquina e normalmente não pede chave.'
-                    : 'Enviada apenas para o servidor local do Notefy.'
+                    ? t('O Ollama roda na sua máquina e normalmente não pede chave.')
+                    : t('Enviada apenas para o servidor local do Notefy.')
                 }
               >
                 <Input
@@ -107,17 +108,17 @@ export default function AbaLaviel() {
                   value={ai.key}
                   onChange={(e) => setAi((a) => ({ ...a, key: e.target.value }))}
                   placeholder={
-                    prefs.data?.ai_key_set ? '••••••••••••••••••••' : 'Cole sua chave'
+                    prefs.data?.ai_key_set ? '••••••••••••••••••••' : t('Cole sua chave')
                   }
                 />
               </Field>
 
               <Field
-                label="Modelo"
+                label={t('Modelo')}
                 hint={
                   ai.provider === 'custom'
-                    ? 'Obrigatório: use o nome exato que o seu serviço espera.'
-                    : 'Opcional. Vazio usa o padrão do provedor.'
+                    ? t('Obrigatório: use o nome exato que o seu serviço espera.')
+                    : t('Opcional. Vazio usa o padrão do provedor.')
                 }
               >
                 <Input
@@ -133,11 +134,11 @@ export default function AbaLaviel() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button icon={Check} onClick={salvar} loading={savePrefs.loading}>
-                  Salvar configuração
+                  {t('Salvar configuração')}
                 </Button>
                 {prefs.data?.ai_key_set && (
                   <Button variant="secondary" onClick={removerChave}>
-                    Remover chave
+                    {t('Remover chave')}
                   </Button>
                 )}
               </div>

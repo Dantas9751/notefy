@@ -1,9 +1,10 @@
 import zipfile
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils import timezone
-from rest_framework import generics, status
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework import generics, serializers, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,6 +16,8 @@ from rest_framework_simplejwt.token_blacklist.models import (
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from core.excecoes import JSONParserSeguro
+from core.idioma import texto
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 
@@ -96,7 +99,7 @@ class MeView(generics.RetrieveUpdateDestroyAPIView):
     # Multipart além de JSON: a foto de perfil sobe pelo mesmo PATCH que
     # troca o nome de usuário, e não por uma rota separada — é um formulário
     # só na tela, e deve ser uma requisição só aqui.
-    parser_classes = (JSONParser, MultiPartParser, FormParser)
+    parser_classes = (JSONParserSeguro, MultiPartParser, FormParser)
 
     def get_object(self):
         user = self.request.user
@@ -121,8 +124,7 @@ class MeView(generics.RetrieveUpdateDestroyAPIView):
         user = request.user
         # Revoga as sessões antes de apagar: sem isso, um refresh token
         # ainda válido continuaria circulando por aí.
-        for token in OutstandingToken.objects.filter(user=user):
-            BlacklistedToken.objects.get_or_create(token=token)
+        revogar_sessoes(user)
 
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -135,6 +137,45 @@ class PreferencesView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         prefs, _ = UserPreferences.objects.get_or_create(user=self.request.user)
         return prefs
+
+
+class CapaDoInicioView(APIView):
+    """A foto da capa do Início, enviada do computador ou arrastada para ela.
+
+    Fica nas preferências, e não como arquivo numa pasta: capa não é conteúdo,
+    e um arquivo solto apareceria na pasta, na busca e nos recentes. Uma por
+    conta — enviar outra apaga a anterior do disco.
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        campo = serializers.ImageField()
+        try:
+            imagem = campo.run_validation(request.data.get("imagem"))
+        except serializers.ValidationError as erro:
+            return Response({"imagem": erro.detail}, status=status.HTTP_400_BAD_REQUEST)
+        if imagem.size > settings.MAX_UPLOAD_SIZE:
+            limite = settings.MAX_UPLOAD_SIZE // (1024 * 1024)
+            return Response(
+                {"imagem": [texto(f"A imagem passa do limite de {limite} MB.", f"The image is over the {limite} MB limit.")]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        prefs, _ = UserPreferences.objects.get_or_create(user=request.user)
+        if prefs.home_cover:
+            prefs.home_cover.delete(save=False)
+        prefs.home_cover = imagem
+        prefs.save(update_fields=["home_cover"])
+        return Response({"url": request.build_absolute_uri(prefs.home_cover.url)}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        prefs = UserPreferences.objects.filter(user=request.user).first()
+        if prefs and prefs.home_cover:
+            prefs.home_cover.delete(save=False)
+            prefs.home_cover = None
+            prefs.save(update_fields=["home_cover"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class BackupExportView(APIView):
@@ -180,6 +221,17 @@ class BackupImportView(APIView):
 
 
 @extend_schema(request=ChangePasswordSerializer, responses={204: None})
+def revogar_sessoes(user):
+    """Invalida todo refresh token já emitido para `user`.
+
+    O access token continua valendo até expirar (é assinado, não
+    consultado), mas dura minutos. É o refresh, que dura dias, que precisa
+    morrer: é ele que mantém dentro quem levou a sessão.
+    """
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)
+
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = ChangePasswordSerializer
@@ -192,4 +244,11 @@ class ChangePasswordView(APIView):
         serializer.is_valid(raise_exception=True)
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save(update_fields=["password"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # Trocar a senha é o gesto de quem desconfia que alguém entrou. Sem
+        # revogar, a sessão roubada seguia renovando o próprio token como
+        # se nada tivesse acontecido. Quem trocou recebe um par novo e
+        # continua logado; todo o resto cai.
+        revogar_sessoes(request.user)
+        novo = RefreshToken.for_user(request.user)
+        return Response({"access": str(novo.access_token), "refresh": str(novo)})

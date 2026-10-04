@@ -4,6 +4,7 @@ import api from '@/lib/api'
 import { Button, Field, Input, Modal, Select } from '@/components/ui'
 import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
 import { useFetch } from '@/hooks/useFetch'
+import { t } from '@/lib/i18n'
 
 /** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
 export function toLocalInput(iso) {
@@ -74,7 +75,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
       onSaved?.(data)
       onClose()
     } catch (err) {
-      setError(err?.response?.data?.starts_at ?? 'Não foi possível salvar a data.')
+      setError(err?.response?.data?.starts_at ?? t('Não foi possível salvar a data.'))
     } finally {
       setLoading(false)
     }
@@ -84,7 +85,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
     <Modal
       open={open}
       onClose={onClose}
-      title="Agendar tarefa"
+      title={t('Agendar tarefa')}
       description={task?.title}
       size="sm"
       footer={
@@ -96,11 +97,11 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
               onClick={() => submit(true)}
               className="mr-auto"
             >
-              Tirar da agenda
+              {t('Tirar da agenda')}
             </Button>
           )}
           <Button variant="secondary" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button
             icon={CalendarClock}
@@ -108,7 +109,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
             disabled={!form.starts_at}
             onClick={() => submit(false)}
           >
-            Agendar
+            {t('Agendar')}
           </Button>
         </>
       }
@@ -120,7 +121,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
           </p>
         )}
 
-        <Field label="Início">
+        <Field label={t('Início')}>
           <Input
             type="datetime-local"
             value={form.starts_at}
@@ -132,7 +133,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
           />
         </Field>
 
-        <Field label="Quadro" hint="Em qual Kanban esta tarefa aparece.">
+        <Field label={t('Quadro')} hint={t('Em qual Kanban esta tarefa aparece.')}>
           <Select
             value={boardAtual}
             onChange={(e) => setForm((f) => ({ ...f, board: e.target.value }))}
@@ -140,13 +141,13 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
             {boardList.map((board) => (
               <option key={board.id} value={board.id}>
                 {board.name}
-                {board.is_default ? ' (padrão)' : ''}
+                {board.is_default ? t(' (padrão)') : ''}
               </option>
             ))}
           </Select>
         </Field>
 
-        <Field label="Fim" hint="Opcional. Deixe vazio para um compromisso pontual.">
+        <Field label={t('Fim')} hint={t('Opcional. Deixe vazio para um compromisso pontual.')}>
           <Input
             type="datetime-local"
             value={form.ends_at}
@@ -164,7 +165,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
             onChange={(e) => setForm((f) => ({ ...f, all_day: e.target.checked }))}
             className="rounded border-ink-300 text-accent-600 focus:ring-accent-500"
           />
-          Dia inteiro
+          {t('Dia inteiro')}
         </label>
       </div>
     </Modal>

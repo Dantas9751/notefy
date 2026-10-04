@@ -5,6 +5,7 @@ import { Button, ColorDot, EmptyState, Modal } from '@/components/ui'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import { kindMeta } from '@/lib/documents'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Escolha da pasta de destino.
@@ -16,8 +17,8 @@ import { cn } from '@/lib/utils'
 export default function DestinationModal({
   open,
   kind,
-  title = 'Escolher pasta',
-  confirmLabel = 'Continuar',
+  title = t('Escolher pasta'),
+  confirmLabel = t('Continuar'),
   currentFolderId,
   // Mover para a pasta onde o item já está é um no-op, então ela aparece
   // desabilitada. Extrair um .zip na pasta atual, ao contrário, é o caso
@@ -79,15 +80,15 @@ export default function DestinationModal({
       title={title}
       description={
         meta
-          ? `Onde criar ${meta.label.toLowerCase()}?`
+          ? t('Onde criar {valor}?', { valor: meta.label.toLowerCase() })
           : kind === 'file'
-            ? 'Para qual pasta enviar os arquivos?'
+            ? t('Para qual pasta enviar os arquivos?')
             : undefined
       }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button disabled={!selected} onClick={() => onPick(selected)}>
             {confirmLabel}
@@ -104,7 +105,7 @@ export default function DestinationModal({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filtrar pastas..."
+            placeholder={t('Filtrar pastas...')}
             autoFocus
             className="input pl-9"
           />
@@ -112,7 +113,7 @@ export default function DestinationModal({
         <Button 
           variant="secondary" 
           onClick={() => setShowFolderModal(true)} 
-          title="Nova pasta" 
+          title={t('Nova pasta')} 
           className="px-2"
         >
           <FolderPlus size={18} />
@@ -122,8 +123,8 @@ export default function DestinationModal({
 {options.length === 0 ? (
         <EmptyState
           icon={FolderIcon}
-          title="Nenhuma pasta ainda"
-          description="Crie uma categoria e uma pasta antes de adicionar conteúdo."
+          title={t('Nenhuma pasta ainda')}
+          description={t('Crie uma categoria e uma pasta antes de adicionar conteúdo.')}
         />
       ) : (
         /* O SEGREDO ESTÁ AQUI: p-1 e pr-3 (padding-right) para afastar da parede do scroll */
@@ -165,7 +166,7 @@ export default function DestinationModal({
                     )}
                   </span>
                   {isCurrent && (
-                    <span className="shrink-0 text-[10px] text-ink-400">atual</span>
+                    <span className="shrink-0 text-[10px] text-ink-400">{t('atual')}</span>
                   )}
                 </button>
               </li>
@@ -174,7 +175,7 @@ export default function DestinationModal({
 
           {filtered.length === 0 && (
             <li className="px-2 py-6 text-center text-sm text-ink-400">
-              Nenhuma pasta corresponde a “{query}”.
+              {t('Nenhuma pasta corresponde a “')}{query}”.
             </li>
           )}
         </ul>

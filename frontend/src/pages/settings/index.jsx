@@ -6,6 +6,7 @@ import { useFetch, useMutation } from '@/hooks/useFetch'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { ICONE } from '@/lib/ui'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * As abas, na ordem em que aparecem.
@@ -17,12 +18,12 @@ import { cn } from '@/lib/utils'
  * nada que fazer no caminho de quem só queria trocar o tema.
  */
 export const ABAS = [
-  { rota: 'aparencia', label: 'Aparência', icon: Palette },
-  { rota: 'conta', label: 'Conta', icon: UserRound },
-  { rota: 'notificacoes', label: 'Notificações', icon: Bell },
-  { rota: 'laviel', label: 'Laviel', icon: Sparkles },
-  { rota: 'dados', label: 'Dados', icon: Database },
-  { rota: 'seguranca', label: 'Segurança', icon: ShieldCheck },
+  { rota: 'aparencia', get label() { return t('Aparência') }, icon: Palette },
+  { rota: 'conta', get label() { return t('Conta') }, icon: UserRound },
+  { rota: 'notificacoes', get label() { return t('Notificações') }, icon: Bell },
+  { rota: 'laviel', get label() { return t('Laviel') }, icon: Sparkles },
+  { rota: 'dados', get label() { return t('Dados') }, icon: Database },
+  { rota: 'seguranca', get label() { return t('Segurança') }, icon: ShieldCheck },
 ]
 
 /**
@@ -53,7 +54,7 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Configurações" subtitle="Como o Notefy se comporta neste computador." />
+      <PageHeader title={t('Configurações')} subtitle={t('Como o Notefy se comporta neste computador.')} />
 
       <PageBody className="max-w-4xl">
         {/* Coluna no desktop, duas fileiras no celular. Seis abas não
@@ -65,7 +66,7 @@ export default function Settings() {
             seis de uma vez, que é o ponto de ter abas. */}
         <div className="flex flex-col gap-6 md:flex-row md:gap-8">
           <nav
-            aria-label="Seções das configurações"
+            aria-label={t('Seções das configurações')}
             className="flex shrink-0 flex-wrap gap-1 md:w-44 md:flex-col md:flex-nowrap"
           >
             {ABAS.map(({ rota, label, icon: Icon }) => (

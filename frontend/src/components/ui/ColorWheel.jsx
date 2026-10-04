@@ -1,5 +1,6 @@
 import { Pipette } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Círculo cromático para escolher uma cor livre.
@@ -23,7 +24,7 @@ export default function ColorWheel({
   onChange,
   selected = false,
   className = 'h-7 w-7',
-  title = 'Escolher outra cor',
+  title = t('Escolher outra cor'),
 }) {
   return (
     <label
@@ -39,7 +40,7 @@ export default function ColorWheel({
         type="color"
         // Sem valor ainda: o seletor do sistema precisa de um ponto de
         // partida válido, senão abre em preto.
-        value={value || '#4F46E5'}
+        value={value || '#70864C'}
         onChange={(event) => onChange(event.target.value)}
         aria-label={title}
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0"

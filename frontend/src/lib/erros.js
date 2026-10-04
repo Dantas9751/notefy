@@ -12,6 +12,8 @@
  * importam de lá não mudaram.
  */
 
+import { t, traduzirMensagem } from './i18n.js'
+
 /**
  * Mensagens por situação, quando o corpo da resposta não traz uma.
  *
@@ -19,17 +21,18 @@
  * code 500", em inglês e sem dizer nada a quem está usando o app.
  */
 const POR_STATUS = {
-  400: 'Os dados enviados não foram aceitos.',
-  401: 'Sua sessão expirou. Entre novamente.',
-  403: 'Você não tem permissão para isso.',
-  404: 'Não encontrado. O item pode ter sido excluído.',
-  409: 'Isso entra em conflito com algo que já existe.',
-  413: 'O arquivo é grande demais.',
-  429: 'Muitas tentativas seguidas. Espere um instante.',
+  get 400() { return t('Os dados enviados não foram aceitos.') },
+  get 401() { return t('Sua sessão expirou. Entre novamente.') },
+  get 403() { return t('Você não tem permissão para isso.') },
+  get 404() { return t('Não encontrado. O item pode ter sido excluído.') },
+  get 409() { return t('Isso entra em conflito com algo que já existe.') },
+  get 413() { return t('O arquivo é grande demais.') },
+  get 429() { return t('Muitas tentativas seguidas. Espere um instante.') },
 }
 
-const SEM_RESPOSTA = 'Não foi possível falar com o servidor. Ele está rodando?'
-const ERRO_DO_SERVIDOR = 'O servidor encontrou um erro. Tente de novo em instantes.'
+// Funções, e não constantes: o idioma pode mudar com o app aberto.
+const semResposta = () => t('Não foi possível falar com o servidor. Ele está rodando?')
+const erroDoServidor = () => t('O servidor encontrou um erro. Tente de novo em instantes.')
 
 /** O corpo é uma página HTML (erro do Django, proxy, portal de wi-fi)? */
 function ehPaginaHtml(texto) {
@@ -49,14 +52,23 @@ function ehPaginaHtml(texto) {
  * fallback. A mensagem do axios nunca chega ao usuário: ela é em inglês
  * e fala de código HTTP, não do que ele tentou fazer.
  */
-export function extractError(error, fallback = 'Algo deu errado. Tente novamente.') {
+export function extractError(error, fallback = t('Algo deu errado. Tente novamente.')) {
+  return traduzirMensagem(mensagemDoErro(error, fallback))
+}
+
+/**
+ * As mensagens do servidor chegam em português (é o idioma do backend) e
+ * passam pelo dicionário na saída de `extractError`, que é por onde todas
+ * as telas as leem.
+ */
+function mensagemDoErro(error, fallback) {
   const status = error?.response?.status
   const data = error?.response?.data
 
   // Sem resposta nenhuma: servidor fora do ar, CORS ou tempo esgotado.
-  if (!error?.response) return SEM_RESPOSTA
+  if (!error?.response) return semResposta()
 
-  const porStatus = POR_STATUS[status] ?? (status >= 500 ? ERRO_DO_SERVIDOR : null)
+  const porStatus = POR_STATUS[status] ?? (status >= 500 ? erroDoServidor() : null)
 
   if (typeof data === 'string') {
     const texto = data.trim()

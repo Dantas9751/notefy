@@ -1,6 +1,8 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from core.validators import normalizar_nome
+
 from .models import Category, Folder
 
 #: Formato de um item de breadcrumb, reaproveitado por pastas e notas.
@@ -26,9 +28,12 @@ class CategorySerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "updated_at")
 
-def validate_name(self, value):
-        value = value.strip()
-        # ADICIONADO o .alive() aqui para ignorar categorias na lixeira!
+    # Este método já existiu na coluna zero, FORA da classe: o nome
+    # repetido nunca era checado aqui, quem barrava era a restrição do
+    # banco, e "FACULDADE" com "Faculdade" já existente virava erro 500.
+    def validate_name(self, value):
+        value = normalizar_nome(value)
+        # `.alive()`: categoria na lixeira não reserva o nome.
         qs = Category.objects.alive().filter(
             owner=self.context["request"].user, name__iexact=value
         )
@@ -120,7 +125,7 @@ class FolderSerializer(serializers.ModelSerializer):
         return crumbs
 
     def validate_name(self, value):
-        return value.strip()
+        return normalizar_nome(value)
 
     def validate(self, attrs):
         parent = attrs.get("parent", getattr(self.instance, "parent", None))

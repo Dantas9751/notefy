@@ -19,6 +19,7 @@ import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { kindMeta } from '@/lib/documents'
 import { cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const ICONES = {
   category: Tag,
@@ -29,11 +30,11 @@ const ICONES = {
 }
 
 const ROTULOS = {
-  category: 'Categoria',
-  folder: 'Pasta',
-  document: 'Item',
-  task: 'Tarefa',
-  board: 'Quadro',
+  get category() { return t('Categoria') },
+  get folder() { return t('Pasta') },
+  get document() { return t('Item') },
+  get task() { return t('Tarefa') },
+  get board() { return t('Quadro') },
 }
 
 /**
@@ -113,11 +114,11 @@ export default function Trash() {
   return (
     <>
       <PageHeader
-        title="Lixeira"
+        title={t('Lixeira')}
         // Só a contagem. O prazo de retenção já está no aviso âmbar logo
         // abaixo, e a frase do estado vazio é palavra por palavra a mesma
         // do `EmptyState` — subtítulo carrega dado, não instrução.
-        subtitle={itens.length ? `${itens.length} item(ns)` : undefined}
+        subtitle={itens.length ? t('{length} item(ns)', { length: itens.length }) : undefined}
         actions={
           itens.length > 0 && (
             <Button
@@ -126,7 +127,7 @@ export default function Trash() {
               icon={Trash2}
               onClick={() => setConfirmarEsvaziar(true)}
             >
-              Esvaziar lixeira
+              {t('Esvaziar lixeira')}
             </Button>
           )
         }
@@ -142,8 +143,8 @@ export default function Trash() {
         {itens.length > 0 && (
           <p className="mb-4 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
             <Clock size={13} className="mt-0.5 shrink-0" />
-            Itens na lixeira são excluídos permanentemente após{' '}
-            {data?.retention_days ?? 30} dias.
+            {t('Itens na lixeira são excluídos permanentemente após')}{' '}
+            {data?.retention_days ?? 30} {t('dias.')}
           </p>
         )}
 
@@ -154,8 +155,8 @@ export default function Trash() {
         ) : itens.length === 0 ? (
           <EmptyState
             icon={Trash2}
-            title="Lixeira vazia"
-            description="Itens excluídos ficam aqui e podem ser restaurados a qualquer momento."
+            title={t('Lixeira vazia')}
+            description={t('Itens excluídos ficam aqui e podem ser restaurados a qualquer momento.')}
           />
         ) : (
           <ul className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-200 dark:divide-ink-800 dark:border-ink-800">
@@ -200,7 +201,7 @@ export default function Trash() {
                         {item.name}
                       </p>
                       <p className="text-[11px] text-ink-400">
-                        {ROTULOS[item.type] ?? item.type} · excluído{' '}
+                        {ROTULOS[item.type] ?? item.type} {t('· excluído')}{' '}
                         {formatRelative(item.deleted_at)}
                       </p>
                     </div>
@@ -210,7 +211,7 @@ export default function Trash() {
                         event.stopPropagation()
                         restaurar(item)
                       }}
-                      title="Restaurar"
+                      title={t('Restaurar')}
                       className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-accent-600 dark:hover:bg-ink-800"
                     >
                       <RotateCcw size={15} />
@@ -221,7 +222,7 @@ export default function Trash() {
                         event.stopPropagation()
                         setConfirmarItem(item)
                       }}
-                      title="Excluir definitivamente"
+                      title={t('Excluir definitivamente')}
                       className="rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
                     >
                       <Trash2 size={15} />
@@ -239,7 +240,7 @@ export default function Trash() {
           quer o conteúdo todo de volta, não item por item. */}
       {selected.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800">
-          <span className="text-xs font-medium">{selected.length} selecionado(s)</span>
+          <span className="text-xs font-medium">{selected.length} {t('selecionado(s)')}</span>
 
           <div className="h-4 w-px bg-ink-700" />
 
@@ -248,7 +249,7 @@ export default function Trash() {
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-ink-200 transition hover:bg-white/10"
           >
             <RotateCcw size={14} />
-            Restaurar
+            {t('Restaurar')}
           </button>
 
           <button
@@ -256,13 +257,13 @@ export default function Trash() {
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
             <Trash2 size={14} />
-            Excluir
+            {t('Excluir')}
           </button>
 
           <button
             onClick={clear}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -271,9 +272,9 @@ export default function Trash() {
 
       <ConfirmDialog
         open={confirmarEsvaziar}
-        title="Esvaziar lixeira"
-        message="Todos os itens da lixeira serão apagados definitivamente, com os arquivos que estiverem neles. Isso não pode ser desfeito."
-        confirmLabel="Esvaziar"
+        title={t('Esvaziar lixeira')}
+        message={t('Todos os itens da lixeira serão apagados definitivamente, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
+        confirmLabel={t('Esvaziar')}
         onClose={() => setConfirmarEsvaziar(false)}
         onConfirm={async () => {
           await api.delete('/trash/')
@@ -283,11 +284,10 @@ export default function Trash() {
 
       <ConfirmDialog
         open={confirmarLote}
-        title="Excluir definitivamente"
+        title={t('Excluir definitivamente')}
         message={
           <>
-            <strong>{selected.length} item(ns)</strong> serão apagados para sempre,
-            com os arquivos que estiverem neles. Isso não pode ser desfeito.
+            <strong>{selected.length} {t('item(ns)')}</strong> {t('serão apagados para sempre, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
           </>
         }
         onClose={() => setConfirmarLote(false)}
@@ -299,11 +299,10 @@ export default function Trash() {
 
       <ConfirmDialog
         open={!!confirmarItem}
-        title="Excluir definitivamente"
+        title={t('Excluir definitivamente')}
         message={
           <>
-            <strong>{confirmarItem?.name}</strong> será apagado para sempre. Isso não
-            pode ser desfeito.
+            <strong>{confirmarItem?.name}</strong> {t('será apagado para sempre. Isso não pode ser desfeito.')}
           </>
         }
         onClose={() => setConfirmarItem(null)}

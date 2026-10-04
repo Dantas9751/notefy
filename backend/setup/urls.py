@@ -7,11 +7,11 @@ o frontend é servido separadamente pelo Vite.
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path, re_path
-from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
-from content.views import DocumentViewSet, FavoritesView
+from content.views import DocumentViewSet, FavoritesView, TemplateViewSet
+from core.servir_midia import servir_midia
 from core.trash import TrashItemView, TrashView
 from organization.views import CategoryViewSet, FolderViewSet
 from planner.views import BoardViewSet, ChecklistItemViewSet, TaskViewSet
@@ -24,6 +24,7 @@ router.register("folders", FolderViewSet, basename="folder")
 # Uma rota só para nota, arquivo, planilha, diagrama e canvas — o `kind`
 # distingue, e filtros como ?kind=spreadsheet dão as visões por tipo.
 router.register("documents", DocumentViewSet, basename="document")
+router.register("templates", TemplateViewSet, basename="template")
 router.register("boards", BoardViewSet, basename="board")
 router.register("tasks", TaskViewSet, basename="task")
 router.register("checklist-items", ChecklistItemViewSet, basename="checklist-item")
@@ -59,7 +60,8 @@ if settings.DEBUG or settings.DESKTOP_MODE:
     urlpatterns += [
         re_path(
             r"^%s(?P<path>.*)$" % settings.MEDIA_URL.lstrip("/"),
-            serve,
-            {"document_root": settings.MEDIA_ROOT},
+            # Não o `serve` cru: ele entregava HTML e SVG enviados como
+            # página ativa (ver core/servir_midia.py).
+            servir_midia,
         )
     ]

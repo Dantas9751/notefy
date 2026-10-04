@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, FileWarning, Moon, Sun } from 'lucide-react'
 import { buscarArquivo } from '@/lib/fileMedia'
 import { salvarArquivo } from '@/lib/desktop'
-import { Spinner } from '@/components/ui'
+import { Button, Spinner } from '@/components/ui'
 import TextFilePreview, { ehArquivoDeTexto } from '@/components/TextFilePreview'
+import { limparHtml, limparNoLugar } from '@/lib/sanitizar'
 import { cn, formatBytes } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Previews de arquivo, todos buscados pela sessão do app.
@@ -97,15 +99,11 @@ function FalhaAoCarregar({ doc }) {
     <div className="flex flex-col items-center gap-3 text-center">
       <FileWarning size={22} className="text-ink-400" />
       <p className="text-sm text-ink-500 dark:text-ink-400">
-        Não foi possível carregar o arquivo para pré-visualizar.
+        {t('Não foi possível carregar o arquivo para pré-visualizar.')}
       </p>
-      <button
-        onClick={() => baixarArquivoNoClique(doc)}
-        className="inline-flex items-center gap-2 rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-700"
-      >
-        <Download size={15} />
-        Baixar {doc.original_name}
-      </button>
+      <Button icon={Download} onClick={() => baixarArquivoNoClique(doc)}>
+        {t('Baixar')} {doc.original_name}
+      </Button>
     </div>
   )
 }
@@ -189,6 +187,7 @@ function OfficePreview({ doc }) {
             ignoreLastRenderedPageBreak: false,
             experimental: true,
           })
+          limparNoLugar(el)
         } else if (EXTENSOES_DE_PLANILHA.includes(extensao)) {
           const XLSX = await import('xlsx')
           const livro = XLSX.read(data, { type: 'array' })
@@ -198,7 +197,11 @@ function OfficePreview({ doc }) {
             livro.Sheets[livro.SheetNames[0]],
             { header: '', footer: '' },
           )
-          el.innerHTML = primeira
+          // O SheetJS já converte célula em texto (um HTML disfarçado de
+          // .xls não passou script nem `javascript:` no teste), mas a
+          // saída vai para `innerHTML`: a limpeza é a garantia de que uma
+          // versão futura da biblioteca não mude isso em silêncio.
+          el.innerHTML = limparHtml(primeira)
         } else {
           const { init } = await import('pptx-preview')
           const caixa = el.getBoundingClientRect()
@@ -206,7 +209,10 @@ function OfficePreview({ doc }) {
             width: Math.max(320, Math.round(caixa.width)),
             height: Math.max(240, Math.round(caixa.height)),
           })
-          visualizador.preview(data)
+          // `preview` devolve uma Promise, e sem esperar o spinner sumia
+          // antes do slide aparecer, e a limpeza abaixo rodaria no vazio.
+          await visualizador.preview(data)
+          limparNoLugar(el)
         }
         if (ativo) setEstado('pronto')
       })
@@ -225,8 +231,7 @@ function OfficePreview({ doc }) {
   if (estado === 'grande') {
     return (
       <p className="text-sm text-ink-500 dark:text-ink-400">
-        Arquivo de {formatBytes(doc.size)}, grande demais para pré-visualizar. Baixe para
-        abrir no seu editor.
+        {t('Arquivo de')} {formatBytes(doc.size)}{t(', grande demais para pré-visualizar. Baixe para abrir no seu editor.')}
       </p>
     )
   }
@@ -238,10 +243,10 @@ function OfficePreview({ doc }) {
         onClick={() => setFundoClaro((v) => !v)}
         title={
           fundoClaro
-            ? 'Papel claro (como no Word). Clique para seguir o tema do app.'
-            : 'Seguindo o tema do app. Clique para ver em papel claro.'
+            ? t('Papel claro (como no Word). Clique para seguir o tema do app.')
+            : t('Seguindo o tema do app. Clique para ver em papel claro.')
         }
-        aria-label="Fundo do documento"
+        aria-label={t('Fundo do documento')}
         className="absolute right-3 top-3 z-10 rounded-md border border-ink-200 bg-white/95 p-1.5 text-ink-500 shadow-subtle backdrop-blur transition hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-900/95 dark:hover:bg-ink-800"
       >
         {fundoClaro ? <Sun size={14} /> : <Moon size={14} />}
@@ -258,7 +263,7 @@ function OfficePreview({ doc }) {
         // dentro do arquivo — o que o usuário quer é ver o documento
         // como ele é.
         className={cn(
-          'h-full w-full min-h-0 flex-1 overflow-auto rounded-lg border border-ink-200 dark:border-ink-800',
+          'h-full w-full min-h-0 flex-1 select-text overflow-auto rounded-lg border border-ink-200 dark:border-ink-800',
           fundoClaro ? 'bg-white text-ink-900' : 'bg-white dark:bg-ink-900',
         )}
       />

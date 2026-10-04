@@ -441,6 +441,24 @@ class DocumentKindTests(APITestCase):
         self.assertEqual(doc.mime_type, "application/pdf")
         self.assertTrue(doc.checksum)
 
+    def test_categoria_nao_depende_do_registro_do_windows(self):
+        # No Windows `.webp` não existia no `mimetypes` e virava "Outro".
+        esperado = {
+            "foto.webp": Document.FileKind.IMAGE,
+            "trabalho.docx": Document.FileKind.DOCUMENT,
+            "seminario.pptx": Document.FileKind.DOCUMENT,
+            "resumo.md": Document.FileKind.DOCUMENT,
+            "fontes.zip": Document.FileKind.ARCHIVE,
+        }
+        response = self.client.post(
+            "/api/documents/upload/",
+            {"files": [make_upload(nome) for nome in esperado], "folder": str(self.folder.pk)},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        obtido = {d.original_name: d.file_kind for d in Document.objects.filter(kind="file", folder=self.folder)}
+        self.assertEqual(obtido, esperado)
+
     def _upload_one(self, name="anexo.pdf"):
         response = self.client.post(
             "/api/documents/upload/",

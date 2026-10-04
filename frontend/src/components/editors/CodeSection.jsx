@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Check, ChevronsDownUp, ChevronsUpDown, Copy, Trash2 } from 'lucide-react'
 import {
   CODE_LANGUAGES,
@@ -8,6 +8,7 @@ import {
 } from '@/lib/highlight'
 import { copiarTexto } from '@/lib/desktop'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Bloco de código de uma nota.
@@ -22,7 +23,20 @@ import { cn } from '@/lib/utils'
  */
 const SHARED = 'font-mono text-[13px] leading-[1.6] p-3 whitespace-pre-wrap break-words'
 
-export default function CodeSection({ section, onChange, onDelete, readOnly = false }) {
+const CodeSection = forwardRef(function CodeSection(
+  {
+    section,
+    onChange,
+    onDelete,
+    readOnly = false,
+    onSair,
+    onApagarBloco,
+    //: Recém-inserido: o bloco chega depois do resto (é carregado sob
+    //: demanda) e se foca sozinho ao montar.
+    autoFocus = false,
+  },
+  ref,
+) {
   const textareaRef = useRef(null)
   const preRef = useRef(null)
   const [copied, setCopied] = useState(false)
@@ -50,12 +64,51 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
     el.style.height = `${el.scrollHeight}px`
   }, [code, collapsed])
 
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useImperativeHandle(ref, () => ({
+    focar: (onde = 'fim') => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      const p = onde === 'inicio' ? 0 : el.value.length
+      el.setSelectionRange(p, p)
+    },
+  }))
+
   const handleKeyDown = (event) => {
+    const el = event.target
+    const { selectionStart: inicio, selectionEnd: fim } = el
+    // Saídas do bloco, para a página continuar sem o mouse: Ctrl+Enter ou
+    // Esc descem para o texto, e a seta só sai quando já está na ponta —
+    // no meio do código ela anda entre as linhas, como em qualquer editor.
+    if ((event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || event.key === 'Escape') {
+      event.preventDefault()
+      onSair?.('baixo')
+      return
+    }
+    if (event.key === 'ArrowDown' && !event.shiftKey && inicio === fim && fim === code.length) {
+      event.preventDefault()
+      onSair?.('baixo')
+      return
+    }
+    if (event.key === 'ArrowUp' && !event.shiftKey && inicio === fim && inicio === 0) {
+      event.preventDefault()
+      onSair?.('cima')
+      return
+    }
+    if (event.key === 'Backspace' && !code && inicio === 0 && fim === 0) {
+      event.preventDefault()
+      onApagarBloco?.('cima')
+      return
+    }
     if (event.key === 'Tab') {
       // Tab indenta em vez de pular para o próximo campo — dentro de um
       // bloco de código é o que qualquer editor faz.
       event.preventDefault()
-      const el = event.target
       const { selectionStart: start, selectionEnd: end } = el
       const next = `${code.slice(0, start)}  ${code.slice(end)}`
       onChange({ code: next })
@@ -104,7 +157,7 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
           <select
             value={language}
             onChange={(e) => changeLanguage(e.target.value)}
-            aria-label="Linguagem do bloco"
+            aria-label={t('Linguagem do bloco')}
             className="h-6 cursor-pointer rounded border-0 bg-transparent py-0 pl-1 pr-6 text-[11px] font-medium text-ink-600 focus:ring-1 focus:ring-accent-400 dark:text-ink-300"
           >
             {CODE_LANGUAGES.map((l) => (
@@ -119,7 +172,7 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
           <input
             value={section.title ?? ''}
             onChange={(e) => onChange({ title: e.target.value })}
-            placeholder="nome do arquivo (opcional)"
+            placeholder={t('nome do arquivo (opcional)')}
             className="h-6 min-w-0 flex-1 border-0 bg-transparent px-1 text-[11px] text-ink-500 placeholder:text-ink-300 focus:ring-0 dark:text-ink-400"
           />
         )}
@@ -128,19 +181,19 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
         )}
 
         <span className="shrink-0 text-[10px] tabular-nums text-ink-400">
-          {lineCount} linha{lineCount === 1 ? '' : 's'}
+          {lineCount === 1 ? t('1 linha') : t('{n} linhas', { n: lineCount })}
         </span>
 
         <button
           onClick={() => setCollapsed((v) => !v)}
-          title={collapsed ? 'Expandir' : 'Recolher'}
+          title={collapsed ? t('Expandir') : t('Recolher')}
           className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700"
         >
           {collapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
         </button>
         <button
           onClick={copy}
-          title="Copiar código"
+          title={t('Copiar código')}
           className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700"
         >
           {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
@@ -148,7 +201,7 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
         {!readOnly && (
           <button
             onClick={onDelete}
-            title="Excluir bloco"
+            title={t('Excluir bloco')}
             className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-500/10"
           >
             <Trash2 size={12} />
@@ -177,7 +230,7 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
               onPaste={handlePaste}
               onScroll={syncScroll}
               spellCheck={false}
-              placeholder="Cole ou digite o código..."
+              placeholder={t('Cole ou digite o código...')}
               className={cn(
                 SHARED,
                 'absolute inset-0 h-full w-full resize-none overflow-hidden border-0',
@@ -192,4 +245,6 @@ export default function CodeSection({ section, onChange, onDelete, readOnly = fa
       )}
     </div>
   )
-}
+})
+
+export default CodeSection

@@ -29,7 +29,13 @@ def delete_file_from_storage(sender, instance, **kwargs):
     storage = instance.file.storage
 
     def _remove():
-        # `save=False`: o objeto já não existe, não há linha para atualizar.
+        # Outra linha ainda aponta para o mesmo arquivo: duplicar um item
+        # (ou os anexos de uma nota duplicada) compartilha o arquivo em vez
+        # de copiar os bytes. Apagar aqui sem perguntar levava junto o
+        # arquivo da cópia. Conta também o que está na lixeira, que ainda
+        # pode ser restaurado.
+        if Document.objects.filter(file=name).exists():
+            return
         if storage.exists(name):
             storage.delete(name)
 

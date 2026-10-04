@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Pause, Play, Timer } from 'lucide-react'
+import DicaLateral from '@/components/ui/DicaLateral'
 import { documentPath, kindMeta } from '@/lib/documents'
 import { cn, formatDate } from '@/lib/utils'
 import {
@@ -17,6 +18,7 @@ import {
   rankingDoDia,
   somarSegundo,
 } from '@/lib/estudo'
+import { t } from '@/lib/i18n'
 
 /**
  * Quanto tempo de estudo hoje.
@@ -117,15 +119,16 @@ export default function StudyTimer({ collapsed }) {
 
   if (collapsed) {
     return (
-      <button
-        onClick={() => setPausado((p) => !p)}
-        title={`Estudo hoje: ${rotulo}${pausado ? ' (pausado)' : ''}`}
-        aria-label={`Estudo hoje: ${rotulo}`}
-        className="flex w-full flex-col items-center gap-0.5 rounded p-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
-      >
-        <Timer size={15} className={cn(!pausado && segundos > 0 && 'text-accent-500')} />
-        <span className="text-[9px] font-medium tabular-nums">{rotulo}</span>
-      </button>
+      <DicaLateral rotulo={t('Estudo hoje: {rotulo}{valor}', { rotulo, valor: pausado ? t(' (pausado)') : '' })}>
+        <button
+          onClick={() => setPausado((p) => !p)}
+          aria-label={t('Estudo hoje: {rotulo}', { rotulo })}
+          className="mx-auto flex w-11 flex-col items-center gap-0.5 rounded-lg py-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
+        >
+          <Timer size={15} className={cn(!pausado && segundos > 0 && 'text-accent-500')} />
+          <span className="text-[9px] font-medium tabular-nums">{rotulo}</span>
+        </button>
+      </DicaLateral>
     )
   }
 
@@ -139,17 +142,17 @@ export default function StudyTimer({ collapsed }) {
         <button
           onClick={() => setVerHistorico((v) => !v)}
           className="min-w-0 flex-1 text-left text-[11px] transition hover:text-ink-800 dark:hover:text-ink-100"
-          title="Ver os últimos 7 dias"
+          title={t('Ver os últimos 7 dias')}
         >
-          Estudo hoje{' '}
+          {t('Estudo hoje')}{' '}
           <span className="font-semibold tabular-nums text-ink-700 dark:text-ink-200">
             {rotulo}
           </span>
         </button>
         <button
           onClick={() => setPausado((p) => !p)}
-          aria-label={pausado ? 'Retomar contagem' : 'Pausar contagem'}
-          title={pausado ? 'Retomar contagem' : 'Pausar contagem'}
+          aria-label={pausado ? t('Retomar contagem') : t('Pausar contagem')}
+          title={pausado ? t('Retomar contagem') : t('Pausar contagem')}
           className="shrink-0 rounded p-1 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
         >
           {pausado ? <Play size={12} /> : <Pause size={12} />}
@@ -194,7 +197,7 @@ export default function StudyTimer({ collapsed }) {
                     seguia o idioma do NAVEGADOR, e num Chrome em inglês
                     o histórico de estudo aparecia como "21 Mon" no meio
                     de um app todo em português. */}
-                <span>{formatDate(dia, 'EEEEEE dd')}</span>
+                <span>{formatDate(dia, t('EEEEEE dd'))}</span>
                 <span className="tabular-nums">{s ? formatarDuracao(s) : '—'}</span>
               </li>
             ))}

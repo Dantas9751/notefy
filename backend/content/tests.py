@@ -276,6 +276,19 @@ class DiagramSchemaTests(SimpleTestCase):
         with self.assertRaises(ValidationError):
             validate_data("diagram", data)
 
+    def test_texto_sem_endereco_de_imagem_do_app(self):
+        # O endereço do arquivo aparecia cru no resumo dos cartões e da busca.
+        texto = extract_text("canvas", {
+            "nodes": [
+                {"id": "n1", "type": "image", "text": "quadro.png", "url": "http://127.0.0.1:8000/media/files/a/b.png"},
+                {"id": "n2", "type": "link", "url": "https://pt.wikipedia.org/wiki/Grafo"},
+            ],
+            "edges": [],
+        })
+        self.assertIn("quadro.png", texto)
+        self.assertIn("wikipedia", texto)
+        self.assertNotIn("/media/", texto)
+
     def test_diagram_rejects_canvas_only_shapes(self):
         with self.assertRaises(ValidationError):
             validate_data("diagram", {

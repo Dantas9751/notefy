@@ -1,5 +1,6 @@
 import { TOKEN_KEY } from './api'
 import { extrairEventosSse } from './sse'
+import { idioma, t, traduzirMensagem } from './i18n.js'
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -31,6 +32,7 @@ function chamarIA(url, body, { signal } = {}) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Accept-Language': idioma,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
@@ -78,14 +80,14 @@ export async function runIA({
       const detalhe =
         (typeof corpo === 'string'
           ? corpo.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
-          : corpo?.detail) || 'Falha na chamada de IA.'
-      throw new ErroIA(detalhe, resposta.status)
+          : corpo?.detail) || t('Falha na chamada de IA.')
+      throw new ErroIA(traduzirMensagem(detalhe), resposta.status)
     }
 
     return resposta.json()
   } catch (erro) {
     if (erro instanceof ErroIA) throw erro
-    throw new ErroIA(erro.message || 'Falha na chamada de IA.', 0)
+    throw new ErroIA(erro.message || t('Falha na chamada de IA.'), 0)
   }
 }
 
@@ -95,6 +97,7 @@ export async function chatStream({ messages, documentId, signal, onText }) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept-Language': idioma,
         Authorization: `Bearer ${token || ''}`,
       },
       body: JSON.stringify({ messages, document_id: documentId }),
@@ -110,17 +113,17 @@ export async function chatStream({ messages, documentId, signal, onText }) {
     try {
       await api.get('/me/')
     } catch {
-      throw new ErroIA('Sessão expirada. Entre novamente.', 401)
+      throw new ErroIA(t('Sessão expirada. Entre novamente.'), 401)
     }
     resposta = await chamar(localStorage.getItem(TOKEN_KEY))
   }
 
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}))
-    throw new ErroIA(corpo.detail || 'Falha na chamada de IA.', resposta.status)
+    throw new ErroIA(traduzirMensagem(corpo.detail) || t('Falha na chamada de IA.'), resposta.status)
   }
   if (!resposta.body) {
-    throw new ErroIA('Este navegador não suporta streaming.', 501)
+    throw new ErroIA(t('Este navegador não suporta streaming.'), 501)
   }
 
   const leitor = resposta.body.getReader()
