@@ -35,6 +35,7 @@ import {
   retangulo,
   uniao,
 } from '@/lib/celulas'
+import { t } from '@/lib/i18n'
 
 /**
  * Contorno da seleção como `box-shadow`, um lado por vez.
@@ -63,20 +64,20 @@ function contornoDaSelecao(bordas, cor, espessura) {
  */
 
 const COLUMN_TYPES = [
-  { value: 'text', label: 'Texto' },
-  { value: 'longtext', label: 'Texto longo' },
-  { value: 'number', label: 'Número' },
-  { value: 'currency', label: 'Moeda' },
-  { value: 'percent', label: 'Porcentagem' },
-  { value: 'date', label: 'Data' },
-  { value: 'datetime', label: 'Data e hora' },
-  { value: 'select', label: 'Seleção' },
-  { value: 'multiselect', label: 'Seleção múltipla' },
-  { value: 'checkbox', label: 'Caixa' },
-  { value: 'rating', label: 'Avaliação' },
-  { value: 'url', label: 'Link' },
+  { value: 'text', get label() { return t('Texto') } },
+  { value: 'longtext', get label() { return t('Texto longo') } },
+  { value: 'number', get label() { return t('Número') } },
+  { value: 'currency', get label() { return t('Moeda') } },
+  { value: 'percent', get label() { return t('Porcentagem') } },
+  { value: 'date', get label() { return t('Data') } },
+  { value: 'datetime', get label() { return t('Data e hora') } },
+  { value: 'select', get label() { return t('Seleção') } },
+  { value: 'multiselect', get label() { return t('Seleção múltipla') } },
+  { value: 'checkbox', get label() { return t('Caixa') } },
+  { value: 'rating', get label() { return t('Avaliação') } },
+  { value: 'url', get label() { return t('Link') } },
   { value: 'email', label: 'E-mail' },
-  { value: 'formula', label: 'Fórmula' },
+  { value: 'formula', get label() { return t('Fórmula') } },
 ]
 
 const NUMERIC_TYPES = ['number', 'currency', 'percent', 'rating', 'formula']
@@ -147,7 +148,7 @@ function ColumnMenu({
         style={{ left: pos.left, top: pos.top }}
         className="fixed z-[71] max-h-[70vh] w-64 overflow-y-auto rounded-md border border-ink-200 bg-white p-2 shadow-pop dark:border-ink-700 dark:bg-ink-900"
       >
-        <label className="label">Nome</label>
+        <label className="label">{t('Nome')}</label>
         <input
           value={name}
           autoFocus
@@ -162,7 +163,7 @@ function ColumnMenu({
           className="input h-8 py-0 text-sm"
         />
 
-        <label className="label mt-3">Tipo</label>
+        <label className="label mt-3">{t('Tipo')}</label>
         <select
           value={column.type}
           onChange={(e) => onUpdate({ type: e.target.value })}
@@ -177,7 +178,7 @@ function ColumnMenu({
 
         {(column.type === 'select' || column.type === 'multiselect') && (
           <>
-            <label className="label mt-3">Opções (uma por linha)</label>
+            <label className="label mt-3">{t('Opções (uma por linha)')}</label>
             <textarea
               defaultValue={(column.options ?? []).join('\n')}
               onBlur={(e) =>
@@ -193,28 +194,28 @@ function ColumnMenu({
 
         {column.type === 'currency' && (
           <>
-            <label className="label mt-3">Moeda</label>
+            <label className="label mt-3">{t('Moeda')}</label>
             <select
               value={column.currency ?? 'BRL'}
               onChange={(e) => onUpdate({ currency: e.target.value })}
               className="input h-8 cursor-pointer py-0 text-sm"
             >
-              <option value="BRL">Real (R$)</option>
-              <option value="USD">Dólar (US$)</option>
-              <option value="EUR">Euro (€)</option>
+              <option value="BRL">{t('Real (R$)')}</option>
+              <option value="USD">{t('Dólar (US$)')}</option>
+              <option value="EUR">{t('Euro (€)')}</option>
             </select>
           </>
         )}
 
         {numeric && column.type !== 'rating' && (
           <>
-            <label className="label mt-3">Casas decimais</label>
+            <label className="label mt-3">{t('Casas decimais')}</label>
             <input
               type="number"
               min={0}
               max={6}
               value={column.decimals ?? ''}
-              placeholder="automático"
+              placeholder={t('automático')}
               onChange={(e) =>
                 onUpdate({ decimals: e.target.value === '' ? null : Number(e.target.value) })
               }
@@ -223,7 +224,7 @@ function ColumnMenu({
           </>
         )}
 
-        <label className="label mt-3">Resumo no rodapé</label>
+        <label className="label mt-3">{t('Resumo no rodapé')}</label>
         <select
           value={column.aggregate ?? 'none'}
           onChange={(e) => onUpdate({ aggregate: e.target.value })}
@@ -238,9 +239,9 @@ function ColumnMenu({
 
         {column.type === 'formula' && (
           <p className="mt-3 rounded bg-ink-50 p-2 text-[11px] leading-relaxed text-ink-500 dark:bg-ink-800 dark:text-ink-400">
-            Escreva a fórmula em cada célula. Ex.:{' '}
-            <code className="font-mono">=SOMA(A1:A5)</code> ou{' '}
-            <code className="font-mono">=SE(B2&gt;7; &quot;ok&quot;; &quot;revisar&quot;)</code>
+            {t('Escreva a fórmula em cada célula. Ex.:')}{' '}
+            <code className="font-mono">{t('=SOMA(A1:A5)')}</code> {t('ou')}{' '}
+            <code className="font-mono">{t('=SE(B2>7; "ok"; "revisar")')}</code>
           </p>
         )}
 
@@ -255,8 +256,8 @@ function ColumnMenu({
           >
             <ArrowDownAZ size={13} />
             {sort?.column === column.id && sort?.direction === 'asc'
-              ? 'Ordenar Z → A'
-              : 'Ordenar A → Z'}
+              ? t('Ordenar Z → A')
+              : t('Ordenar A → Z')}
           </button>
           <button
             type="button"
@@ -267,7 +268,7 @@ function ColumnMenu({
             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
           >
             <MoveHorizontal size={13} />
-            Ajustar largura ao conteúdo
+            {t('Ajustar largura ao conteúdo')}
           </button>
           <button
             type="button"
@@ -278,7 +279,7 @@ function ColumnMenu({
             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
           >
             <Eraser size={13} />
-            Limpar valores da coluna
+            {t('Limpar valores da coluna')}
           </button>
           <button
             type="button"
@@ -290,7 +291,7 @@ function ColumnMenu({
             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-500/10"
           >
             <Trash2 size={13} />
-            Excluir coluna {columnLetter(index)}
+            {t('Excluir coluna')} {columnLetter(index)}
           </button>
         </div>
       </div>
@@ -355,7 +356,7 @@ function CellInput({ column, value, onCommit, onCancel }) {
           onClick={onCancel}
           className="mt-1 w-full rounded px-2 py-1 text-xs text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800"
         >
-          Fechar
+          {t('Fechar')}
         </button>
       </div>
     )
@@ -493,13 +494,13 @@ function FilterBar({ data, onChange }) {
               <input
                 value={rule.value ?? ''}
                 onChange={(e) => update(index, { value: e.target.value })}
-                placeholder="valor"
+                placeholder={t('valor')}
                 className="w-24 border-0 bg-transparent px-1 text-xs focus:ring-0"
               />
             )}
             <button
               onClick={() => onChange({ filters: filters.filter((_, i) => i !== index) })}
-              aria-label="Remover filtro"
+              aria-label={t('Remover filtro')}
               className="rounded p-0.5 text-ink-400 hover:text-red-600"
             >
               <X size={12} />
@@ -519,14 +520,14 @@ function FilterBar({ data, onChange }) {
         }
         className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
       >
-        <Filter size={12} /> Filtro
+        <Filter size={12} /> {t('Filtro')}
       </button>
       {filters.length > 0 && (
         <button
           onClick={() => onChange({ filters: [] })}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-500 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
         >
-          <X size={12} /> Limpar todos
+          <X size={12} /> {t('Limpar todos')}
         </button>
       )}
     </div>
@@ -565,6 +566,8 @@ export default function SpreadsheetEditor({ data, onChange }) {
   const [selecao, setSelecao] = useState({ ancora: null, ponta: null, blocos: [] })
   const arrastandoCelulas = useRef(false)
   const gradeRef = useRef(null)
+  //: Célula que já estava marcada quando o dedo desceu (ver o `onClick`).
+  const celulaJaMarcada = useRef(null)
   //: Arraste da divisória do cabeçalho para mudar a largura.
   const [resizing, setResizing] = useState(null)
   //: Reordenação de coluna arrastando o próprio cabeçalho.
@@ -654,7 +657,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
    */
   const novaColuna = () => ({
     id: uid('c'),
-    name: `Coluna ${columns.length + 1}`,
+    name: t('Coluna {n}', { n: columns.length + 1 }),
     type: 'text',
     width: 160,
     aggregate: 'none',
@@ -964,13 +967,13 @@ export default function SpreadsheetEditor({ data, onChange }) {
           onClick={addColumn}
           className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
         >
-          <Plus size={13} /> Coluna
+          <Plus size={13} /> {t('Coluna')}
         </button>
         <button
           onClick={addRow}
           className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
         >
-          <Plus size={13} /> Linha
+          <Plus size={13} /> {t('Linha')}
         </button>
 
         {sort && (
@@ -986,7 +989,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
 
         <button
           onClick={() => update({ frozen_columns: frozen ? 0 : 1 })}
-          title="Congelar a primeira coluna"
+          title={t('Congelar a primeira coluna')}
           className={cn(
             'rounded px-2 py-1 text-xs transition',
             frozen
@@ -994,17 +997,17 @@ export default function SpreadsheetEditor({ data, onChange }) {
               : 'text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800',
           )}
         >
-          Congelar 1ª
+          {t('Congelar 1ª')}
         </button>
 
         <div className="relative ml-auto flex items-center gap-2">
           <span className="text-[11px] text-ink-400">
-            {shown.length} de {rows.length} linha(s)
-            {hiddenCount > 0 && ` · ${hiddenCount} oculta(s)`} · {columns.length} coluna(s)
+            {shown.length} {t('de')} {rows.length} {t('linha(s)')}
+            {hiddenCount > 0 && t(' · {hiddenCount} oculta(s)', { hiddenCount })} · {columns.length} {t('coluna(s)')}
           </span>
           <button
             onClick={() => setShowHelp((v) => !v)}
-            aria-label="Ajuda de fórmulas"
+            aria-label={t('Ajuda de fórmulas')}
             className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800"
           >
             <HelpCircle size={14} />
@@ -1021,7 +1024,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                 )}
               >
                 <p className="px-1 pb-1.5 secao">
-                  Fórmulas
+                  {t('Fórmulas')}
                 </p>
                 <ul className="space-y-1">
                   {FUNCTION_HELP.map((fn) => (
@@ -1112,7 +1115,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                         setSelectedColumn(selectedColumn === column.id ? null : column.id)
                       }
                       onDoubleClick={(e) => abrirMenuColuna(column.id, e.currentTarget)}
-                      title="Clique para selecionar a coluna · duplo clique abre as opções"
+                      title={t('Clique para selecionar a coluna · duplo clique abre as opções')}
                       className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 px-2 py-1.5 text-left transition hover:bg-ink-100 dark:hover:bg-ink-800"
                     >
                       <span className="font-mono text-[10px] text-ink-400">
@@ -1138,7 +1141,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                           ? setMenuColumn(null)
                           : abrirMenuColuna(column.id, e.currentTarget)
                       }
-                      aria-label={`Opções de ${column.name}`}
+                      aria-label={t('Opções de {name}', { name: column.name })}
                       className="shrink-0 rounded p-1 text-ink-400 transition hover:bg-ink-200 dark:hover:bg-ink-700"
                     >
                       <ChevronDown size={11} />
@@ -1161,9 +1164,9 @@ export default function SpreadsheetEditor({ data, onChange }) {
                       e.stopPropagation()
                       autoFitColumn(column)
                     }}
-                    title="Arraste para redimensionar · duplo clique ajusta ao conteúdo"
+                    title={t('Arraste para redimensionar · duplo clique ajusta ao conteúdo')}
                     className={cn(
-                      'absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize',
+                      'absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none',
                       'hover:bg-accent-400',
                       resizing?.id === column.id && 'bg-accent-500',
                     )}
@@ -1189,7 +1192,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
               <th className="border-b border-ink-200 bg-ink-50 px-1 dark:border-ink-700 dark:bg-ink-900">
                 <button
                   onClick={addColumn}
-                  aria-label="Adicionar coluna"
+                  aria-label={t('Adicionar coluna')}
                   className="rounded p-1 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700"
                 >
                   <Plus size={13} />
@@ -1210,11 +1213,18 @@ export default function SpreadsheetEditor({ data, onChange }) {
                       quando o mouse passasse por QUALQUER célula da linha,
                       fazendo o número virar lixeira em toda a faixa. */}
                   <td className="group sticky left-0 z-10 border-b border-r border-ink-200 bg-white px-1 text-center text-[11px] tabular-nums text-ink-400 dark:border-ink-700 dark:bg-ink-950">
-                    <span className="group-hover:hidden">{realIndex + 1}</span>
+                    {/* No toque não há hover: a lixeira aparece só na linha
+                        da célula marcada, e não em todas de uma vez. */}
+                    <span className={cn('group-hover:hidden', ancora?.linha === linhaIndex && '[@media(hover:none)]:hidden')}>
+                      {realIndex + 1}
+                    </span>
                     <button
                       onClick={() => deleteRow(row.id)}
-                      aria-label={`Excluir linha ${realIndex + 1}`}
-                      className="hidden p-0.5 text-ink-400 transition hover:text-red-600 group-hover:inline-block"
+                      aria-label={t('Excluir linha {valor}', { valor: realIndex + 1 })}
+                      className={cn(
+                        'hidden p-0.5 text-ink-400 transition hover:text-red-600 group-hover:inline-block',
+                        ancora?.linha === linhaIndex && '[@media(hover:none)]:inline-block',
+                      )}
                     >
                       <Trash2 size={11} />
                     </button>
@@ -1294,7 +1304,17 @@ export default function SpreadsheetEditor({ data, onChange }) {
                         style={{ ...sticky, boxShadow: isEditing ? undefined : contorno }}
                         onPointerDown={(e) => {
                           if (e.button !== 0) return
+                          celulaJaMarcada.current = ehAncora ? `${row.id}:${column.id}` : null
                           iniciarSelecao(linhaIndex, colIndex, e)
+                        }}
+                        // No toque, tocar de novo na célula marcada edita: o
+                        // toque duplo depende do intervalo, e quem toca devagar
+                        // ficava sem jeito de escrever. No `click`, e não no
+                        // `pointerdown`, para rolar a grade não abrir a edição.
+                        onClick={(e) => {
+                          if (e.nativeEvent.pointerType !== 'touch') return
+                          if (celulaJaMarcada.current !== `${row.id}:${column.id}`) return
+                          setEditing({ rowId: row.id, colId: column.id })
                         }}
                         onPointerEnter={(e) => estenderSelecao(linhaIndex, colIndex, e)}
                         onDoubleClick={() => setEditing({ rowId: row.id, colId: column.id })}
@@ -1371,7 +1391,7 @@ export default function SpreadsheetEditor({ data, onChange }) {
                   onClick={addRow}
                   className="flex w-full items-center gap-1.5 px-2 py-1.5 text-xs text-ink-400 transition hover:bg-ink-50 hover:text-ink-600 dark:hover:bg-ink-900"
                 >
-                  <Plus size={13} /> Nova linha
+                  <Plus size={13} /> {t('Nova linha')}
                 </button>
               </td>
             </tr>

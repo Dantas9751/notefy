@@ -14,6 +14,8 @@
  * planilha — a fórmula não menciona os ids internos.
  */
 
+import { idioma, t } from './i18n.js'
+
 /* -------------------------------------------------------------------- */
 /* Coerções                                                             */
 /* -------------------------------------------------------------------- */
@@ -40,7 +42,7 @@ function toBool(raw) {
   if (typeof raw === 'boolean') return raw
   if (typeof raw === 'number') return raw !== 0
   const text = toText(raw).trim().toLowerCase()
-  return !['', '0', 'false', 'falso', 'nao', 'não', 'n'].includes(text)
+  return !['', '0', 'false', 'falso', 'no', 'nao', 'não', 'n'].includes(text)
 }
 
 /* -------------------------------------------------------------------- */
@@ -92,6 +94,8 @@ const FUNCTIONS = {
   CONT: (a) => a.filter((v) => !isBlank(v)).length,
   COUNT: (a) => a.filter((v) => !isBlank(v)).length,
   CONT_VAZIO: (a) => a.filter(isBlank).length,
+  COUNTBLANK: (a) => a.filter(isBlank).length,
+  MEDIAN: (a) => FUNCTIONS.MEDIANA(a),
   MEDIANA: (a) => {
     const nums = a.map(toNumber).sort((x, y) => x - y)
     if (!nums.length) return 0
@@ -148,12 +152,16 @@ const FUNCTIONS = {
   NUM_CARACT: (a) => toText(a[0]).length,
   LEN: (a) => toText(a[0]).length,
   ESQUERDA: (a) => toText(a[0]).slice(0, toNumber(a[1] ?? 1)),
+  LEFT: (a) => FUNCTIONS.ESQUERDA(a),
   DIREITA: (a) => toText(a[0]).slice(-toNumber(a[1] ?? 1)),
+  RIGHT: (a) => FUNCTIONS.DIREITA(a),
   ARRUMAR: (a) => toText(a[0]).trim(),
   TRIM: (a) => toText(a[0]).trim(),
 
   // -- Data ----------------------------------------------------------
   HOJE: () => new Date().toISOString().slice(0, 10),
+  TODAY: () => FUNCTIONS.HOJE(),
+  DAYS: (a) => FUNCTIONS.DIAS(a),
   DIAS: (a) => {
     const start = new Date(toText(a[1]))
     const end = new Date(toText(a[0]))
@@ -162,23 +170,23 @@ const FUNCTIONS = {
   },
 }
 
-/** Nomes oferecidos na ajuda do editor — sem os apelidos em inglês. */
+/** Nomes oferecidos na ajuda do editor, no idioma do app. */
 export const FUNCTION_HELP = [
-  { name: 'SOMA(A1:A10)', desc: 'Soma um intervalo' },
-  { name: 'MEDIA(A1:A10)', desc: 'Média dos valores' },
-  { name: 'MIN / MAX', desc: 'Menor e maior valor' },
-  { name: 'CONT(A1:A10)', desc: 'Quantas células preenchidas' },
-  { name: 'MEDIANA(A1:A10)', desc: 'Valor central' },
-  { name: 'SOMASE(A1:A10; ">5")', desc: 'Soma o que atende ao critério' },
-  { name: 'CONT_SE(A1:A10; "ok")', desc: 'Conta o que atende ao critério' },
-  { name: 'SE(A1>7; "passou"; "reprovou")', desc: 'Condicional' },
-  { name: 'E / OU / NAO', desc: 'Lógica booleana' },
-  { name: 'ARRED(A1; 2)', desc: 'Arredonda com casas decimais' },
-  { name: 'CONCAT(A1; " - "; B1)', desc: 'Junta textos' },
-  { name: 'MAIUSC / MINUSC', desc: 'Troca a caixa do texto' },
-  { name: 'NUM_CARACT(A1)', desc: 'Comprimento do texto' },
-  { name: 'HOJE()', desc: 'Data de hoje' },
-  { name: 'DIAS(A1; B1)', desc: 'Diferença em dias' },
+  { get name() { return t('SOMA(A1:A10)') }, get desc() { return t('Soma um intervalo') } },
+  { get name() { return t('MEDIA(A1:A10)') }, get desc() { return t('Média dos valores') } },
+  { get name() { return t('MIN / MAX') }, get desc() { return t('Menor e maior valor') } },
+  { get name() { return t('CONT(A1:A10)') }, get desc() { return t('Quantas células preenchidas') } },
+  { get name() { return t('MEDIANA(A1:A10)') }, get desc() { return t('Valor central') } },
+  { get name() { return t('SOMASE(A1:A10; ">5")') }, get desc() { return t('Soma o que atende ao critério') } },
+  { get name() { return t('CONT_SE(A1:A10; "ok")') }, get desc() { return t('Conta o que atende ao critério') } },
+  { get name() { return t('SE(A1>7; "passou"; "reprovou")') }, get desc() { return t('Condicional') } },
+  { get name() { return t('E / OU / NAO') }, get desc() { return t('Lógica booleana') } },
+  { get name() { return t('ARRED(A1; 2)') }, get desc() { return t('Arredonda com casas decimais') } },
+  { get name() { return t('CONCAT(A1; " - "; B1)') }, get desc() { return t('Junta textos') } },
+  { get name() { return t('MAIUSC / MINUSC') }, get desc() { return t('Troca a caixa do texto') } },
+  { get name() { return t('NUM_CARACT(A1)') }, get desc() { return t('Comprimento do texto') } },
+  { get name() { return t('HOJE()') }, get desc() { return t('Data de hoje') } },
+  { get name() { return t('DIAS(A1; B1)') }, get desc() { return t('Diferença em dias') } },
 ]
 
 /* -------------------------------------------------------------------- */
@@ -217,7 +225,7 @@ function tokenize(input) {
   TOKEN_RE.lastIndex = 0
   while (TOKEN_RE.lastIndex < input.length) {
     const match = TOKEN_RE.exec(input)
-    if (!match) throw new Error('Caractere inesperado')
+    if (!match) throw new Error(t('Caractere inesperado'))
     const [, str, number, reference, name, operator] = match
     if (str !== undefined) {
       tokens.push({ type: 'string', value: str.slice(1, -1).replace(/\\(.)/g, '$1') })
@@ -298,7 +306,7 @@ function parse(tokens, resolve) {
       const a = toNumber(left)
       if (op === '*') left = a * right
       else if (op === '/') {
-        if (right === 0) throw new Error('Divisão por zero')
+        if (right === 0) throw new Error(t('Divisão por zero'))
         left = a / right
       } else left = a % right
     }
@@ -326,7 +334,7 @@ function parse(tokens, resolve) {
 
   function parsePrimary() {
     const token = next()
-    if (!token) throw new Error('Fórmula incompleta')
+    if (!token) throw new Error(t('Fórmula incompleta'))
 
     if (token.type === 'number' || token.type === 'string' || token.type === 'bool') {
       return token.value
@@ -334,14 +342,14 @@ function parse(tokens, resolve) {
 
     if (token.type === 'ref') {
       const values = resolve(token.value)
-      if (values.length > 1) throw new Error('Intervalo só é aceito dentro de função')
+      if (values.length > 1) throw new Error(t('Intervalo só é aceito dentro de função'))
       return values[0] ?? ''
     }
 
     if (token.type === 'name') {
       const fn = FUNCTIONS[token.value]
-      if (!fn) throw new Error(`Função desconhecida: ${token.value}`)
-      if (peek()?.value !== '(') throw new Error(`Faltou "(" depois de ${token.value}`)
+      if (!fn) throw new Error(t('Função desconhecida: {value}', { value: token.value }))
+      if (peek()?.value !== '(') throw new Error(t('Faltou "(" depois de {value}', { value: token.value }))
       next()
 
       // Argumentos aceitam intervalos, que se expandem em vários valores.
@@ -361,29 +369,58 @@ function parse(tokens, resolve) {
           break
         }
       }
-      if (peek()?.value !== ')') throw new Error('Faltou fechar parêntese')
+      if (peek()?.value !== ')') throw new Error(t('Faltou fechar parêntese'))
       next()
       return fn(args)
     }
 
     if (token.value === '(') {
       const value = parseComparison()
-      if (peek()?.value !== ')') throw new Error('Faltou fechar parêntese')
+      if (peek()?.value !== ')') throw new Error(t('Faltou fechar parêntese'))
       next()
       return value
     }
 
-    throw new Error('Token inesperado')
+    throw new Error(t('Token inesperado'))
   }
 
   const result = parseComparison()
-  if (position < tokens.length) throw new Error('Sobrou conteúdo na fórmula')
+  if (position < tokens.length) throw new Error(t('Sobrou conteúdo na fórmula'))
   return result
 }
 
 /* -------------------------------------------------------------------- */
 /* API pública                                                          */
 /* -------------------------------------------------------------------- */
+
+/**
+ * Resultado de cada célula de fórmula, por planilha.
+ *
+ * Sem isto, cada célula recalculava do zero tudo de que depende, e quem
+ * dependia dela recalculava de novo. Com fórmulas que citam a linha de
+ * cima duas vezes (`=A1+A1`, `=A2+A2`...), cada linha DOBRAVA o trabalho:
+ * 22 linhas levavam 7 segundos para UMA célula, e 30 travavam a aba.
+ *
+ * A chave é a identidade de `rows` e `columns`. O editor troca os dois
+ * arrays a cada edição (estado imutável do React), então o cache de uma
+ * versão nunca responde pela seguinte, e o `WeakMap` o solta sozinho
+ * quando a versão sai de uso.
+ */
+const memoPorLinhas = new WeakMap()
+
+function memoDe(rows, columns) {
+  let porColunas = memoPorLinhas.get(rows)
+  if (!porColunas) {
+    porColunas = new WeakMap()
+    memoPorLinhas.set(rows, porColunas)
+  }
+  let memo = porColunas.get(columns)
+  if (!memo) {
+    memo = new Map()
+    porColunas.set(columns, memo)
+  }
+  return memo
+}
 
 /**
  * Avalia a fórmula de uma célula.
@@ -400,16 +437,22 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
     const [start, end] = reference.split(':')
     const parseRef = (ref) => {
       const match = /^([A-Za-z]+)(\d+)$/.exec(ref)
-      if (!match) throw new Error(`Referência inválida: ${ref}`)
+      if (!match) throw new Error(t('Referência inválida: {ref}', { ref }))
       return { col: letterToIndex(match[1]), row: Number(match[2]) - 1 }
     }
 
     const from = parseRef(start)
     const to = end ? parseRef(end) : from
 
+    // Recortado ao tamanho da planilha: o laço percorria o retângulo
+    // PEDIDO, e `SOMA(A1:ZZZ2000000)` numa planilha de 3x3 eram 36
+    // bilhões de voltas em células que não existem.
+    const ultimaLinha = Math.min(Math.max(from.row, to.row), rows.length - 1)
+    const ultimaColuna = Math.min(Math.max(from.col, to.col), columns.length - 1)
+
     const values = []
-    for (let r = Math.min(from.row, to.row); r <= Math.max(from.row, to.row); r += 1) {
-      for (let c = Math.min(from.col, to.col); c <= Math.max(from.col, to.col); c += 1) {
+    for (let r = Math.min(from.row, to.row); r <= ultimaLinha; r += 1) {
+      for (let c = Math.min(from.col, to.col); c <= ultimaColuna; c += 1) {
         const column = columns[c]
         const row = rows[r]
         if (!column || !row) continue
@@ -418,12 +461,19 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
         const raw = row.cells?.[column.id]
 
         if (column.type === 'formula') {
-          if (visiting.has(key)) throw new Error('Referência circular')
-          const nested = evaluateFormula(raw, {
-            columns,
-            rows,
-            visiting: new Set([...visiting, key]),
-          })
+          if (visiting.has(key)) throw new Error(t('Referência circular'))
+          // Guardar também o ERRO é seguro: se uma célula caiu num ciclo
+          // a partir daqui, o ciclo passa por ela, e cai de qualquer ponto.
+          const memo = memoDe(rows, columns)
+          let nested = memo.get(key)
+          if (!nested) {
+            nested = evaluateFormula(raw, {
+              columns,
+              rows,
+              visiting: new Set([...visiting, key]),
+            })
+            memo.set(key, nested)
+          }
           if (nested.error) throw new Error(nested.error)
           values.push(nested.value)
         } else {
@@ -437,7 +487,7 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
   try {
     const value = parse(tokenize(source), resolve)
     if (typeof value === 'number') {
-      if (!Number.isFinite(value)) return { value: '', error: 'Resultado inválido' }
+      if (!Number.isFinite(value)) return { value: '', error: t('Resultado inválido') }
       // Corta o lixo de ponto flutuante (0.1+0.2) sem truncar de verdade.
       return { value: Math.round(value * 1e10) / 1e10, error: null }
     }
@@ -451,14 +501,19 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
 /* Formatação por tipo de coluna                                        */
 /* -------------------------------------------------------------------- */
 
-const NUMBER_FORMAT = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 })
+// Por idioma: o separador decimal muda quando a pessoa troca de língua.
+const formatosDeNumero = new Map()
+const formatoDeNumero = () => {
+  if (!formatosDeNumero.has(idioma)) formatosDeNumero.set(idioma, new Intl.NumberFormat(idioma, { maximumFractionDigits: 4 }))
+  return formatosDeNumero.get(idioma)
+}
 
 function formatNumber(value, column) {
   const decimals = column.decimals
   const formatter =
     decimals === undefined || decimals === null
-      ? NUMBER_FORMAT
-      : new Intl.NumberFormat('pt-BR', {
+      ? formatoDeNumero()
+      : new Intl.NumberFormat(idioma, {
           minimumFractionDigits: decimals,
           maximumFractionDigits: decimals,
         })
@@ -472,7 +527,7 @@ export function displayValue(column, row, columns, rows) {
   if (column.type === 'formula') {
     const { value, error } = evaluateFormula(raw, { columns, rows })
     if (error) return { text: `#${error}`, error, raw }
-    if (typeof value === 'boolean') return { text: value ? 'VERDADEIRO' : 'FALSO', error: null, raw }
+    if (typeof value === 'boolean') return { text: value ? t('VERDADEIRO') : t('FALSO'), error: null, raw }
     if (typeof value === 'number') return { text: formatNumber(value, column), error: null, raw }
     return { text: toText(value), error: null, raw }
   }
@@ -485,7 +540,7 @@ export function displayValue(column, row, columns, rows) {
       return { text: formatNumber(toNumber(raw), column), error: null, raw }
     case 'currency':
       return {
-        text: new Intl.NumberFormat('pt-BR', {
+        text: new Intl.NumberFormat(idioma, {
           style: 'currency',
           currency: column.currency || 'BRL',
         }).format(toNumber(raw)),
@@ -499,9 +554,9 @@ export function displayValue(column, row, columns, rows) {
     case 'multiselect':
       return { text: (Array.isArray(raw) ? raw : [raw]).join(', '), error: null, raw }
     case 'date':
-      return { text: new Date(`${raw}T00:00:00`).toLocaleDateString('pt-BR'), error: null, raw }
+      return { text: new Date(`${raw}T00:00:00`).toLocaleDateString(idioma), error: null, raw }
     case 'datetime':
-      return { text: new Date(raw).toLocaleString('pt-BR'), error: null, raw }
+      return { text: new Date(raw).toLocaleString(idioma), error: null, raw }
     default:
       return { text: toText(raw), error: null, raw }
   }
@@ -521,15 +576,15 @@ export function comparableValue(column, row, columns, rows) {
 /* -------------------------------------------------------------------- */
 
 export const AGGREGATE_LABELS = {
-  none: 'Nenhum',
-  sum: 'Soma',
-  avg: 'Média',
-  min: 'Mínimo',
-  max: 'Máximo',
-  count: 'Contagem',
-  filled: 'Preenchidas',
-  empty: 'Vazias',
-  percent_filled: '% preenchida',
+  get none() { return t('Nenhum') },
+  get sum() { return t('Soma') },
+  get avg() { return t('Média@@agregação') },
+  get min() { return t('Mínimo') },
+  get max() { return t('Máximo') },
+  get count() { return t('Contagem') },
+  get filled() { return t('Preenchidas') },
+  get empty() { return t('Vazias') },
+  get percent_filled() { return t('% preenchida') },
 }
 
 export function aggregate(column, rows, columns) {
@@ -572,14 +627,14 @@ export function aggregate(column, rows, columns) {
 /* -------------------------------------------------------------------- */
 
 export const FILTER_OPERATORS = [
-  { value: 'contains', label: 'contém' },
-  { value: 'not_contains', label: 'não contém' },
-  { value: 'equals', label: 'é igual a' },
-  { value: 'not_equals', label: 'é diferente de' },
-  { value: 'gt', label: 'maior que' },
-  { value: 'lt', label: 'menor que' },
-  { value: 'filled', label: 'está preenchida' },
-  { value: 'empty', label: 'está vazia' },
+  { value: 'contains', get label() { return t('contém') } },
+  { value: 'not_contains', get label() { return t('não contém') } },
+  { value: 'equals', get label() { return t('é igual a') } },
+  { value: 'not_equals', get label() { return t('é diferente de') } },
+  { value: 'gt', get label() { return t('maior que') } },
+  { value: 'lt', get label() { return t('menor que') } },
+  { value: 'filled', get label() { return t('está preenchida') } },
+  { value: 'empty', get label() { return t('está vazia') } },
 ]
 
 function passesFilter(rule, column, row, columns, rows) {
@@ -640,7 +695,7 @@ export function visibleRows(data) {
       if (isBlank(vb)) return -1
       const numeric = ['number', 'currency', 'percent', 'rating', 'formula'].includes(column.type)
       if (numeric) return (toNumber(va) - toNumber(vb)) * direction
-      return toText(va).localeCompare(toText(vb), 'pt-BR') * direction
+      return toText(va).localeCompare(toText(vb), idioma) * direction
     })
   }
 

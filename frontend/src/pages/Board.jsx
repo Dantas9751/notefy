@@ -13,7 +13,7 @@ import {
 import api, { extractError } from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, ErrorState, Spinner } from '@/components/ui'
+import { Badge, Button, ErrorState, Spinner } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { useTaskActions } from '@/hooks/useTaskActions'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
@@ -22,9 +22,10 @@ import TaskFormModal from '@/components/modals/TaskFormModal'
 import BoardFormModal from '@/components/modals/BoardFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import TaskScheduler from '@/components/TaskScheduler'
-import { idDeInstancia } from '@/lib/desktop'
+import { idDeInstancia, semMouse } from '@/lib/desktop'
 import { descrever as descreverRecorrencia } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS, cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /** MIME próprio: soltar uma tarefa não pode ser confundido com soltar texto. */
 const TASK_MIME = 'application/x-notefy-task'
@@ -78,7 +79,7 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <span className={cn('text-[11px] font-medium', TASK_PRIORITY[task.priority]?.className)}>
-          {task.priority_label}
+          {TASK_PRIORITY[task.priority]?.label ?? task.priority_label}
         </span>
         {task.document_title && (
           <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
@@ -90,7 +91,7 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
             a pessoa pediu. */}
         {task.recurrence_rule && (
           <span
-            title={`Repete: ${descreverRecorrencia(task.recurrence_rule)}`}
+            title={t('Repete: {valor}', { valor: descreverRecorrencia(task.recurrence_rule) })}
             className="inline-flex items-center gap-0.5 text-[11px] text-ink-400"
           >
             <Repeat size={10} />
@@ -105,7 +106,7 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
             e.stopPropagation()
             onSchedule()
           }}
-          title={task.starts_at ? 'Alterar data' : 'Agendar no calendário'}
+          title={task.starts_at ? t('Alterar data') : t('Agendar no calendário')}
           className={cn(
             'ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition',
             task.starts_at
@@ -116,7 +117,7 @@ function TaskCard({ task, onClick, onSchedule, onDragStart, onContextMenu, dragg
           )}
         >
           {task.starts_at ? <CalendarClock size={11} /> : <CalendarPlus size={11} />}
-          {task.starts_at ? formatRelative(task.starts_at) : 'agendar'}
+          {task.starts_at ? formatRelative(task.starts_at) : t('agendar')}
         </button>
       </div>
     </article>
@@ -188,7 +189,13 @@ export default function Board() {
     return () => window.removeEventListener('dragend', limpar)
   }, [])
 
-  const columns = data?.columns ?? []
+  // Os nomes das colunas e das prioridades chegam do servidor em português;
+  // o app usa os do dicionário, que seguem o idioma escolhido.
+  const columns = useMemo(
+    () =>
+      (data?.columns ?? []).map((c) => ({ ...c, label: TASK_STATUS[c.status]?.label ?? c.label })),
+    [data],
+  )
 
   // Ordem visual das tarefas: coluna a coluna, cartão a cartão. É essa
   // ordem que o Shift usa para decidir o que está "entre" dois cliques —
@@ -256,7 +263,7 @@ export default function Board() {
     if (payload.type === 'column') {
       return [
         {
-          label: 'Nova tarefa',
+          label: t('Nova tarefa'),
           icon: Plus,
           onClick: () => setModal({ status: payload.status }),
         },
@@ -265,15 +272,15 @@ export default function Board() {
 
     // Fora das colunas — o fundo da página — só resta o quadro.
     if (payload.type === 'page') {
-      return [{ label: 'Novo quadro', icon: Kanban, onClick: () => setBoardModal({}) }]
+      return [{ label: t('Novo quadro'), icon: Kanban, onClick: () => setBoardModal({}) }]
     }
 
     if (payload.type === 'board') {
       const board = payload.board
       return [
-        { label: 'Abrir', icon: Kanban, onClick: () => setBoardId(board.id) },
+        { label: t('Abrir'), icon: Kanban, onClick: () => setBoardId(board.id) },
         {
-          label: 'Renomear',
+          label: t('Renomear'),
           icon: Pencil,
           onClick: () => setBoardModal({ board }),
         },
@@ -281,7 +288,7 @@ export default function Board() {
           ? []
           : [
               {
-                label: 'Tornar padrão',
+                label: t('Tornar padrão'),
                 icon: Star,
                 onClick: async () => {
                   await api.post(`/boards/${board.id}/make_default/`)
@@ -291,7 +298,7 @@ export default function Board() {
             ]),
         { separator: true },
         {
-          label: 'Novo quadro',
+          label: t('Novo quadro'),
           icon: Plus,
           onClick: () => setBoardModal({}),
         },
@@ -301,7 +308,7 @@ export default function Board() {
           ? []
           : [
               {
-                label: 'Excluir',
+                label: t('Excluir'),
                 icon: Trash2,
                 danger: true,
                 onClick: () => setConfirmBoard(board),
@@ -317,22 +324,34 @@ export default function Board() {
       const ids = selecionadas.map((chave) => parseKey(chave).id)
       return [
         ...columns.map((coluna) => ({
-          label: `Mover para ${coluna.label}`,
+          label: t('Mover para {label}', { label: coluna.label }),
           icon: Plus,
           onClick: () => moveTo(ids, coluna.status),
         })),
         { separator: true },
         {
-          label: `Excluir ${ids.length} selecionadas`,
+          label: t('Excluir {length} selecionadas', { length: ids.length }),
           icon: Trash2,
           danger: true,
           onClick: () => setConfirmBulk(true),
         },
-        { label: 'Limpar seleção', icon: X, onClick: limparSelecao },
+        { label: t('Limpar seleção'), icon: X, onClick: limparSelecao },
       ]
     }
 
-    return buildMenu(payload.task)
+    // Mudar de coluna sem arrastar: no toque o arraste não é garantido, e
+    // pelo menu o cartão muda em um toque, sem abrir o formulário.
+    return [
+      ...columns
+        .filter((coluna) => coluna.status !== payload.task.status)
+        .map((coluna) => ({
+          label: t('Mover para {label}', { label: coluna.label }),
+          icon: Plus,
+          onClick: () => moveTo([payload.task.id], coluna.status),
+        })),
+      { separator: true },
+      ...buildMenu(payload.task),
+    ]
   }
 
   /**
@@ -363,8 +382,11 @@ export default function Board() {
 
     if (falhas.length) {
       setError(
-        `${falhas.length} de ${ids.length} não foram excluídas. ` +
-          extractError(falhas[0].reason),
+        t('{falhas} de {total} não foram excluídas. {motivo}', {
+          falhas: falhas.length,
+          total: ids.length,
+          motivo: extractError(falhas[0].reason),
+        }),
       )
     }
   }
@@ -392,8 +414,19 @@ export default function Board() {
   return (
     <>
       <PageHeader
-        title={activeBoard?.name || 'Quadro'}
-        subtitle="Arraste os cartões entre as colunas para mudar o status."
+        title={activeBoard?.name || t('Quadro')}
+        subtitle={
+          semMouse()
+            ? t('Toque e segure um cartão para mudar o status.')
+            : t('Arraste os cartões entre as colunas para mudar o status.')
+        }
+        // O mesmo botão principal do Calendário: criar tarefa não depende de
+        // achar o "+" da coluna.
+        actions={
+          <Button size="sm" icon={Plus} onClick={() => setModal({ status: 'todo' })}>
+            {t('Nova tarefa')}
+          </Button>
+        }
       >
         {/* Um chip por quadro, com o `+` fechando a fileira. A fileira
             aparece mesmo com um quadro só: sem ela o `+` não teria onde
@@ -429,8 +462,8 @@ export default function Board() {
 
             <button
               onClick={() => setBoardModal({})}
-              title="Novo quadro"
-              aria-label="Novo quadro"
+              title={t('Novo quadro')}
+              aria-label={t('Novo quadro')}
               className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-dashed border-ink-300 text-ink-400 transition hover:border-accent-500 hover:text-accent-600 dark:border-ink-700 dark:hover:border-accent-500"
             >
               <Plus size={13} />
@@ -442,7 +475,7 @@ export default function Board() {
           className="mt-4"
           query={query}
           onQueryChange={setQuery}
-          placeholder="Buscar tarefas..."
+          placeholder={t('Buscar tarefas...')}
           category={category}
           onCategoryChange={setCategory}
         />
@@ -536,8 +569,8 @@ export default function Board() {
                         status "onde você criou" em vez de um campo a preencher. */}
                     <button
                       onClick={() => setModal({ status: column.status })}
-                      title={`Nova tarefa em ${column.label}`}
-                      aria-label={`Nova tarefa em ${column.label}`}
+                      title={t('Nova tarefa em {label}', { label: column.label })}
+                      aria-label={t('Nova tarefa em {label}', { label: column.label })}
                       className="ml-auto rounded p-1 text-ink-400 transition hover:bg-ink-200/70 hover:text-accent-600 dark:hover:bg-ink-800"
                     >
                       <Plus size={14} />
@@ -591,7 +624,9 @@ export default function Board() {
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
           <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-ink-200 bg-white/95 py-1.5 pl-4 pr-1.5 shadow-pop backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
             <span className="text-xs font-medium text-ink-600 dark:text-ink-300">
-              {selecionadas.length} selecionada{selecionadas.length === 1 ? '' : 's'}
+              {selecionadas.length === 1
+                ? t('1 selecionada')
+                : t('{n} selecionadas', { n: selecionadas.length })}
             </span>
 
             <span className="mx-1 h-4 w-px bg-ink-200 dark:bg-ink-700" />
@@ -615,16 +650,16 @@ export default function Board() {
 
             <button
               onClick={() => setConfirmBulk(true)}
-              title="Excluir selecionadas (Delete)"
+              title={t('Excluir selecionadas (Delete)')}
               className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs text-red-600 transition hover:bg-red-50 dark:hover:bg-red-500/10"
             >
               <Trash2 size={13} />
-              Excluir
+              {t('Excluir')}
             </button>
             <button
               onClick={limparSelecao}
-              title="Limpar seleção (Esc)"
-              aria-label="Limpar seleção"
+              title={t('Limpar seleção (Esc)')}
+              aria-label={t('Limpar seleção')}
               className="rounded-full p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
             >
               <X size={14} />
@@ -675,11 +710,10 @@ export default function Board() {
 
       <ConfirmDialog
         open={!!confirmBoard}
-        title="Excluir quadro"
+        title={t('Excluir quadro')}
         message={
           <>
-            O quadro <strong>{confirmBoard?.name}</strong> será removido. As tarefas
-            dele não se perdem: voltam para o quadro padrão.
+            {t('O quadro')} <strong>{confirmBoard?.name}</strong> {t('será removido. As tarefas dele não se perdem: voltam para o quadro padrão.')}
           </>
         }
         onClose={() => setConfirmBoard(null)}
@@ -693,13 +727,13 @@ export default function Board() {
 
       <ConfirmDialog
         open={confirmBulk}
-        title="Excluir tarefas"
+        title={t('Excluir tarefas')}
         message={
           <>
-            <strong>{selecionadas.length}</strong> tarefa
-            {selecionadas.length === 1 ? '' : 's'} será
-            {selecionadas.length === 1 ? '' : 'ão'} removida
-            {selecionadas.length === 1 ? '' : 's'} permanentemente.
+            <strong>{selecionadas.length}</strong>{' '}
+            {selecionadas.length === 1
+              ? t('tarefa será removida permanentemente.')
+              : t('tarefas serão removidas permanentemente.')}
           </>
         }
         onClose={() => setConfirmBulk(false)}

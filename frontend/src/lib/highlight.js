@@ -33,6 +33,7 @@ import swift from 'highlight.js/lib/languages/swift'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
+import { t } from './i18n.js'
 
 const LANGUAGES = {
   plaintext, python, javascript, typescript, java, c, cpp, csharp,
@@ -51,33 +52,33 @@ hljs.registerAliases(['html'], { languageName: 'xml' })
 
 /** Lista do seletor de linguagem, com rótulos legíveis. */
 export const CODE_LANGUAGES = [
-  { value: 'plaintext', label: 'Texto simples' },
-  { value: 'python', label: 'Python' },
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
+  { value: 'plaintext', get label() { return t('Texto simples') } },
+  { value: 'python', get label() { return t('Python') } },
+  { value: 'javascript', get label() { return t('JavaScript') } },
+  { value: 'typescript', get label() { return t('TypeScript') } },
   { value: 'jsx', label: 'JSX' },
   { value: 'tsx', label: 'TSX' },
-  { value: 'java', label: 'Java' },
+  { value: 'java', get label() { return t('Java') } },
   { value: 'c', label: 'C' },
   { value: 'cpp', label: 'C++' },
   { value: 'csharp', label: 'C#' },
-  { value: 'go', label: 'Go' },
-  { value: 'rust', label: 'Rust' },
+  { value: 'go', get label() { return t('Go') } },
+  { value: 'rust', get label() { return t('Rust') } },
   { value: 'php', label: 'PHP' },
-  { value: 'ruby', label: 'Ruby' },
-  { value: 'kotlin', label: 'Kotlin' },
-  { value: 'swift', label: 'Swift' },
+  { value: 'ruby', get label() { return t('Ruby') } },
+  { value: 'kotlin', get label() { return t('Kotlin') } },
+  { value: 'swift', get label() { return t('Swift') } },
   { value: 'sql', label: 'SQL' },
-  { value: 'bash', label: 'Bash' },
-  { value: 'powershell', label: 'PowerShell' },
+  { value: 'bash', get label() { return t('Bash') } },
+  { value: 'powershell', get label() { return t('PowerShell') } },
   { value: 'json', label: 'JSON' },
   { value: 'yaml', label: 'YAML' },
   { value: 'xml', label: 'XML' },
   { value: 'html', label: 'HTML' },
   { value: 'css', label: 'CSS' },
   { value: 'scss', label: 'SCSS' },
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'dockerfile', label: 'Dockerfile' },
+  { value: 'markdown', get label() { return t('Markdown') } },
+  { value: 'dockerfile', get label() { return t('Dockerfile') } },
   { value: 'ini', label: 'INI' },
 ]
 

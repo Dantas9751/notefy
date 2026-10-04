@@ -245,8 +245,14 @@ class GerarProximaTests(TestCase):
         self.assertEqual([i.text for i in itens], ["Ler a teoria", "Fazer os exercícios"])
         self.assertEqual([i.is_done for i in itens], [False, False])
 
-    def test_reabrir_e_concluir_de_novo_gera_outra(self):
-        """Marcar sem querer, desmarcar e marcar de novo é um uso normal."""
+    def test_reabrir_e_concluir_de_novo_nao_duplica(self):
+        """Marcar sem querer, desmarcar e marcar de novo é um uso normal.
+
+        Este teste já afirmou o contrário (3 tarefas): registrava o que o
+        código fazia, e o código criava uma segunda "próxima" na MESMA data
+        a cada clique arrependido. Justamente por ser uso normal, o
+        resultado tem que ser o de ter clicado uma vez só.
+        """
         tarefa = self.criar()
         tarefa.status = Task.Status.DONE
         tarefa.save()
@@ -254,7 +260,8 @@ class GerarProximaTests(TestCase):
         tarefa.save()
         tarefa.status = Task.Status.DONE
         tarefa.save()
-        self.assertEqual(Task.objects.count(), 3)
+        self.assertEqual(Task.objects.count(), 2)
+        self.assertEqual(Task.objects.exclude(pk=tarefa.pk).count(), 1)
 
 
 class RecorrenciaPelaApiTests(APITestCase):

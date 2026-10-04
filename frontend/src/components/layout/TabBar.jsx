@@ -4,10 +4,11 @@ import { Columns2, ExternalLink, LayoutDashboard, Plus, X, XCircle } from 'lucid
 import { useTabs } from '@/context/TabsContext'
 import { semQuery, useSplit } from '@/context/SplitContext'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
-import { abrirEmNovaJanela } from '@/lib/desktop'
+import { abrirEmNovaJanela, emCelular } from '@/lib/desktop'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /** Segue a convenção de `lib/dnd.js`: cada arraste tem o seu MIME. */
 const TAB_MIME = 'application/x-notefy-tab'
@@ -15,9 +16,8 @@ const TAB_MIME = 'application/x-notefy-tab'
 /**
  * As abas dos documentos abertos.
  *
- * Some quando não há nada aberto: quem nunca abriu um documento não ganha
- * uma faixa vazia ocupando altura. A barra só aparece quando passa a ter
- * função.
+ * Sempre visível: o app abre com a aba do Início e nunca fica com zero
+ * abas (ver `TabsContext`).
  */
 export default function TabBar() {
   const {
@@ -118,12 +118,10 @@ export default function TabBar() {
     })
   }
 
-  if (tabs.length === 0) return null
-
   const menuDe = (tab) => [
-    { label: 'Fechar', icon: X, hint: 'Ctrl+Q', onClick: () => aoFechar(tab) },
+    { label: t('Fechar'), icon: X, hint: t('Ctrl+Q'), onClick: () => aoFechar(tab) },
     {
-      label: 'Fechar as outras',
+      label: t('Fechar as outras'),
       icon: XCircle,
       onClick: () => {
         closeOthers(tab.key)
@@ -134,7 +132,7 @@ export default function TabBar() {
       disabled: tabs.length < 2,
     },
     {
-      label: 'Fechar todas',
+      label: t('Fechar todas'),
       icon: XCircle,
       onClick: () => {
         closeAll()
@@ -143,7 +141,7 @@ export default function TabBar() {
     },
     { separator: true },
     {
-      label: 'Abrir ao lado',
+      label: t('Abrir ao lado'),
       icon: Columns2,
       disabled: semQuery(tab.path).endsWith('/new'),
       onClick: () => {
@@ -153,41 +151,58 @@ export default function TabBar() {
         abrirAoLado({ path: tab.path, title: tab.title ?? null })
       },
     },
-    {
-      label: 'Abrir em nova janela',
-      icon: ExternalLink,
-      onClick: () => abrirEmNovaJanela(tab.path, tab.title || 'Notefy'),
-    },
+    // O celular tem uma janela só.
+    ...(emCelular()
+      ? []
+      : [
+          {
+            label: t('Abrir em nova janela'),
+            icon: ExternalLink,
+            onClick: () => abrirEmNovaJanela(tab.path, tab.title || 'Notefy'),
+          },
+        ]),
   ]
 
   /** Menu de contexto da aba do painel lateral. */
   const menuDePainel = (p) => [
     {
-      label: 'Fechar painel',
+      label: t('Fechar painel'),
       icon: X,
       onClick: () => fecharPainel(),
     },
-    { separator: true },
-    {
-      label: 'Abrir em nova janela',
-      icon: ExternalLink,
-      onClick: () => abrirEmNovaJanela(p.path, p.title || 'Notefy'),
-    },
+    ...(emCelular()
+      ? []
+      : [
+          { separator: true },
+          {
+            label: t('Abrir em nova janela'),
+            icon: ExternalLink,
+            onClick: () => abrirEmNovaJanela(p.path, p.title || 'Notefy'),
+          },
+        ]),
   ]
 
   const itensDoMenu = (payload) => (payload.painel ? menuDePainel(payload.painel) : menuDe(payload.tab))
 
   return (
     <>
+      {/* Sem barra de rolagem: com muitas abas ela aparecia embaixo delas e
+          empurrava a tela inteira 10px para baixo. A roda do mouse rola de
+          lado, e a aba ativa já vem para a vista sozinha. */}
       <div
         role="tablist"
-        aria-label="Documentos abertos"
-        className="flex min-w-0 flex-1 select-none items-stretch overflow-x-auto"
+        aria-label={t('Documentos abertos')}
+        onWheel={(e) => {
+          if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY
+        }}
+        className="flex min-w-0 flex-1 select-none items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {tabs.map((tab, indice) => {
           const meta = kindMeta(tab.kind)
           const Icon = meta.icon
           const ativa = tab.key === activeKey
+          // A única aba sendo o Início: fechá-la só a reabriria.
+          const fixa = tabs.length === 1 && semQuery(tab.path) === '/'
 
           return (
             // `div` e não `button`: a aba carrega o próprio botão de
@@ -199,7 +214,7 @@ export default function TabBar() {
               role="tab"
               tabIndex={0}
               aria-selected={ativa}
-              title={tab.title || 'Sem título'}
+              title={tab.title || t('Sem título')}
               draggable
               onDragStart={(e) => {
                 // A origem viaja no `dataTransfer`, e não só no estado:
@@ -258,31 +273,34 @@ export default function TabBar() {
               )}
             >
               <Icon size={13} className="shrink-0" style={{ color: meta.accent }} />
-              <span className="min-w-0 flex-1 truncate">{tab.title || 'Sem título'}</span>
+              <span className="min-w-0 flex-1 truncate">{tab.title || t('Sem título')}</span>
 
               {/* Ponto de não salvo ocupa o mesmo lugar do X e some ao
                   passar o mouse: sem isso, o botão de fechar empurraria o
                   título e a aba dançaria a cada hover. */}
               {tab.dirty && (
                 <span
-                  aria-label="Alterações não salvas"
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-500 group-hover:hidden"
+                  aria-label={t('Alterações não salvas')}
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-500 group-hover:hidden [@media(hover:none)]:hidden"
                 />
               )}
+              {!fixa && (
               <button
                 type="button"
-                aria-label={`Fechar ${tab.title || 'aba'}`}
+                aria-label={t('Fechar {valor}', { valor: tab.title || t('aba') })}
                 onClick={(e) => {
                   e.stopPropagation()
                   aoFechar(tab)
                 }}
                 className={cn(
                   'shrink-0 rounded p-0.5 text-ink-400 transition hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700 dark:hover:text-ink-100',
-                  tab.dirty && 'hidden group-hover:block',
+                  // No toque não há hover: o X fica, e o ponto sai.
+                  tab.dirty && 'hidden group-hover:block [@media(hover:none)]:block',
                 )}
               >
                 <X size={12} />
               </button>
+              )}
             </div>
           )
         })}
@@ -311,11 +329,11 @@ export default function TabBar() {
           >
             <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
               <Columns2 size={12} className="shrink-0 text-ink-400" />
-              {painel.title || painel.path || 'Ao lado'}
+              {painel.title || painel.path || t('Ao lado')}
             </span>
             <button
               type="button"
-              aria-label="Fechar painel"
+              aria-label={t('Fechar painel')}
               onClick={(e) => {
                 e.stopPropagation()
                 fecharPainel()
@@ -336,8 +354,8 @@ export default function TabBar() {
           ref={maisRef}
           type="button"
           onClick={abrirMenuNovo}
-          title="Novo documento"
-          aria-label="Novo documento"
+          title={t('Novo documento')}
+          aria-label={t('Novo documento')}
           aria-expanded={!!novoEm}
           className="flex shrink-0 items-center border-r border-ink-200 px-2.5 text-ink-400 transition hover:bg-ink-100/70 hover:text-accent-600 dark:border-ink-800 dark:hover:bg-ink-800/50"
         >
@@ -356,7 +374,7 @@ export default function TabBar() {
         onClose={() => setNovoEm(null)}
         items={[
           {
-            label: 'Início',
+            label: t('Início'),
             icon: LayoutDashboard,
             onClick: () => {
               // Segunda aba de Início: navegar só focaria a que já

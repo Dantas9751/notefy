@@ -38,6 +38,7 @@ import {
 } from '@/lib/dnd'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import { TASK_STATUS, cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Terceiro nível da navegação: os itens de uma pasta.
@@ -59,7 +60,7 @@ export default function FolderDetail({ id: idProp }) {
   )
 
   // Nome real da pasta como título da aba; desligado no painel lateral.
-  useTabState({ title: data?.folder?.name ?? 'Pasta', enabled: !emPainel })
+  useTabState({ title: data?.folder?.name ?? t('Pasta'), enabled: !emPainel })
 
   const renomear = useRenomear({ onRenamed: refetch })
   const { buildMenu, dialogs } = useDocumentActions({
@@ -242,7 +243,7 @@ export default function FolderDetail({ id: idProp }) {
 
     if (bloqueados.length) {
       setUploadError(
-        `${bloqueados.length} de ${idsToDelete.length} não foram excluídos. ${bloqueados[0]}`,
+        t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total: idsToDelete.length, motivo: bloqueados[0] }),
       )
     }
 
@@ -322,7 +323,7 @@ export default function FolderDetail({ id: idProp }) {
     }
 
     if (!documentos.length) {
-      setUploadError('Nada para exportar na seleção.')
+      setUploadError(t('Nada para exportar na seleção.'))
       return
     }
 
@@ -339,13 +340,13 @@ export default function FolderDetail({ id: idProp }) {
     if (isMultiple) {
       return [
         {
-          label: `Exportar (${selectedIds.length}) como .zip`,
+          label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
           onClick: handleBulkExport,
         },
         { separator: true },
         {
-          label: `Excluir (${selectedIds.length} selecionados)`,
+          label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
           onClick: handleBulkDeleteWithDialog,
@@ -355,12 +356,12 @@ export default function FolderDetail({ id: idProp }) {
 
     return [
       {
-        label: 'Abrir',
+        label: t('Abrir'),
         icon: FolderOpen,
         onClick: () => navigate(`/folders/${sub.id}`),
       },
       {
-        label: 'Nova subpasta',
+        label: t('Nova subpasta'),
         icon: FolderPlus,
         onClick: () =>
           setFolderModal({
@@ -372,7 +373,7 @@ export default function FolderDetail({ id: idProp }) {
         separator: true,
       },
       {
-        label: 'Renomear',
+        label: t('Renomear'),
         icon: Pencil,
         onClick: () =>
           setFolderModal({
@@ -381,7 +382,7 @@ export default function FolderDetail({ id: idProp }) {
           }),
       },
       {
-        label: 'Excluir',
+        label: t('Excluir'),
         icon: Trash2,
         danger: true,
         onClick: () => {
@@ -408,7 +409,7 @@ export default function FolderDetail({ id: idProp }) {
     }),
     { separator: true },
     {
-      label: 'Nova subpasta',
+      label: t('Nova subpasta'),
       icon: FolderPlus,
       onClick: () => setFolderModal({ parent: folder, categoryId: folder?.category }),
     },
@@ -418,13 +419,13 @@ export default function FolderDetail({ id: idProp }) {
     if (payload.isMultiple) {
       return [
         {
-          label: `Exportar (${selectedIds.length}) como .zip`,
+          label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
           onClick: handleBulkExport,
         },
         { separator: true },
         {
-          label: `Excluir (${selectedIds.length} selecionados)`,
+          label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
           onClick: handleBulkDeleteWithDialog,
@@ -513,8 +514,8 @@ export default function FolderDetail({ id: idProp }) {
           <p className="flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-accent-700 shadow-pop dark:bg-ink-900 dark:text-accent-300">
             <FileUp size={16} />
             {dragging === 'file'
-              ? 'Soltar para enviar para'
-              : 'Soltar para mover para'}{' '}
+              ? t('Soltar para enviar para')
+              : t('Soltar para mover para')}{' '}
             “{folder?.name}”
           </p>
         </div>
@@ -530,7 +531,7 @@ export default function FolderDetail({ id: idProp }) {
                 to="/"
                 className="hover:text-ink-700 dark:hover:text-ink-200"
               >
-                Início
+                {t('Início')}
               </Link>
 
               <ChevronRight size={11} />
@@ -588,7 +589,7 @@ export default function FolderDetail({ id: idProp }) {
                 })
               }
             >
-              Editar
+              {t('Editar')}
             </Button>
 
             <Button
@@ -602,7 +603,7 @@ export default function FolderDetail({ id: idProp }) {
                 })
               }
             >
-              Subpasta
+              {t('Subpasta')}
             </Button>
 
             <Button
@@ -613,16 +614,16 @@ export default function FolderDetail({ id: idProp }) {
                 fileInputRef.current?.click()
               }
             >
-              Importar arquivo
+              {t('Importar arquivo')}
             </Button>
 
-            <div className="w-28">
-              <CreateMenu
-                alignRight
-                defaultFolderId={id}
-                defaultCategoryId={folder?.category}
-              />
-            </div>
+            {/* Sem caixa de largura fixa em volta: o menu já tem a largura do
+                botão, e a caixa de w-28 deixava um vão antes do "Criar". */}
+            <CreateMenu
+              alignRight
+              defaultFolderId={id}
+              defaultCategoryId={folder?.category}
+            />
           </>
         }
       >
@@ -637,7 +638,7 @@ export default function FolderDetail({ id: idProp }) {
                   : 'border-ink-200 text-ink-500 hover:border-ink-300 dark:border-ink-700 dark:text-ink-400',
               )}
             >
-              Tudo{' '}
+              {t('Tudo')}{' '}
               <span className="tabular-nums opacity-70">
                 {documents.length}
               </span>
@@ -688,8 +689,8 @@ export default function FolderDetail({ id: idProp }) {
         {isEmpty && (
           <EmptyState
             icon={FolderOpen}
-            title="Pasta vazia"
-            description="Use “Criar” para uma nota, planilha, diagrama ou canvas, ou arraste arquivos para cá."
+            title={t('Pasta vazia')}
+            description={t('Use “Criar” para uma nota, planilha, diagrama ou canvas, ou arraste arquivos para cá.')}
             action={
               <div className="flex w-full justify-center">
                 <CreateMenu
@@ -705,10 +706,10 @@ export default function FolderDetail({ id: idProp }) {
         {subfolders.length > 0 && (
           <section>
             <h2 className="mb-3 secao">
-              Subpastas
+              {t('Subpastas')}
             </h2>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {subfolders.map((sub) => {
                 const selectionKey = `folder:${sub.id}`
                 const selecionada = isSelected(selectionKey)
@@ -762,8 +763,8 @@ export default function FolderDetail({ id: idProp }) {
                       </p>
 
                       <p className="text-xs text-ink-400">
-                        {sub.document_count} item(ns) ·{' '}
-                        {sub.child_count} subpasta(s)
+                        {sub.document_count} {t('item(ns) ·')}{' '}
+                        {sub.child_count} {t('subpasta(s)')}
                       </p>
                     </div>
 
@@ -784,10 +785,10 @@ export default function FolderDetail({ id: idProp }) {
             <h2 className="mb-3 secao">
               {kindFilter
                 ? kindMeta(kindFilter).plural
-                : 'Conteúdo'}
+                : t('Conteúdo')}
             </h2>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visible.map((doc) => {
                 const selectionKey = `document:${doc.id}`
                 const selecionado = isSelected(selectionKey)
@@ -837,7 +838,7 @@ export default function FolderDetail({ id: idProp }) {
         {tasks.length > 0 && (
           <section>
             <h2 className="mb-3 secao">
-              Tarefas
+              {t('Tarefas')}
             </h2>
 
             <ul className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-200 dark:divide-ink-800 dark:border-ink-800">
@@ -874,7 +875,7 @@ export default function FolderDetail({ id: idProp }) {
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionado(s)
+            {selectedIds.length} {t('selecionado(s)')}
           </span>
 
           <div className="h-4 w-px bg-ink-700" />
@@ -884,13 +885,13 @@ export default function FolderDetail({ id: idProp }) {
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
             <Trash2 size={14} />
-            Excluir
+            {t('Excluir')}
           </button>
 
           <button
             onClick={clear}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -931,14 +932,9 @@ export default function FolderDetail({ id: idProp }) {
           `requestDelete` — que apagaria o primeiro item antes de perguntar. */}
       <ConfirmDialog
         open={!!confirmarLote}
-        title="Excluir itens selecionados"
-        message={
-          <>
-            <strong>{confirmarLote} itens</strong> serão excluídos, com tudo que
-            estiver dentro das pastas. Isso não pode ser desfeito.
-          </>
-        }
-        confirmLabel="Excluir tudo"
+        title={t('Excluir itens selecionados')}
+        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: confirmarLote })}
+        confirmLabel={t('Excluir {n} itens', { n: confirmarLote })}
         onClose={() => setConfirmarLote(null)}
         onConfirm={handleBulkDelete}
       />

@@ -9,22 +9,25 @@ import { useDocumentActions } from '@/hooks/useDocumentActions'
 import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
+import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { runIA } from '@/lib/ai'
 import FilterBar from '@/components/filters/FilterBar'
 import { DOCUMENT_KINDS } from '@/lib/documents'
 import { cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
+import { semMouse } from '@/lib/desktop'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const TYPE_META = {
   ...Object.fromEntries(
     Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => [
       kind,
-      { label: meta.plural, icon: meta.icon, accent: meta.accent },
+      { get label() { return meta.plural }, icon: meta.icon, accent: meta.accent },
     ]),
   ),
-  folder: { label: 'Pastas', icon: FolderIcon, accent: '#78716C' },
-  task: { label: 'Tarefas', icon: CheckSquare, accent: '#0EA5E9' },
+  folder: { get label() { return t('Pastas') }, icon: FolderIcon, accent: '#78716C' },
+  task: { get label() { return t('Tarefas') }, icon: CheckSquare, accent: '#0EA5E9' },
 }
 
 export default function SearchPage() {
@@ -45,7 +48,6 @@ export default function SearchPage() {
 
   // Estado para o Modal de Exclusão em Massa
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   const debouncedQuery = useDebounced(query, 350)
 
@@ -160,7 +162,7 @@ export default function SearchPage() {
       const { text } = await runIA({
         task: 'busca.responder',
         documentId: documentos[0]?.id,
-        input: `Pergunta: ${pergunta}\n\nItens encontrados na busca:\n${lista || '(nenhum)'}`,
+        input: t('Pergunta: {pergunta}\n\nItens encontrados na busca:\n{lista}', { pergunta, lista: lista || t('(nenhum)') }),
       })
       setRespostaIA({ pergunta, texto: text, erro: null })
     } catch (e) {
@@ -233,7 +235,6 @@ export default function SearchPage() {
 
     const idsToDelete = [...selectedIds]
     setActionError(null)
-    setIsDeletingBulk(true)
 
     // A fila vai até o fim: cada item é independente, e um recusado não é
     // motivo para os seguintes nem serem tentados.
@@ -247,11 +248,10 @@ export default function SearchPage() {
     } finally {
       clear()
       setBulkDeleteModalOpen(false)
-      setIsDeletingBulk(false)
 
       if (bloqueados.length) {
         setActionError(
-          `${bloqueados.length} de ${idsToDelete.length} não foram excluídos. ${bloqueados[0]}`,
+          t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total: idsToDelete.length, motivo: bloqueados[0] }),
         )
       }
 
@@ -294,7 +294,7 @@ export default function SearchPage() {
   return (
     <>
       <PageHeader
-        title="Busca global"
+        title={t('Busca global')}
         // Sem subtítulo: ele listava "notas, arquivos, planilhas,
         // diagramas, canvas, pastas e tarefas" — exatamente os chips de
         // filtro logo abaixo, que além de dizer o mesmo são clicáveis. O
@@ -313,7 +313,9 @@ export default function SearchPage() {
                 perguntarIA()
               }
             }}
-            placeholder="Buscar em tudo... (Ctrl+Enter pergunta ao Laviel)"
+            placeholder={
+              semMouse() ? t('Buscar em tudo...') : t('Buscar em tudo... (Ctrl+Enter pergunta ao Laviel)')
+            }
             category={category}
             onCategoryChange={setCategory}
             extraActive={Boolean(dateFrom || dateTo || types.length)}
@@ -323,24 +325,26 @@ export default function SearchPage() {
               setTypes([])
             }}
             extra={
-              <>
+              // O período quebra linha inteiro: soltos, o "até" ficava no fim de
+              // uma linha e a segunda data sozinha na outra (celular).
+              <div className="flex items-center gap-2 max-sm:w-full">
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  aria-label="Data inicial"
-                  className="input h-9 w-auto py-0 text-sm"
+                  aria-label={t('Data inicial')}
+                  className="input h-9 w-auto py-0 text-sm max-sm:min-w-0 max-sm:flex-1"
                 />
-                <span className="text-xs text-ink-400">até</span>
+                <span className="text-xs text-ink-400">{t('até')}</span>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  aria-label="Data final"
+                  aria-label={t('Data final')}
                   min={dateFrom || undefined}
-                  className="input h-9 w-auto py-0 text-sm"
+                  className="input h-9 w-auto py-0 text-sm max-sm:min-w-0 max-sm:flex-1"
                 />
-              </>
+              </div>
             }
           />
 
@@ -386,7 +390,7 @@ export default function SearchPage() {
               <button
                 onClick={() => setRespostaIA(null)}
                 className="rounded p-0.5 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200"
-                title="Fechar"
+                title={t('Fechar')}
               >
                 <X size={13} />
               </button>
@@ -394,8 +398,8 @@ export default function SearchPage() {
             {respostaIA.erro ? (
               <p className="text-sm text-red-600 dark:text-red-400">{respostaIA.erro}</p>
             ) : (
-              <p className="whitespace-pre-wrap text-sm text-ink-700 dark:text-ink-200">
-                {respostaIA.texto || (perguntandoIA ? 'Pensando...' : '')}
+              <p className="select-text whitespace-pre-wrap text-sm text-ink-700 dark:text-ink-200">
+                {respostaIA.texto || (perguntandoIA ? t('Pensando...') : '')}
               </p>
             )}
           </div>
@@ -407,9 +411,22 @@ export default function SearchPage() {
           <ListSkeleton rows={6} />
         ) : results.length ? (
           <>
-            <p className="mb-3 text-xs text-ink-400">
-              {data.total} resultado(s)
-              {debouncedQuery && <> para “{debouncedQuery}”</>}
+            <p className="mb-3 flex items-center gap-2 text-xs text-ink-400">
+              <span>
+                {data.total} {t('resultado(s)')}
+                {debouncedQuery && <> {t('para “')}{debouncedQuery}”</>}
+              </span>
+              {/* A pergunta ao Laviel era só Ctrl+Enter: no toque não existia. */}
+              {debouncedQuery && (
+                <button
+                  onClick={perguntarIA}
+                  disabled={perguntandoIA}
+                  className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-accent-700 transition hover:bg-accent-50 disabled:opacity-50 dark:text-accent-300 dark:hover:bg-accent-500/10"
+                >
+                  <Sparkles size={12} />
+                  {t('Perguntar ao Laviel')}
+                </button>
+              )}
             </p>
 
             <ul className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-200 dark:divide-ink-800 dark:border-ink-800">
@@ -501,7 +518,7 @@ export default function SearchPage() {
                   loading={loading}
                   onClick={() => setLimite((n) => n + 40)}
                 >
-                  Carregar mais ({results.length} de {data.total})
+                  {t('Carregar mais (')}{results.length} {t('de')} {data.total})
                 </Button>
               </div>
             )}
@@ -509,11 +526,11 @@ export default function SearchPage() {
         ) : (
           <EmptyState
             icon={SearchX}
-            title={hasCriteria ? 'Nenhum resultado' : 'Comece a buscar'}
+            title={hasCriteria ? t('Nenhum resultado') : t('Comece a buscar')}
             description={
               hasCriteria
-                ? 'Tente outro termo ou remova alguns filtros.'
-                : 'Digite um termo ou combine filtros de tipo, categoria e data.'
+                ? t('Tente outro termo ou remova alguns filtros.')
+                : t('Digite um termo ou combine filtros de tipo, categoria e data.')
             }
           />
         )}
@@ -523,19 +540,19 @@ export default function SearchPage() {
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionado(s)
+            {selectedIds.length} {t('selecionado(s)')}
           </span>
           <div className="h-4 w-px bg-ink-700" />
           <button
             onClick={handleBulkDeleteWithDialog}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
-            <Trash2 size={14} /> Excluir
+            <Trash2 size={14} /> {t('Excluir')}
           </button>
           <button
             onClick={clear}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -552,7 +569,7 @@ export default function SearchPage() {
           menu?.payload?.isMultiple
             ? [
                 {
-                  label: `Excluir (${selectedIds.length} selecionados)`,
+                  label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
                   onClick: handleBulkDeleteWithDialog,
@@ -565,7 +582,7 @@ export default function SearchPage() {
                   // buscar a pasta do item, que é específico da busca.
                   return [
                     {
-                      label: 'Ir para pasta',
+                      label: t('Ir para pasta'),
                       icon: FolderIcon,
                       onClick: async () => {
                         try {
@@ -585,7 +602,7 @@ export default function SearchPage() {
                   ...(menu?.payload?.item?.type !== 'folder'
                     ? [
                         {
-                          label: 'Ir para pasta',
+                          label: t('Ir para pasta'),
                           icon: FolderIcon,
                           onClick: async () => {
                             const item = menu.payload.item;
@@ -606,7 +623,7 @@ export default function SearchPage() {
                               if (folderId) {
                                 navigate(`/folders/${folderId}`);
                               } else {
-                                setActionError('Este item não pertence a nenhuma pasta.');
+                                setActionError(t('Este item não pertence a nenhuma pasta.'));
                               }
                             } catch (error) {
                               setActionError(extractError(error));
@@ -617,13 +634,13 @@ export default function SearchPage() {
                       ]
                     : []),
                   {
-                    label: 'Abrir',
+                    label: t('Abrir'),
                     icon: ExternalLink,
                     onClick: () => navigate(menu.payload.item.url),
                   },
                   { separator: true },
                   {
-                    label: 'Excluir',
+                    label: t('Excluir'),
                     icon: Trash2,
                     danger: true,
                     onClick: handleBulkDeleteWithDialog,
@@ -638,30 +655,14 @@ export default function SearchPage() {
       {/* Diálogos das ações de documento (mover, excluir, IA...) */}
       {acoesDialogs}
 
-      <Modal
+      <ConfirmDialog
         open={bulkDeleteModalOpen}
         onClose={() => setBulkDeleteModalOpen(false)}
-        title="Excluir múltiplos itens"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              loading={isDeletingBulk}
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
-            >
-              Sim, excluir {selectedIds.length} itens
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          Você está prestes a excluir <strong>{selectedIds.length}</strong> itens de forma permanente.
-          Se houver subpastas com conteúdo, eles também serão forçados a serem excluídos. Deseja continuar?
-        </p>
-      </Modal>
+        title={t('Excluir itens selecionados')}
+        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
+        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
+        onConfirm={handleBulkDelete}
+      />
     </>
   )
 }

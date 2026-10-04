@@ -8,6 +8,7 @@ import {
   janelaDeBusca,
   podarDisparados,
 } from '@/lib/avisos'
+import { t } from '@/lib/i18n'
 
 /**
  * A central de notificações: o que venceu ou vai vencer, dentro do app.
@@ -212,7 +213,7 @@ export function NotificacoesProvider({ children }) {
         salvar({
           ...atual,
           itens: atual.itens.map((i) =>
-            i.chave === item.chave ? { ...i, texto: 'Esta tarefa foi excluída.', excluida: true } : i,
+            i.chave === item.chave ? { ...i, texto: t('Esta tarefa foi excluída.'), excluida: true } : i,
           ),
         })
       }

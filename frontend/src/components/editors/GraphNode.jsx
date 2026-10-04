@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { nodeRect } from '@/lib/graph'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
+import { urlDeMedia } from '@/lib/fileMedia'
 
 /**
  * Alças de redimensionamento.
@@ -120,7 +122,7 @@ function Compartment({ node, rect, accent }) {
           node.type === 'abstract' && 'italic',
         )}
       >
-        {node.text || 'Classe'}
+        {node.text || t('Classe')}
       </text>
 
       <line x1={0} y1={headerH} x2={rect.w} y2={headerH} stroke={accent} strokeWidth={1} />
@@ -167,7 +169,7 @@ function Actor({ node, rect, accent }) {
       <line x1={cx} y1={62} x2={cx - 16} y2={86} stroke={accent} strokeWidth={2} />
       <line x1={cx} y1={62} x2={cx + 16} y2={86} stroke={accent} strokeWidth={2} />
       <text x={cx} y={rect.h - 4} textAnchor="middle" className="fill-ink-800 text-[11px] font-medium dark:fill-ink-100">
-        {node.text || 'Ator'}
+        {node.text || t('Ator')}
       </text>
     </>
   )
@@ -179,7 +181,7 @@ function Lifeline({ node, rect, accent }) {
     <>
       <rect width={rect.w} height={headH} rx={3} className="fill-white dark:fill-ink-900" stroke={accent} strokeWidth={1.5} />
       <CenteredLabel
-        text={node.text || 'Objeto'}
+        text={node.text || t('Objeto')}
         rect={{ ...rect, h: headH }}
         className="fill-ink-900 text-[11px] font-medium dark:fill-ink-50"
       />
@@ -212,7 +214,7 @@ function Fragment({ node, rect, accent }) {
         strokeWidth={1.2}
       />
       <text x={8} y={15} className="fill-ink-700 text-[10px] font-semibold dark:fill-ink-200">
-        {node.label || 'alt'}
+        {node.label || t('alt')}
       </text>
       <text x={tagW + 8} y={15} className="fill-ink-500 text-[10px] dark:fill-ink-400">
         {node.text || ''}
@@ -331,6 +333,9 @@ export default function GraphNode({
   onDoubleClick,
   onStartConnection,
   onResize,
+  //: Zoom do quadro: a área de toque das alças é medida na TELA, e o nó
+  //: está desenhado no mundo, que encolhe junto com o zoom.
+  zoom = 1,
   //: Edição do rótulo acontece AQUI, no nó, e não num modal: num diagrama
   //: o texto é parte do desenho, e um painel lateral obriga a pessoa a
   //: olhar para longe do que está mudando.
@@ -398,7 +403,7 @@ export default function GraphNode({
         return (
           <>
             <ellipse cx={rect.w / 2} cy={rect.h / 2} rx={rect.w / 2 - 1} ry={rect.h / 2 - 1} {...surface()} />
-            <CenteredLabel text={node.text || 'chave'} rect={rect} className="fill-ink-800 text-[11px] font-medium underline dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('chave')} rect={rect} className="fill-ink-800 text-[11px] font-medium underline dark:fill-ink-100" />
           </>
         )
 
@@ -434,7 +439,7 @@ export default function GraphNode({
           <>
             <rect width={rect.w} height={rect.h} {...surface()} />
             <rect x={4} y={4} width={rect.w - 8} height={rect.h - 8} fill="none" stroke={accent} strokeWidth={1.2} />
-            <CenteredLabel text={node.text || 'Entidade'} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Entidade')} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -445,7 +450,7 @@ export default function GraphNode({
               points={`${rect.w * 0.18},1 ${rect.w - 1},1 ${rect.w * 0.82},${rect.h - 1} 1,${rect.h - 1}`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || 'Entrada'} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Entrada')} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -456,7 +461,7 @@ export default function GraphNode({
               points={`${rect.w * 0.15},1 ${rect.w * 0.85},1 ${rect.w - 1},${rect.h - 1} 1,${rect.h - 1}`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || 'Manual'} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Manual')} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -467,7 +472,7 @@ export default function GraphNode({
               d={`M1,1 L${rect.w * 0.7},1 A${rect.h / 2},${rect.h / 2} 0 0 1 ${rect.w * 0.7},${rect.h - 1} L1,${rect.h - 1} Z`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || 'Espera'} rect={{ ...rect, w: rect.w * 0.8 }} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Espera')} rect={{ ...rect, w: rect.w * 0.8 }} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -479,7 +484,7 @@ export default function GraphNode({
               {...surface()}
             />
             <ellipse cx={rect.w / 2} cy={14} rx={rect.w / 2 - 1} ry={13} fill="none" stroke={accent} strokeWidth={1.5} />
-            <CenteredLabel text={node.text || 'Dados'} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Dados')} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -490,7 +495,7 @@ export default function GraphNode({
               d={`M1,1 L${rect.w - 1},1 L${rect.w - 1},${rect.h - 16} Q${rect.w * 0.75},${rect.h - 2} ${rect.w / 2},${rect.h - 12} Q${rect.w * 0.25},${rect.h - 22} 1,${rect.h - 12} Z`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || 'Documento'} rect={{ ...rect, h: rect.h - 12 }} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Documento')} rect={{ ...rect, h: rect.h - 12 }} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
             {/* Um nó ligado a um documento de verdade não pode parecer
                 igual a um desenho de folha com legenda digitada: o
                 sublinhado e o canto dobrado dizem que ali tem para onde
@@ -523,7 +528,7 @@ export default function GraphNode({
               points={`${rect.w * 0.22},1 ${rect.w * 0.78},1 ${rect.w - 1},${rect.h / 2} ${rect.w * 0.78},${rect.h - 1} ${rect.w * 0.22},${rect.h - 1} 1,${rect.h / 2}`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || 'Hexágono'} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={node.text || t('Hexágono')} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -577,7 +582,7 @@ export default function GraphNode({
             <circle cx={rect.w / 2 + 6} cy={(rect.h - 14) / 2} r={Math.min(rect.w / 2 - 12, (rect.h - 24) / 2)} fill="none" stroke={accent} strokeWidth={1.8} />
             <line x1={6} y1={(rect.h - 14) / 2} x2={20} y2={(rect.h - 14) / 2} stroke={accent} strokeWidth={2} />
             <text x={rect.w / 2} y={rect.h - 3} textAnchor="middle" className="fill-ink-800 text-[10px] dark:fill-ink-100">
-              {node.text || 'Fronteira'}
+              {node.text || t('Fronteira')}
             </text>
           </>
         )
@@ -588,7 +593,7 @@ export default function GraphNode({
             <circle cx={rect.w / 2} cy={(rect.h - 14) / 2} r={Math.min(rect.w, rect.h - 24) / 2 - 2} fill="none" stroke={accent} strokeWidth={1.8} />
             <path d={`M${rect.w / 2 - 6},4 L${rect.w / 2},12 L${rect.w / 2 + 6},4`} fill="none" stroke={accent} strokeWidth={1.8} />
             <text x={rect.w / 2} y={rect.h - 3} textAnchor="middle" className="fill-ink-800 text-[10px] dark:fill-ink-100">
-              {node.text || 'Controle'}
+              {node.text || t('Controle')}
             </text>
           </>
         )
@@ -599,7 +604,7 @@ export default function GraphNode({
             <circle cx={rect.w / 2} cy={(rect.h - 20) / 2} r={Math.min(rect.w, rect.h - 26) / 2 - 2} fill="none" stroke={accent} strokeWidth={1.8} />
             <line x1={rect.w / 2 - 18} y1={rect.h - 20} x2={rect.w / 2 + 18} y2={rect.h - 20} stroke={accent} strokeWidth={2} />
             <text x={rect.w / 2} y={rect.h - 4} textAnchor="middle" className="fill-ink-800 text-[10px] dark:fill-ink-100">
-              {node.text || 'Entidade'}
+              {node.text || t('Entidade')}
             </text>
           </>
         )
@@ -611,7 +616,7 @@ export default function GraphNode({
             <rect x={1} y={16} width={20} height={13} {...surface({ strokeWidth: 1.2 })} />
             <rect x={1} y={40} width={20} height={13} {...surface({ strokeWidth: 1.2 })} />
             <text x={(rect.w + 10) / 2 + 5} y={rect.h / 2 + 4} textAnchor="middle" className="fill-ink-800 text-[11px] font-medium dark:fill-ink-100">
-              {node.text || 'Componente'}
+              {node.text || t('Componente')}
             </text>
           </>
         )
@@ -623,7 +628,7 @@ export default function GraphNode({
             <polyline points={`1,14 ${rect.w - 14},14 ${rect.w - 1},1`} fill="none" stroke={accent} strokeWidth={1.2} />
             <line x1={rect.w - 14} y1={14} x2={rect.w - 14} y2={rect.h - 1} stroke={accent} strokeWidth={1.2} />
             <text x={(rect.w - 14) / 2} y={rect.h / 2 + 4} textAnchor="middle" className="fill-ink-800 text-[11px] dark:fill-ink-100">
-              {node.text || 'Nó'}
+              {node.text || t('Nó')}
             </text>
           </>
         )
@@ -633,7 +638,7 @@ export default function GraphNode({
           <>
             <path d={`M1,18 L1,1 L70,1 L70,18 L${rect.w - 1},18 L${rect.w - 1},${rect.h - 1} L1,${rect.h - 1} Z`} {...surface()} />
             <text x={8} y={14} className="fill-ink-700 text-[10px] font-medium dark:fill-ink-200">
-              {node.text || 'pacote'}
+              {node.text || t('pacote')}
             </text>
           </>
         )
@@ -654,7 +659,7 @@ export default function GraphNode({
           <>
             <path d={`M1,1 L${rect.w - 16},1 L${rect.w - 1},16 L${rect.w - 1},${rect.h - 1} L1,${rect.h - 1} Z`} className="fill-amber-50 dark:fill-amber-500/10" stroke={accent} strokeWidth={1.5} />
             <path d={`M${rect.w - 16},1 L${rect.w - 16},16 L${rect.w - 1},16`} fill="none" stroke={accent} strokeWidth={1.5} />
-            <TextBlock text={node.text || 'Anotação'} rect={rect} className="fill-ink-700 text-[10px] dark:fill-ink-200" />
+            <TextBlock text={node.text || t('Anotação')} rect={rect} className="fill-ink-700 text-[10px] dark:fill-ink-200" />
           </>
         )
 
@@ -663,25 +668,25 @@ export default function GraphNode({
           <>
             <rect width={rect.w} height={rect.h} rx={10} fill={accent} fillOpacity={0.06} stroke={accent} strokeWidth={1.5} strokeDasharray="8 5" />
             <text x={12} y={20} className="text-[11px] font-semibold" fill={accent}>
-              {node.text || 'Área'}
+              {node.text || t('Área')}
             </text>
           </>
         )
 
       case 'image':
         return node.url ? (
-          <image href={node.url} width={rect.w} height={rect.h} preserveAspectRatio="xMidYMid slice" />
+          <image href={node.url.includes('/media/') ? urlDeMedia(node.url) : node.url} width={rect.w} height={rect.h} preserveAspectRatio="xMidYMid slice" />
         ) : (
           <>
             <rect width={rect.w} height={rect.h} rx={6} className="fill-ink-100 dark:fill-ink-800" stroke={accent} strokeWidth={1.5} strokeDasharray="5 4" />
-            <CenteredLabel text="Cole uma URL de imagem" rect={rect} className="fill-ink-400 text-[10px]" />
+            <CenteredLabel text={t('Cole uma URL de imagem')} rect={rect} className="fill-ink-400 text-[10px]" />
           </>
         )
 
       case 'bare':
         return (
           <TextBlock
-            text={node.text || 'Texto'}
+            text={node.text || t('Texto')}
             rect={rect}
             x={2}
             startY={20}
@@ -693,7 +698,7 @@ export default function GraphNode({
       case 'bare-large':
         return (
           <text x={2} y={rect.h / 2 + 8} className="fill-ink-900 text-[22px] font-semibold dark:fill-ink-50">
-            {node.text || 'Título'}
+            {node.text || t('Título')}
           </text>
         )
 
@@ -704,7 +709,7 @@ export default function GraphNode({
             {node.type === 'link' || node.type === 'document' ? (
               <>
                 <text x={12} y={26} className="fill-ink-900 text-[12px] font-medium dark:fill-ink-50">
-                  {(node.text || (node.type === 'link' ? 'Link' : 'Documento')).slice(0, 26)}
+                  {(node.text || (node.type === 'link' ? t('Link') : t('Documento'))).slice(0, 26)}
                 </text>
                 <text x={12} y={46} className="fill-ink-400 text-[10px]">
                   {(node.url || node.documentId || '—').slice(0, 34)}
@@ -777,36 +782,53 @@ export default function GraphNode({
         <>
           {/* Alça de conexão — fica ACIMA da borda direita para não
               disputar espaço com a alça de redimensionar do meio. */}
-          <circle
-            cx={rect.w + 14}
-            cy={rect.h / 2}
-            r={6}
-            className={cn(
-              'cursor-crosshair fill-accent-500 stroke-white stroke-2',
-              connecting && 'fill-emerald-500',
-            )}
+          {/* No toque a alça some sob o dedo: cada uma ganha uma área
+              invisível maior, que só existe onde não há mouse. */}
+          <g
             onPointerDown={(e) => {
               e.stopPropagation()
               onStartConnection(e)
             }}
-          />
+          >
+            <circle cx={rect.w + 14} cy={rect.h / 2} r={18 / zoom} fill="transparent" className="[@media(pointer:fine)]:hidden" />
+            <circle
+              cx={rect.w + 14}
+              cy={rect.h / 2}
+              r={6}
+              className={cn(
+                'cursor-crosshair fill-accent-500 stroke-white stroke-2',
+                connecting && 'fill-emerald-500',
+              )}
+            />
+          </g>
 
           {/* Oito alças, como em qualquer editor gráfico: os cantos mudam
               as duas dimensões, as bordas mudam só uma. */}
           {RESIZE_HANDLES.map((handle) => (
-            <rect
+            <g
               key={handle.id}
-              x={rect.w * handle.fx - 4}
-              y={rect.h * handle.fy - 4}
-              width={8}
-              height={8}
-              rx={1.5}
-              className={cn('fill-white stroke-accent-500 stroke-[1.5]', handle.cursor)}
               onPointerDown={(e) => {
                 e.stopPropagation()
                 onResize?.(e, handle.id)
               }}
-            />
+            >
+              <rect
+                x={rect.w * handle.fx - 12 / zoom}
+                y={rect.h * handle.fy - 12 / zoom}
+                width={24 / zoom}
+                height={24 / zoom}
+                fill="transparent"
+                className={cn('[@media(pointer:fine)]:hidden', handle.cursor)}
+              />
+              <rect
+                x={rect.w * handle.fx - 4}
+                y={rect.h * handle.fy - 4}
+                width={8}
+                height={8}
+                rx={1.5}
+                className={cn('fill-white stroke-accent-500 stroke-[1.5]', handle.cursor)}
+              />
+            </g>
           ))}
         </>
       )}

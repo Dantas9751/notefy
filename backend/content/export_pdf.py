@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from django.conf import settings
+
+from core.idioma import data_hora, texto
 from PIL import Image as PILImage
 
 from pygments import highlight as pygments_highlight
@@ -177,7 +179,7 @@ def build_html(document):
 
     meta = html_lib.escape(trail)
     if document.updated_at:
-        meta += f" — atualizada em {document.updated_at.strftime('%d/%m/%Y %H:%M')}"
+        meta += f" — {texto('atualizada em', 'updated')} {data_hora(document.updated_at)}"
 
     return (
         "<!DOCTYPE html><html><head>"

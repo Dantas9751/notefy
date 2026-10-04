@@ -1,6 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
+  // `hover:` só vale onde há mouse. Sem isto, num celular o último item
+  // tocado ficava "com hover" para sempre. Os controles que só aparecem no
+  // hover ganham a versão de toque em `index.css`.
+  future: { hoverOnlyWhenSupported: true },
   // O tema segue o `.dark` mais próximo, e um `.light` no meio do caminho
   // cancela. É o que permite ao canvas/diagrama ter tema próprio: o quadro
   // carrega `.light` ou `.dark` e todos os utilitários `dark:` de dentro
@@ -15,15 +19,9 @@ export default {
         // Stack de sistema: zero requisição de rede, renderização imediata
         // e a fonte nativa de cada SO — o que mantém a leitura confortável
         // em sessões longas de estudo.
-        sans: [
-          'Inter',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'Segoe UI',
-          'Roboto',
-          'Helvetica Neue',
-          'sans-serif',
-        ],
+        // A pilha mora em `--fonte-app` (index.css) para a pessoa trocar em
+        // Aparência (lib/fontes.js); o padrão continua sendo esta.
+        sans: ['var(--fonte-app)'],
         mono: ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
         // Serifada para TÍTULOS. É o que mais separa uma interface
         // desenhada de uma gerada: com uma família só, a hierarquia

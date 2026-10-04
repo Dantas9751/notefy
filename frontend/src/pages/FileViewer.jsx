@@ -10,7 +10,11 @@ import { Badge, Button, ErrorState, Modal, Spinner } from '@/components/ui'
 import DocumentMetaModal from '@/components/modals/DocumentMetaModal'
 import FilePreview, { baixarArquivoNoClique, ehArquivoDeOffice } from '@/components/FilePreview'
 import { ehArquivoDeTexto } from '@/components/TextFilePreview'
+import { kindMeta } from '@/lib/documents'
 import { cn, formatBytes, formatDate } from '@/lib/utils'
+import { t } from '@/lib/i18n'
+
+const IconeDoArquivo = kindMeta('file').icon
 
 /**
  * Visualização de um arquivo.
@@ -32,22 +36,13 @@ function PreviewDoArquivo({ doc }) {
     return (
       <div className="flex flex-col items-center gap-3 text-center">
         <p className="text-sm text-ink-500 dark:text-ink-400">
-          Este formato não tem pré-visualização.
+          {t('Este formato não tem pré-visualização.')}
         </p>
-        <a
-          href={doc.file_url}
-          download
-          onClick={(event) => {
-            // O href direto aponta para a origem do servidor de mídia,
-            // que a janela pode não alcançar — baixa pelo blob então.
-            event.preventDefault()
-            baixarArquivoNoClique(doc)
-          }}
-          className="inline-flex items-center gap-2 rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-700"
-        >
-          <Download size={15} />
-          Baixar {doc.original_name}
-        </a>
+        {/* Pelo blob, e não por um href: a origem do servidor de mídia pode
+            não ser alcançável pela janela. */}
+        <Button icon={Download} onClick={() => baixarArquivoNoClique(doc)}>
+          {t('Baixar')} {doc.original_name}
+        </Button>
       </div>
     )
   }
@@ -138,16 +133,21 @@ export default function FileViewer({ id: idProp }) {
       <div className="flex shrink-0 items-center gap-2 border-b border-ink-100 px-4 py-2 dark:border-ink-800">
         <button
           onClick={() => navigate(-1)}
-          aria-label="Voltar"
+          aria-label={t('Voltar')}
           className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800"
         >
           <ArrowLeft size={16} />
         </button>
 
+        {/* O ícone do tipo antes do caminho, como no editor. */}
+        <IconeDoArquivo size={15} className="shrink-0" style={{ color: doc.color || kindMeta('file').accent }} />
+
         {doc.breadcrumb?.length > 0 && (
           <nav className="hidden min-w-0 items-center gap-1 text-xs text-ink-400 sm:flex">
-            {doc.breadcrumb.map((crumb) => (
+            {doc.breadcrumb.map((crumb, i) => (
               <span key={crumb.id} className="flex shrink-0 items-center gap-1">
+                {/* Separador só ENTRE os lugares, como no editor. */}
+                {i > 0 && <ChevronRight size={11} />}
                 <Link
                   to={
                     crumb.type === 'category'
@@ -158,7 +158,6 @@ export default function FileViewer({ id: idProp }) {
                 >
                   {crumb.name}
                 </Link>
-                <ChevronRight size={11} />
               </span>
             ))}
           </nav>
@@ -170,37 +169,29 @@ export default function FileViewer({ id: idProp }) {
           </Badge>
           <button
             onClick={() => patch({ is_favorite: !doc.is_favorite })}
-            aria-label="Favoritar"
+            aria-label={t('Favoritar')}
             className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             <Star size={15} className={doc.is_favorite ? 'fill-amber-400 text-amber-400' : ''} />
           </button>
           <button
             onClick={() => setShowMeta(true)}
-            aria-label="Propriedades"
+            aria-label={t('Propriedades')}
             className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             <Settings2 size={15} />
           </button>
           <button
             onClick={() => setConfirmDelete(true)}
-            aria-label="Excluir"
+            aria-label={t('Excluir')}
             className="rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
           >
             <Trash2 size={15} />
           </button>
-          <a
-            href={doc.file_url}
-            download
-            onClick={(event) => {
-              event.preventDefault()
-              baixarArquivoNoClique(doc)
-            }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent-700"
-          >
-            <Download size={14} />
-            Baixar
-          </a>
+          {/* O mesmo botão `sm` do "Salvar" no editor. */}
+          <Button size="sm" icon={Download} onClick={() => baixarArquivoNoClique(doc)}>
+            {t('Baixar')}
+          </Button>
         </div>
       </div>
 
@@ -224,7 +215,7 @@ export default function FileViewer({ id: idProp }) {
               e.currentTarget.blur()
             }
           }}
-          aria-label="Nome do arquivo"
+          aria-label={t('Nome do arquivo')}
           spellCheck={false}
           className="w-full truncate rounded-md bg-transparent text-xl font-semibold tracking-tight text-ink-900 outline-none transition hover:bg-ink-100/60 focus:bg-ink-100/60 dark:text-ink-50 dark:hover:bg-ink-800/60 dark:focus:bg-ink-800/60"
         />
@@ -232,7 +223,7 @@ export default function FileViewer({ id: idProp }) {
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {doc.category && <Badge color={doc.category.color}>{doc.category.name}</Badge>}
           <span className="text-[11px] text-ink-400">
-            {doc.mime_type} · enviado em {formatDate(doc.created_at)}
+            {doc.mime_type} {t('· enviado em')} {formatDate(doc.created_at)}
           </span>
         </div>
       </div>
@@ -265,13 +256,13 @@ export default function FileViewer({ id: idProp }) {
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Excluir arquivo"
-        description="Esta ação não pode ser desfeita."
+        title={t('Excluir arquivo')}
+        description={t('Esta ação não pode ser desfeita.')}
         size="sm"
         footer={
           <>
             <Button variant="secondary" onClick={() => setConfirmDelete(false)}>
-              Cancelar
+              {t('Cancelar')}
             </Button>
             <Button
               variant="danger"
@@ -281,13 +272,13 @@ export default function FileViewer({ id: idProp }) {
                 navigate('/files', { replace: true })
               }}
             >
-              Excluir
+              {t('Excluir')}
             </Button>
           </>
         }
       >
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          <strong>{doc.title}</strong> será removido permanentemente.
+          <strong>{doc.title}</strong> {t('será removido permanentemente.')}
         </p>
       </Modal>
     </div>

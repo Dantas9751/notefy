@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { t } from '@/lib/i18n'
 
 const AssistenteContext = createContext(null)
 
 /** Uma conversa nova, sempre com histórico limpo. */
 let contador = 0
-const novaConversa = (titulo = 'Conversa') => ({
+const novaConversa = (titulo = t('Conversa')) => ({
   id: `c${Date.now()}-${contador++}`,
   titulo,
   mensagens: [],
@@ -141,7 +142,7 @@ export function AssistenteProvider({ children }) {
         c.id === id && !c.fixada
           ? {
               ...c,
-              titulo: titulo || 'Conversa',
+              titulo: titulo || t('Conversa'),
               docId: doc?.id ?? null,
               docTitulo: doc?.title ?? null,
               docKind: doc?.kind ?? null,

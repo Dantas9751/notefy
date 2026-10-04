@@ -1,28 +1,54 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CheckSquare, FolderOpen, Layers, Plus, Tag, Trash2, X, FolderPlus } from 'lucide-react'
+import {
+  BarChart3,
+  CheckSquare,
+  Crop,
+  FolderOpen,
+  FolderPlus,
+  Layers,
+  LayoutGrid,
+  List,
+  Plus,
+  Rows3,
+  SlidersHorizontal,
+  Tag,
+  Trash2,
+  X,
+} from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { propsDoCampo, useRenomear } from '@/hooks/useRenomear'
+import { usePreferencias } from '@/hooks/usePreferencias'
+import { useRenomear } from '@/hooks/useRenomear'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
+import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
-import DocumentCard from '@/components/DocumentCard'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import Bloco, { Abas } from '@/components/inicio/Bloco'
+import Capa, { BotaoDaCapa, enviarCapa } from '@/components/inicio/Capa'
+import ItensDoInicio from '@/components/inicio/ItensDoInicio'
+import BlocoTarefas from '@/components/inicio/BlocoTarefas'
+import BlocoAgenda from '@/components/inicio/BlocoAgenda'
+import BlocoRascunho from '@/components/inicio/BlocoRascunho'
+import BlocoArquivos from '@/components/inicio/BlocoArquivos'
+import PersonalizarInicio from '@/components/inicio/PersonalizarInicio'
 import { DOCUMENT_KINDS } from '@/lib/documents'
-import { TASK_PRIORITY, formatRelative, cn } from '@/lib/utils'
+import { LAYOUTS_DE_ITENS, layoutDoInicio } from '@/lib/inicio'
+import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
+import { idioma, t } from '@/lib/i18n'
 
 function greeting() {
   const hour = new Date().getHours()
-  if (hour < 12) return 'Bom dia'
-  if (hour < 18) return 'Boa tarde'
-  return 'Boa noite'
+  if (hour < 12) return t('Bom dia')
+  if (hour < 18) return t('Boa tarde')
+  return t('Boa noite')
 }
 
 /**
@@ -30,22 +56,30 @@ function greeting() {
  *
  * O ícone fica no RÓTULO, não numa caixa colorida acima do número: o
  * painel de quatro cartões com ícone dentro de um quadradinho é o que
- * todo gerador de interface produz. Aqui ele é do mesmo tamanho e do
- * mesmo traço dos ícones da Busca — era essa a incoerência entre as duas
- * telas, uma com ícone em tudo e a outra com ícone em nada.
+ * todo gerador de interface produz.
  */
-function Numero({ icon: Icon, label, value, to }) {
-  return (
-    <Link to={to} className="group block">
-      <p className="font-serif text-numero tabular-nums text-ink-900 transition group-hover:text-accent-700 dark:text-ink-50 dark:group-hover:text-accent-400">
+function Numero({ icon: Icon, label, value, to, onClick }) {
+  const conteudo = (
+    <>
+      <p
+        className={cn(
+          'font-serif text-numero tabular-nums text-ink-900 transition dark:text-ink-50',
+          (to || onClick) && 'group-hover:text-accent-700 dark:group-hover:text-accent-400',
+        )}
+      >
         {value ?? '—'}
       </p>
       <p className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-500 dark:text-ink-400">
         <Icon size={ICONE.sm} className="shrink-0" />
         {label}
       </p>
-    </Link>
+    </>
   )
+  // Número sem destino é só número: um link para a própria página parecia
+  // clicável e não levava a lugar nenhum.
+  if (to) return <Link to={to} className="group block">{conteudo}</Link>
+  if (onClick) return <button type="button" onClick={onClick} className="group block text-left">{conteudo}</button>
+  return <div>{conteudo}</div>
 }
 
 /** Cartão de categoria com suporte a seleção e clique direito. */
@@ -60,37 +94,20 @@ function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, ind
       // browser resolverem o clique, senão a categoria abre em outra aba.
       onClickCapture={onClickCapture}
       onContextMenu={onContextMenu}
-      // Linha, não cartão: a cor da categoria vira um ponto, e não uma
-      // tarja de 3px no topo. A tarja colorida era o único sinal de
-      // identidade do bloco, e é a marca registrada do painel genérico.
       style={{ '--i': indice }}
       className={cn(
         'entra group block px-2 py-3 transition',
-        // Tinta cheia, não 10% de opacidade: numa lista de fio não há
-        // borda para receber o anel de seleção, então o fundo é o único
-        // sinal — e no escuro um accent a 10% sobre ink-950 é invisível.
-        isSelected
-          ? 'bg-accent-100 dark:bg-accent-500/25'
-          : 'hover:bg-ink-100/60 dark:hover:bg-ink-800/40',
+        isSelected ? 'bg-accent-100 dark:bg-accent-500/25' : 'hover:bg-ink-100/60 dark:hover:bg-ink-800/40',
       )}
     >
       <div className="flex items-baseline gap-2.5">
-        <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: category.color }}
-        />
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
         <h3 className="titulo min-w-0 flex-1 truncate text-[15px]">{category.name}</h3>
-        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">
-          {category.document_count}
-        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{category.document_count}</span>
       </div>
-
-      {/* As pastas em linha corrida. Uma lista vertical de quatro itens
-          com ícone de pasta em cada é altura gasta para repetir o que o
-          contexto já diz. */}
       <p className="mt-1 truncate pl-[18px] text-[12px] text-ink-500 dark:text-ink-400">
         {folders.length === 0 ? (
-          <span className="text-ink-400">sem pastas</span>
+          <span className="text-ink-400">{t('sem pastas')}</span>
         ) : (
           <>
             {preview.map((f) => f.name).join(' · ')}
@@ -102,57 +119,79 @@ function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, ind
   )
 }
 
+const ICONES_DE_LAYOUT = { cartoes: LayoutGrid, pilha: Rows3, lista: List }
+const QUANTOS = { cartoes: 6, pilha: 5, lista: 8 }
+
 /**
  * Início — painel e porta de entrada da hierarquia.
+ *
+ * Montado em blocos, como a tela inicial do Evernote: capa com a saudação
+ * e, embaixo, o que a pessoa escolher ver — itens recentes ou com estrela
+ * (em cartões, pilha ou lista), tarefas para marcar, a agenda do dia, um
+ * bloco de rascunho, os arquivos que chegaram por último e as categorias.
+ * "Personalizar" decide quais, em que ordem e com que largura; fica salvo
+ * na conta (`home_layout`).
  */
 export default function Home() {
   const { user } = useAuth()
   const { categories, loading, refresh } = useWorkspace()
   const navigate = useNavigate()
   const { menu, openMenu, closeMenu } = useContextMenu()
-  
-  const [categoryModal, setCategoryModal] = useState(false)
-  const [folderModal, setFolderModal] = useState(null) // Para "Nova pasta" na categoria
+  const { prefs, salvar } = usePreferencias()
+  const layout = layoutDoInicio(prefs.home_layout)
 
-  // Estados de Multi-Seleção e Erro
+  const [categoryModal, setCategoryModal] = useState(false)
+  const [folderModal, setFolderModal] = useState(null)
+  const [personalizando, setPersonalizando] = useState(false)
+  const [recortando, setRecortando] = useState(false)
+
   const [selectedIds, setSelectedIds] = useState([])
   const [actionError, setActionError] = useState(null)
   const lastSelectedId = useRef(null)
 
-  // Estado para o Modal de Exclusão em Massa
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   const stats = useFetch('/documents/stats/')
   const recent = useFetch('/documents/recent/')
-  const upcoming = useFetch('/tasks/', {
-    params: { status: 'todo', ordering: 'starts_at', page_size: 6 },
+  const favoritos = useFetch('/documents/', {
+    params: { is_favorite: true, ordering: '-updated_at', page_size: 12 },
+    enabled: layout.aba_notas === 'favoritos',
   })
-  
-  const renomear = useRenomear({ onRenamed: recent.refetch })
+  const tarefasAbertas = useFetch('/tasks/', { params: { open: true, page_size: 1 } })
+
+  const itens = layout.aba_notas === 'favoritos' ? favoritos.data?.results ?? [] : recent.data ?? []
+  const fonteDosItens = layout.aba_notas === 'favoritos' ? favoritos : recent
+  const itensVisiveis = itens.slice(0, QUANTOS[layout.itens])
+
+  const recarregarItens = () => {
+    recent.refetch()
+    if (layout.aba_notas === 'favoritos') favoritos.refetch()
+  }
+
+  const renomear = useRenomear({ onRenamed: recarregarItens })
   const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({
-    onChanged: recent.refetch,
+    onChanged: recarregarItens,
     onRename: (doc) => renomear.abrir(doc.id),
   })
 
-  // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
   const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
     onDeleted: () => {
       setSelectedIds([])
       stats.refetch()
-      recent.refetch()
-      upcoming.refetch()
+      recarregarItens()
       refresh()
     },
     onError: setActionError,
   })
 
-  // Atalho Tecla ESC para limpar seleções
+  /** Muda o layout na hora e grava na conta. */
+  const mudarLayout = (patch) => {
+    salvar({ home_layout: { ...layout, ...patch } }).catch((err) => setActionError(extractError(err)))
+  }
+
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setSelectedIds([])
-      }
+      if (e.key === 'Escape') setSelectedIds([])
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -162,46 +201,41 @@ export default function Home() {
     const onChanged = () => {
       stats.refetch()
       recent.refetch()
-      upcoming.refetch()
+      tarefasAbertas.refetch()
       refresh()
     }
-    // `task-changed` junto: o painel mostra "Tarefas abertas" e a lista
-    // do que vem a seguir. Concluir uma tarefa no Quadro mudava os dois
-    // e esta tela só descobria ao ser recarregada — o número ficava
-    // contando uma tarefa que o usuário já tinha fechado.
+    // `task-changed` junto: o painel mostra "Tarefas abertas". Concluir uma
+    // tarefa no Quadro (ou no bloco de tarefas) muda o número.
     const eventos = ['notefy:moved', 'notefy:task-changed']
     eventos.forEach((e) => window.addEventListener(e, onChanged))
     return () => eventos.forEach((e) => window.removeEventListener(e, onChanged))
-  }, [stats.refetch, recent.refetch, upcoming.refetch, refresh])
+  }, [stats.refetch, recent.refetch, tarefasAbertas.refetch, refresh])
 
   /* ------------------------------------------------------------------ */
-  /* Lógica de Cliques e Multi-Seleção                                  */
+  /* Cliques e multi-seleção                                            */
   /* ------------------------------------------------------------------ */
   const handleItemClick = (itemType, itemId, event) => {
     const uniqueKey = `${itemType}:${itemId}`
 
-    if (event.ctrlKey || event.metaKey) {
+    // No toque, com a seleção aberta, o toque soma ou tira (ver useMultiSelect).
+    const tocandoNaSelecao = event.nativeEvent?.pointerType === 'touch' && selectedIds.length > 0
+
+    if (event.ctrlKey || event.metaKey || tocandoNaSelecao) {
       event.preventDefault()
       event.stopPropagation()
-      setSelectedIds((prev) =>
-        prev.includes(uniqueKey) ? prev.filter((i) => i !== uniqueKey) : [...prev, uniqueKey]
-      )
+      setSelectedIds((prev) => (prev.includes(uniqueKey) ? prev.filter((i) => i !== uniqueKey) : [...prev, uniqueKey]))
       lastSelectedId.current = uniqueKey
       return
     }
 
-    // Shift marca o intervalo. Faltava por completo: o clique caía no
-    // ramo comum e, como os cartões são `<Link>`, o browser ainda abria
-    // a categoria numa nova aba.
+    // Shift marca o intervalo, dentro da mesma lista.
     if (event.shiftKey) {
       event.preventDefault()
       event.stopPropagation()
-      // Cada seção é uma lista independente — "tudo entre A e B" só faz
-      // sentido dentro da mesma grade.
       const lista =
         itemType === 'category'
           ? (categories ?? []).map((c) => `category:${c.id}`)
-          : (recent.data ?? []).slice(0, 6).map((d) => `document:${d.id}`)
+          : itensVisiveis.map((d) => `document:${d.id}`)
       const de = lista.indexOf(lastSelectedId.current)
       const ate = lista.indexOf(uniqueKey)
       if (de === -1 || ate === -1) {
@@ -221,7 +255,7 @@ export default function Home() {
   const handleContextMenu = (itemType, item, event) => {
     event.preventDefault()
     const uniqueKey = `${itemType}:${item.id}`
-    
+
     let currentSelected = selectedIds
     if (!selectedIds.includes(uniqueKey)) {
       currentSelected = [uniqueKey]
@@ -234,7 +268,7 @@ export default function Home() {
   }
 
   /* ------------------------------------------------------------------ */
-  /* Lógica de Exclusão Blindada                                        */
+  /* Exclusão                                                            */
   /* ------------------------------------------------------------------ */
   const deleteOne = async (selectionKey) => {
     const [itemType, itemId] = selectionKey.split(':')
@@ -243,23 +277,20 @@ export default function Home() {
     try {
       await api.delete(endpoint)
     } catch (err) {
-      if (err.response?.status === 404) return;
+      if (err.response?.status === 404) return
       try {
         await api.delete(`${endpoint}?force=true`)
       } catch (forceErr) {
-        if (forceErr.response?.status === 404) return;
-        throw forceErr;
+        if (forceErr.response?.status === 404) return
+        throw forceErr
       }
     }
   }
 
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return
-
     const idsToDelete = [...selectedIds]
     setActionError(null)
-    setIsDeletingBulk(true)
-
     try {
       for (const selectionKey of idsToDelete) {
         await deleteOne(selectionKey)
@@ -270,21 +301,16 @@ export default function Home() {
       setSelectedIds([])
       lastSelectedId.current = null
       setBulkDeleteModalOpen(false)
-      setIsDeletingBulk(false)
-      
       stats.refetch()
-      recent.refetch()
-      upcoming.refetch()
+      recarregarItens()
       refresh()
     }
   }
 
   const handleBulkDeleteWithDialog = () => {
     if (selectedIds.length === 0) return
-
     if (selectedIds.length === 1) {
       const [itemType, itemId] = selectedIds[0].split(':')
-      
       if (itemType === 'category') {
         const cat = categories.find((c) => String(c.id) === String(itemId))
         if (cat) {
@@ -293,7 +319,7 @@ export default function Home() {
           return
         }
       } else if (itemType === 'document') {
-        const doc = recent.data?.find((d) => String(d.id) === String(itemId))
+        const doc = itens.find((d) => String(d.id) === String(itemId))
         if (doc) {
           setActionError(null)
           requestDelete({ kind: 'document', id: doc.id, name: doc.title })
@@ -301,250 +327,306 @@ export default function Home() {
         }
       }
     }
-
     setBulkDeleteModalOpen(true)
   }
 
   const firstName = (user?.full_name || user?.username || '').split(' ')[0]
+  const saudacao = `${greeting()}${firstName ? `, ${firstName}` : ''}`
   const byKind = stats.data?.by_kind ?? {}
   const totalFolders = categories.reduce((sum, c) => sum + (c.folder_count ?? 0), 0)
 
-  return (
-    <div className="pb-24">
-      <PageHeader
-        title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
-        actions={
-          <Button icon={Plus} onClick={() => setCategoryModal(true)}>
-            Nova categoria
-          </Button>
-        }
-      />
+  /* ------------------------------------------------------------------ */
+  /* Blocos                                                              */
+  /* ------------------------------------------------------------------ */
+  const largura = (b) => (b.largura === 'inteira' ? 'lg:col-span-2' : '')
+  // As categorias (e as pastas delas) moram no bloco de categorias do próprio
+  // Início; escondido o bloco, os números ficam só números.
+  const categoriasVisiveis = layout.blocos.some((b) => b.id === 'categorias' && b.visivel)
+  const irParaCategorias = categoriasVisiveis
+    ? () => document.getElementById('bloco-categorias')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    : undefined
 
-      <PageBody className="space-y-8">
-        {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
+  const blocos = {
+    resumo: (b) => (
+      <Bloco key={b.id} titulo={t('Resumo')} icon={BarChart3} className={largura(b)}>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+          <Numero icon={Layers} label={t('Itens no total')} value={stats.data?.total} to="/recent" />
+          <Numero icon={Tag} label={t('Categorias')} value={categories.length} onClick={irParaCategorias} />
+          <Numero icon={FolderOpen} label={t('Pastas')} value={totalFolders} onClick={irParaCategorias} />
+          <Numero icon={CheckSquare} label={t('Tarefas abertas')} value={tarefasAbertas.data?.count} to="/board" />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+          {Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => {
+            const count = byKind[kind] ?? 0
+            return (
+              // `type` e não `kind`: é o nome que a busca lê da URL.
+              <Link
+                key={kind}
+                to={`/search?type=${kind}`}
+                title={t('Ver {valor}', { valor: meta.plural.toLowerCase() })}
+                className={cn(
+                  'group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition',
+                  count === 0
+                    ? 'border-ink-200 text-ink-400 dark:border-ink-800 dark:text-ink-500'
+                    : 'border-ink-200 text-ink-600 hover:border-ink-300 hover:text-ink-900 dark:border-ink-700 dark:text-ink-300 dark:hover:border-ink-600 dark:hover:text-ink-50',
+                )}
+              >
+                <meta.icon
+                  size={ICONE.sm}
+                  className="shrink-0 self-center transition group-hover:scale-110"
+                  style={{ color: count === 0 ? undefined : meta.accent }}
+                />
+                <span className="font-medium tabular-nums">{count}</span>
+                <span>{count === 1 ? meta.label : meta.plural}</span>
+              </Link>
+            )
+          })}
+        </div>
+      </Bloco>
+    ),
 
-        {/* Painel: quanto tem de cada coisa.
-            Quatro números soltos sobre um fio, e os tipos como texto
-            corrido embaixo. Antes eram nove cartões em duas grades — o
-            olho não tinha onde pousar primeiro. */}
-        <section>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-ink-150 pb-6 sm:grid-cols-4 dark:border-ink-800">
-            <Numero icon={Layers} label="Itens no total" value={stats.data?.total} to="/recent" />
-            <Numero icon={Tag} label="Categorias" value={categories.length} to="/" />
-            <Numero icon={FolderOpen} label="Pastas" value={totalFolders} to="/" />
-            <Numero
-              icon={CheckSquare}
-              label="Tarefas abertas"
-              value={upcoming.data?.count}
-              to="/board"
+    notas: (b) => (
+      <Bloco
+        key={b.id}
+        titulo={layout.aba_notas === 'favoritos' ? t('Com estrela') : t('Mexidos recentemente')}
+        icon={Layers}
+        className={largura(b)}
+        acoes={
+          <>
+            <Abas
+              valor={layout.aba_notas}
+              rotulo={t('Quais itens')}
+              onTrocar={(aba) => mudarLayout({ aba_notas: aba })}
+              opcoes={[
+                { id: 'recentes', nome: t('Recentes') },
+                { id: 'favoritos', nome: t('Favoritos') },
+              ]}
             />
-          </div>
-
-          {/* Os tipos viram uma linha de texto: a contagem por tipo é
-              informação secundária, e cinco cartões com tarja colorida à
-              esquerda davam a ela o mesmo peso do painel inteiro. O ponto
-              colorido mantém a identidade de cada tipo sem a tarja. */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-            {Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => {
-              const count = byKind[kind] ?? 0
-              return (
-                // `type` e nao `kind`: e o nome que a busca le da URL
-                // (`searchParams.getAll('type')`) e manda para a API. Com
-                // `kind` a navegacao funcionaria e o filtro nao aplicaria —
-                // silenciosamente.
-                <Link
-                  key={kind}
-                  to={`/search?type=${kind}`}
-                  title={`Ver ${meta.plural.toLowerCase()}`}
-                  className={cn(
-                    'group flex items-baseline gap-1.5 text-[12px] transition',
-                    count === 0
-                      ? 'text-ink-400 dark:text-ink-500'
-                      : 'text-ink-600 hover:text-ink-900 dark:text-ink-300 dark:hover:text-ink-50',
-                  )}
-                >
-                  {/* O mesmo ícone que a Busca usa para este tipo, no
-                      mesmo tamanho: as duas telas listam os mesmos cinco
-                      tipos e precisavam ser reconhecíveis uma na outra. */}
-                  <meta.icon
-                    size={ICONE.sm}
-                    className="shrink-0 self-center transition group-hover:scale-110"
-                    style={{ color: count === 0 ? undefined : meta.accent }}
-                  />
-                  <span className="font-medium tabular-nums">{count}</span>
-                  <span>{count === 1 ? meta.label.toLowerCase() : meta.plural.toLowerCase()}</span>
-                </Link>
-              )
-            })}
-          </div>
-        </section>
-
-        {/* Categorias — o primeiro nível da navegação */}
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="secao">Categorias</h2>
-          </div>
-
-          {loading ? (
-            <ListSkeleton rows={2} />
-          ) : categories.length ? (
-            <div className="rows">
-              {categories.map((category, i) => {
-                const isSelected = selectedIds.includes(`category:${category.id}`)
+            {/* O desenho dos itens, direto no bloco: mudar e ver na hora. */}
+            <div className="ml-1 flex" role="radiogroup" aria-label={t('Desenho dos itens')}>
+              {LAYOUTS_DE_ITENS.map((l) => {
+                const Icone = ICONES_DE_LAYOUT[l.id]
                 return (
-                  <CategoryCard
-                    key={category.id}
-                    indice={i}
-                    category={category}
-                    isSelected={isSelected}
-                    onClickCapture={(e) => handleItemClick('category', category.id, e)}
-                    onContextMenu={(e) => handleContextMenu('category', category, e)}
-                  />
+                  <button
+                    key={l.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={layout.itens === l.id}
+                    title={l.nome}
+                    aria-label={l.nome}
+                    onClick={() => mudarLayout({ itens: l.id })}
+                    className={cn(
+                      'rounded p-1 transition [@media(pointer:coarse)]:p-2',
+                      layout.itens === l.id
+                        ? 'bg-ink-100 text-ink-800 dark:bg-ink-800 dark:text-ink-50'
+                        : 'text-ink-400 hover:text-ink-700 dark:hover:text-ink-200',
+                    )}
+                  >
+                    <Icone size={14} />
+                  </button>
                 )
               })}
             </div>
-          ) : (
-            <EmptyState
-              icon={Tag}
-              title="Comece criando uma categoria"
-              description="Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas e canvas."
-              action={
-                <Button icon={Plus} onClick={() => setCategoryModal(true)}>
-                  Criar categoria
-                </Button>
-              }
+          </>
+        }
+      >
+        {fonteDosItens.loading && !fonteDosItens.data ? (
+          <ListSkeleton rows={3} />
+        ) : fonteDosItens.error ? (
+          <ErrorState message={fonteDosItens.error} onRetry={fonteDosItens.refetch} />
+        ) : itensVisiveis.length === 0 ? (
+          <p className="py-6 text-center text-xs text-ink-400">
+            {layout.aba_notas === 'favoritos'
+              ? t('Nada com estrela ainda. Clique na estrela de um item para ele aparecer aqui.')
+              : t('Nada por aqui ainda. Crie uma nota pelo botão Criar.')}
+          </p>
+        ) : (
+          <>
+            <ItensDoInicio
+              itens={itensVisiveis}
+              layout={layout.itens}
+              selecionados={selectedIds}
+              renomear={renomear}
+              onClickCapture={(doc, e) => handleItemClick('document', doc.id, e)}
+              onContextMenu={(doc, e) => handleContextMenu('document', doc, e)}
             />
-          )}
-        </section>
-
-        {/* Recentes */}
-        {(recent.loading || recent.data?.length > 0) && (
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="secao">Mexidos recentemente</h2>
-              <Link
-                to="/recent"
-                className="text-xs text-ink-500 underline-offset-2 hover:underline dark:text-ink-400"
-              >
-                Ver todos
-              </Link>
-            </div>
-
-            {recent.loading ? (
-              <ListSkeleton rows={3} />
-            ) : recent.error ? (
-              <ErrorState message={recent.error} onRetry={recent.refetch} />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {recent.data.slice(0, 6).map((doc) => {
-                  const isSelected = selectedIds.includes(`document:${doc.id}`)
-                  return (
-                    <div
-                      key={doc.id}
-                      onClickCapture={(e) => handleItemClick('document', doc.id, e)}
-                      onContextMenu={(e) => handleContextMenu('document', doc, e)}
-                      className={cn(
-                        'rounded-xl transition cursor-pointer overflow-hidden',
-                        isSelected && 'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10'
-                      )}
-                    >
-                      <DocumentCard
-                        document={doc}
-                        showFolder
-                        selecionado={isSelected}
-                        renomeando={renomear.estaEditando(doc.id)}
-                        onRename={() => renomear.abrir(doc.id)}
-                        erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
-                        camposDeRenomear={propsDoCampo({
-                          valorAtual: doc.title,
-                          endpoint: `/documents/${doc.id}/`,
-                          campo: 'title',
-                          gravar: renomear.gravar,
-                          fechar: renomear.fechar,
-                        })}
-                      />
-                    </div>
-                  )
-                })}
+            {layout.aba_notas === 'recentes' && (
+              <div className="mt-3 text-right">
+                <Link to="/recent" className="text-xs text-ink-500 underline-offset-2 hover:underline dark:text-ink-400">
+                  {t('Ver todos')}
+                </Link>
               </div>
             )}
-          </section>
+          </>
+        )}
+      </Bloco>
+    ),
+
+    tarefas: (b) => <BlocoTarefas key={b.id} className={largura(b)} />,
+    agenda: (b) => <BlocoAgenda key={b.id} className={largura(b)} />,
+    rascunho: (b) => <BlocoRascunho key={b.id} className={largura(b)} />,
+    arquivos: (b) => (
+      <BlocoArquivos
+        key={b.id}
+        className={largura(b)}
+        aba={layout.aba_arquivos}
+        onTrocarAba={(aba) => mudarLayout({ aba_arquivos: aba })}
+      />
+    ),
+
+    categorias: (b) => (
+      <Bloco
+        key={b.id}
+        id="bloco-categorias"
+        titulo={t('Categorias')}
+        icon={Tag}
+        className={cn('scroll-mt-4', largura(b))}
+        acoes={
+          <button
+            type="button"
+            onClick={() => setCategoryModal(true)}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100"
+          >
+            <Plus size={12} />
+            {t('Nova categoria')}
+          </button>
+        }
+      >
+        {loading ? (
+          <ListSkeleton rows={2} />
+        ) : categories.length ? (
+          <div className="rows -mx-2">
+            {categories.map((category, i) => (
+              <CategoryCard
+                key={category.id}
+                indice={i}
+                category={category}
+                isSelected={selectedIds.includes(`category:${category.id}`)}
+                onClickCapture={(e) => handleItemClick('category', category.id, e)}
+                onContextMenu={(e) => handleContextMenu('category', category, e)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={Tag}
+            title={t('Comece criando uma categoria')}
+            description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas e canvas.')}
+            action={
+              <Button icon={Plus} onClick={() => setCategoryModal(true)}>
+                {t('Criar categoria')}
+              </Button>
+            }
+          />
+        )}
+      </Bloco>
+    ),
+  }
+
+  /** Foto nova na capa (dos arquivos, do computador ou arrastada): vale na hora e já abre o recorte. */
+  const usarFoto = (url) => {
+    mudarLayout({ capa: { tipo: 'imagem', url } })
+    setPersonalizando(false)
+    setRecortando(true)
+  }
+  const usarFotoNaCapa = async (arquivo) => {
+    setActionError(null)
+    try {
+      usarFoto(await enviarCapa(arquivo))
+    } catch (err) {
+      setActionError(extractError(err))
+    }
+  }
+
+  const acoesDoTopo = (naCapa, escuro = false) =>
+    naCapa ? (
+      <>
+        {layout.capa.tipo === 'imagem' && (
+          <BotaoDaCapa icon={Crop} escuro={escuro} onClick={() => setRecortando(true)} aria-label={t('Recortar')}>
+            <span className="max-sm:hidden">{t('Recortar')}</span>
+          </BotaoDaCapa>
+        )}
+        <BotaoDaCapa icon={SlidersHorizontal} escuro={escuro} onClick={() => setPersonalizando(true)} aria-label={t('Personalizar')}>
+          <span className="max-sm:hidden">{t('Personalizar')}</span>
+        </BotaoDaCapa>
+        <BotaoDaCapa icon={Plus} escuro={escuro} onClick={() => setCategoryModal(true)} aria-label={t('Nova categoria')}>
+          <span className="max-sm:hidden">{t('Nova categoria')}</span>
+        </BotaoDaCapa>
+      </>
+    ) : (
+      <>
+        <Button variant="secondary" size="sm" icon={SlidersHorizontal} onClick={() => setPersonalizando(true)}>
+          {t('Personalizar')}
+        </Button>
+        <Button size="sm" icon={Plus} onClick={() => setCategoryModal(true)}>
+          {t('Nova categoria')}
+        </Button>
+      </>
+    )
+
+  return (
+    <div className="pb-24">
+      {layout.capa.tipo === 'nenhuma' ? (
+        <PageHeader title={saudacao} actions={acoesDoTopo(false)} />
+      ) : (
+        <Capa
+          capa={layout.capa}
+          saudacao={saudacao}
+          data={new Date().toLocaleDateString(idioma, { weekday: 'long', day: 'numeric', month: 'long' })}
+          acoes={(escuro) => acoesDoTopo(true, escuro)}
+          onSoltarImagem={usarFotoNaCapa}
+          recortando={recortando && layout.capa.tipo === 'imagem'}
+          onSalvarRecorte={(recorte) => {
+            mudarLayout({ capa: { ...layout.capa, ...recorte } })
+            setRecortando(false)
+          }}
+          onCancelarRecorte={() => setRecortando(false)}
+        />
+      )}
+
+      <PageBody>
+        {actionError && (
+          <div className="mb-4">
+            <ErrorState message={actionError} />
+          </div>
         )}
 
-        {/* Próximas tarefas */}
-        {upcoming.data?.results?.length > 0 && (
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold tracking-tight text-ink-900 dark:text-ink-100">
-                Próximas tarefas
-              </h2>
-              <Link
-                to="/board"
-                className="text-xs text-ink-500 underline-offset-2 hover:underline dark:text-ink-400"
-              >
-                Ver quadro
-              </Link>
-            </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {layout.blocos.filter((b) => b.visivel).map((b) => blocos[b.id]?.(b))}
+        </div>
 
-            <ul className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-200 dark:divide-ink-800 dark:border-ink-800">
-              {upcoming.data.results.map((task) => (
-                <li
-                  key={task.id}
-                  className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-ink-50 dark:hover:bg-ink-900"
-                >
-                  <CheckSquare size={15} className="shrink-0 text-ink-300" />
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink-700 dark:text-ink-200">
-                    {task.title}
-                  </span>
-                  {task.document_title && (
-                    <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
-                      {task.document_title}
-                    </Badge>
-                  )}
-                  <span
-                    className={`text-[11px] font-medium ${TASK_PRIORITY[task.priority]?.className}`}
-                  >
-                    {task.priority_label}
-                  </span>
-                  {task.starts_at ? (
-                    <span className="shrink-0 text-[11px] text-ink-400">
-                      {formatRelative(task.starts_at)}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-[11px] italic text-ink-400">sem data</span>
-                  )}
-                  {task.is_overdue && <Badge className="bg-red-100 text-red-700">atrasada</Badge>}
-                </li>
-              ))}
-            </ul>
-          </section>
+        {layout.blocos.every((b) => !b.visivel) && (
+          <p className="py-16 text-center text-sm text-ink-400">
+            {t('Todos os blocos estão escondidos.')}{' '}
+            <button type="button" onClick={() => setPersonalizando(true)} className="underline underline-offset-2">
+              {t('Personalizar')}
+            </button>
+          </p>
         )}
       </PageBody>
 
-      {/* Barra Flutuante de Ações em Massa */}
       {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 animate-slide-up items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionado(s)
+            {selectedIds.length} {t('selecionado(s)')}
           </span>
           <div className="h-4 w-px bg-ink-700" />
           <button
             onClick={handleBulkDeleteWithDialog}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
-            <Trash2 size={14} /> Excluir
+            <Trash2 size={14} /> {t('Excluir')}
           </button>
           <button
             onClick={() => setSelectedIds([])}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
         </div>
       )}
 
-      {/* Menu de Contexto */}
       <ContextMenu
         open={!!menu}
         x={menu?.x ?? 0}
@@ -554,7 +636,7 @@ export default function Home() {
           menu?.payload?.isMultiple
             ? [
                 {
-                  label: `Excluir (${selectedIds.length} selecionados)`,
+                  label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
                   onClick: handleBulkDeleteWithDialog,
@@ -563,22 +645,18 @@ export default function Home() {
             : menu?.payload?.type === 'category'
               ? [
                   {
-                    label: 'Nova pasta',
+                    label: t('Nova pasta'),
                     icon: FolderPlus,
                     onClick: () => setFolderModal({ categoryId: menu.payload.category.id }),
                   },
                   { separator: true },
                   {
-                    label: 'Excluir',
+                    label: t('Excluir'),
                     icon: Trash2,
                     danger: true,
                     onClick: () => {
                       setActionError(null)
-                      requestDelete({
-                        kind: 'category',
-                        id: menu.payload.category.id,
-                        name: menu.payload.category.name,
-                      })
+                      requestDelete({ kind: 'category', id: menu.payload.category.id, name: menu.payload.category.name })
                     },
                   },
                 ]
@@ -588,36 +666,32 @@ export default function Home() {
         }
       />
 
-      {/* Modais de Exclusão e Ações */}
       {deleteDialogs}
       {docActionDialogs}
 
-      <Modal
+      <PersonalizarInicio
+        open={personalizando}
+        onClose={() => setPersonalizando(false)}
+        layout={layout}
+        onMudar={mudarLayout}
+        onEnviarFoto={usarFotoNaCapa}
+        onEscolherFoto={usarFoto}
+        onRecortar={() => {
+          setPersonalizando(false)
+          setRecortando(true)
+        }}
+        onRestaurar={() => salvar({ home_layout: {} }).catch((err) => setActionError(extractError(err)))}
+      />
+
+      <ConfirmDialog
         open={bulkDeleteModalOpen}
         onClose={() => setBulkDeleteModalOpen(false)}
-        title="Excluir múltiplos itens"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              loading={isDeletingBulk}
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
-            >
-              Sim, excluir {selectedIds.length} itens
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          Você está prestes a excluir <strong>{selectedIds.length}</strong> itens (e todo o seu conteúdo interno) de forma permanente.
-          Deseja continuar?
-        </p>
-      </Modal>
+        title={t('Excluir itens selecionados')}
+        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
+        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
+        onConfirm={handleBulkDelete}
+      />
 
-      {/* Modais de Criação */}
       <CategoryFormModal
         open={categoryModal}
         onClose={() => setCategoryModal(false)}

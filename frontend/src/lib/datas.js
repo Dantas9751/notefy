@@ -8,18 +8,20 @@
  * problema.
  */
 
+import { t } from './i18n.js'
+
 export const ANO_MIN = 1900
 export const ANO_MAX = 2200
 export const DATA_MIN = `${ANO_MIN}-01-01T00:00`
 export const DATA_MAX = `${ANO_MAX}-12-31T23:59`
 
 /** Mensagem do problema na data, ou `null` quando ela serve. */
-export function erroDeData(valor, rotulo = 'A data') {
+export function erroDeData(valor, rotulo = t('A data')) {
   if (!valor) return null
 
   const data = new Date(valor)
   if (Number.isNaN(data.getTime())) {
-    return `${rotulo} não é válida. Confira o dia e o mês.`
+    return t('{rotulo} não é válida. Confira o dia e o mês.', { rotulo })
   }
 
   // O `Date` NÃO recusa 31 de fevereiro: ele rola para 3 de março. Salvar
@@ -33,13 +35,13 @@ export function erroDeData(valor, rotulo = 'A data') {
       data.getMonth() + 1 !== mes ||
       data.getDate() !== dia
     if (rolou) {
-      return `${rotulo} não existe no calendário. Confira o dia e o mês.`
+      return t('{rotulo} não existe no calendário. Confira o dia e o mês.', { rotulo })
     }
   }
 
   const ano = data.getFullYear()
   if (ano < ANO_MIN || ano > ANO_MAX) {
-    return `${rotulo} precisa estar entre ${ANO_MIN} e ${ANO_MAX}.`
+    return t('{rotulo} precisa estar entre {min} e {max}.', { rotulo, min: ANO_MIN, max: ANO_MAX })
   }
   return null
 }
@@ -50,11 +52,11 @@ export function erroDeData(valor, rotulo = 'A data') {
  */
 export function erroDoPeriodo(inicio, fim) {
   const problema =
-    erroDeData(inicio, 'A data de início') ?? erroDeData(fim, 'A data de fim')
+    erroDeData(inicio, t('A data de início')) ?? erroDeData(fim, t('A data de fim'))
   if (problema) return problema
 
   if (inicio && fim && new Date(fim) < new Date(inicio)) {
-    return 'O fim não pode ser antes do início.'
+    return t('O fim não pode ser antes do início.')
   }
   return null
 }

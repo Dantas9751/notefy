@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarRange, Check } from 'lucide-react'
+import { CalendarRange, Check, Eye, EyeOff } from 'lucide-react'
 import { useFetch } from '@/hooks/useFetch'
 import { useTaskActions } from '@/hooks/useTaskActions'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
@@ -8,14 +8,15 @@ import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import TaskFormModal from '@/components/modals/TaskFormModal'
 import TaskScheduler from '@/components/TaskScheduler'
 import { TASK_STATUS, cn, formatDate } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const DIA = 24 * 60 * 60 * 1000
 
 /** Quantos dias a timeline mostra de uma vez. */
 const JANELAS = [
-  { value: 30, label: '30 dias' },
-  { value: 60, label: '60 dias' },
-  { value: 90, label: '90 dias' },
+  { value: 30, get label() { return t('30 dias') } },
+  { value: 60, get label() { return t('60 dias') } },
+  { value: 90, get label() { return t('90 dias') } },
 ]
 
 const meiaNoite = (d) => {
@@ -121,8 +122,12 @@ export default function Roadmap() {
           duracaoDias,
           rotuloPeriodo:
             duracaoDias > 1
-              ? `${formatDate(comeco, 'dd/MM')} a ${formatDate(termino, 'dd/MM')} (${duracaoDias} dias)`
-              : formatDate(comeco, 'dd/MM'),
+              ? t('{inicio} a {fim} ({dias} dias)', {
+                  inicio: formatDate(comeco, t('dd/MM')),
+                  fim: formatDate(termino, t('dd/MM')),
+                  dias: duracaoDias,
+                })
+              : formatDate(comeco, t('dd/MM')),
         }
       })
       .filter(Boolean)
@@ -140,7 +145,7 @@ export default function Roadmap() {
         saida.push({
           chave: `${cursor.getFullYear()}-${cursor.getMonth()}`,
           left: ((cursor.getTime() - inicio.getTime()) / total) * 100,
-          label: formatDate(cursor, 'MMM/yy'),
+          label: formatDate(cursor, t('MMM/yy')),
         })
       }
       cursor.setMonth(cursor.getMonth() + 1)
@@ -177,26 +182,26 @@ export default function Roadmap() {
   return (
     <>
       <PageHeader
-        title="Roadmap"
-        subtitle="As tarefas agendadas ao longo do tempo."
+        title={t('Roadmap')}
+        subtitle={t('As tarefas agendadas ao longo do tempo.')}
         actions={
           <div className="flex items-center gap-2">
+            {/* O rótulo diz o que o clique faz; o ✓ de antes aparecia mesmo desligado. */}
             <Button
               variant="secondary"
               size="sm"
-              icon={Check}
+              icon={mostrarConcluidas ? EyeOff : Eye}
               onClick={() => setMostrarConcluidas((v) => !v)}
-              title="Mostrar ou esconder as tarefas já concluídas"
-              className={cn(mostrarConcluidas && 'ring-1 ring-accent-400')}
+              title={t('Mostrar ou esconder as tarefas já concluídas')}
             >
-              {mostrarConcluidas ? 'Ocultar concluídas' : 'Mostrar concluídas'}
+              {mostrarConcluidas ? t('Ocultar concluídas') : t('Mostrar concluídas')}
             </Button>
             <div className="w-28">
               <Select
                 value={dias}
                 onChange={(e) => setDias(Number(e.target.value))}
-                className="h-9 py-0 text-sm"
-                aria-label="Tamanho da janela"
+                className="h-8 py-0 text-xs"
+                aria-label={t('Tamanho da janela')}
               >
                 {JANELAS.map((j) => (
                   <option key={j.value} value={j.value}>
@@ -217,8 +222,8 @@ export default function Roadmap() {
         ) : barras.length === 0 ? (
           <EmptyState
             icon={CalendarRange}
-            title="Nada agendado neste período"
-            description="Tarefas com data aparecem aqui como barras. Agende uma pelo quadro ou pelo calendário."
+            title={t('Nada agendado neste período')}
+            description={t('Tarefas com data aparecem aqui como barras. Agende uma pelo quadro ou pelo calendário.')}
           />
         ) : (
           // Layout de Gantt: uma coluna fixa com os nomes e, ao lado, a
@@ -229,7 +234,7 @@ export default function Roadmap() {
             <div className="flex">
               <div className="w-44 shrink-0 border-r border-ink-200 dark:border-ink-800">
                 <div className="h-8 border-b border-ink-200 bg-ink-50/60 px-3 text-[10px] font-semibold uppercase leading-8 tracking-wider text-ink-400 dark:border-ink-800 dark:bg-ink-900/40">
-                  Tarefa
+                  {t('Tarefa')}
                 </div>
                 {barras.map((barra) => (
                   <div
@@ -331,7 +336,7 @@ export default function Roadmap() {
                           )}
                         >
                           <span className={cn('truncate', barra.concluida && 'line-through')}>
-                            {barra.duracaoDias > 1 ? `${barra.duracaoDias} dias` : barra.title}
+                            {barra.duracaoDias > 1 ? t('{duracaoDias} dias', { duracaoDias: barra.duracaoDias }) : barra.title}
                           </span>
                         </div>
                       </div>

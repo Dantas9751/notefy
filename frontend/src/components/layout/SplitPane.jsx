@@ -5,6 +5,7 @@ import { MAX, MIN, PADRAO, porcentagemDoPonteiro } from '@/lib/split'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui'
 import PanelErrorBoundary from '@/components/layout/PanelErrorBoundary'
+import { t } from '@/lib/i18n'
 
 /**
  * Páginas carregadas sob demanda: o bundle do painel puxa só o que a
@@ -51,13 +52,13 @@ function ForaDoPainel({ path }) {
   if (path.endsWith('/new')) {
     return (
       <div className="flex h-64 items-center justify-center px-6 text-center text-sm text-ink-400">
-        Documento ainda não salvo. Abra ao lado depois de salvar.
+        {t('Documento ainda não salvo. Abra ao lado depois de salvar.')}
       </div>
     )
   }
   return (
     <div className="flex h-64 items-center justify-center text-sm text-ink-400">
-      Rota não suportada no painel lateral.
+      {t('Rota não suportada no painel lateral.')}
     </div>
   )
 }
@@ -221,7 +222,7 @@ export default function SplitPane({ children }) {
 
       <div
         role="separator"
-        aria-label="Ajustar divisão dos painéis"
+        aria-label={t('Ajustar divisão dos painéis')}
         aria-orientation="vertical"
         aria-valuenow={Math.round(divisao)}
         aria-valuemin={MIN}
@@ -236,9 +237,11 @@ export default function SplitPane({ children }) {
           if (event.key === 'ArrowLeft') moverDivisoria(divisao - 2)
           if (event.key === 'ArrowRight') moverDivisoria(divisao + 2)
         }}
-        title="Arraste para ajustar. Duplo clique volta ao meio."
+        title={t('Arraste para ajustar. Duplo clique volta ao meio.')}
         className={cn(
-          'group relative w-1.5 shrink-0 cursor-col-resize bg-ink-200 transition dark:bg-ink-800',
+          // `touch-none`: sem ele o dedo arrastando vira rolagem e o navegador
+          // cancela o ponteiro no primeiro milímetro.
+          'group relative w-1.5 shrink-0 cursor-col-resize touch-none bg-ink-200 transition dark:bg-ink-800',
           'hover:bg-accent-400 focus:outline-none focus-visible:bg-accent-500',
           arrastando && 'bg-accent-500',
         )}

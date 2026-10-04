@@ -7,17 +7,20 @@ import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Button, EmptyState, ErrorState, ListSkeleton, Modal } from '@/components/ui'
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import DocumentCard from '@/components/DocumentCard'
 import FilterBar from '@/components/filters/FilterBar'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
 import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
 import { documentPath } from '@/lib/documents'
-import { cn } from '@/lib/utils'
+import { agruparPorData, cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 /**
- * Recentes.
+ * Recentes: tudo em ordem de edição, em grupos por data (Hoje, Ontem, Esta
+ * semana...).
  */
 export default function Recent() {
   const navigate = useNavigate()
@@ -31,7 +34,6 @@ export default function Recent() {
 
   // Estado para o Modal de Exclusão em Massa
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   const { refresh } = useWorkspace()
 
@@ -113,7 +115,6 @@ export default function Recent() {
 
     const idsToDelete = [...selectedIds]
     setActionError(null)
-    setIsDeletingBulk(true)
 
     try {
       for (const selectionKey of idsToDelete) {
@@ -124,7 +125,6 @@ export default function Recent() {
     } finally {
       clear()
       setBulkDeleteModalOpen(false)
-      setIsDeletingBulk(false)
       
       await refetch()
       refresh()
@@ -158,14 +158,14 @@ export default function Recent() {
   return (
     <>
       <PageHeader
-        title="Recentes"
-        subtitle={data ? `${data.count} item(ns) no total` : 'Carregando...'}
+        title={t('Recentes')}
+        subtitle={data ? t('{count} item(ns) no total', { count: data.count }) : t('Carregando...')}
       >
         <FilterBar
           className="mt-4"
           query={query}
           onQueryChange={setQuery}
-          placeholder="Buscar entre os recentes..."
+          placeholder={t('Buscar entre os recentes...')}
           category={category}
           onCategoryChange={setCategory}
         />
@@ -179,56 +179,65 @@ export default function Recent() {
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : documents.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {documents.map((doc) => {
-              const selectionKey = `document:${doc.id}`
-              const selecionado = isSelected(selectionKey)
+          // Em grupos por data, como no Google Fotos. A lista já vem em ordem
+          // de edição, então a seleção com Shift segue valendo entre grupos.
+          <div className="space-y-8">
+            {agruparPorData(documents, 'updated_at').map((grupo) => (
+              <section key={grupo.rotulo}>
+                <h2 className="titulo mb-3 text-[17px]">{grupo.rotulo}</h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {grupo.itens.map((doc) => {
+                    const selectionKey = `document:${doc.id}`
+                    const selecionado = isSelected(selectionKey)
 
-              return (
-                // `contents` porque o wrapper aqui é só área de clique: o
-                // anel desenhado nele seguia o raio do wrapper (14px)
-                // enquanto o cartão tem 10px, e sobrava nos cantos — e o
-                // `overflow-hidden` ainda cortava o anel, que o Tailwind
-                // desenha por FORA da caixa. O realce vai no cartão.
-                <div
-                  key={doc.id}
-                  onClickCapture={(e) =>
-                    handleClick(selectionKey, e, () => navigate(documentPath(doc)))
-                  }
-                  onContextMenu={(e) => abrirMenu(doc, e)}
-                  className="contents"
-                >
-                  <DocumentCard
-                    document={doc}
-                    showFolder
-                    selecionado={selecionado}
-                    renomeando={renomear.estaEditando(doc.id)}
-                    onRename={() => renomear.abrir(doc.id)}
-                    erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
-                    camposDeRenomear={propsDoCampo({
-                      valorAtual: doc.title,
-                      endpoint: `/documents/${doc.id}/`,
-                      campo: 'title',
-                      gravar: renomear.gravar,
-                      fechar: renomear.fechar,
-                    })}
-                    className={cn(
-                      selecionado &&
-                        'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
-                    )}
-                  />
+                    return (
+                      // `contents` porque o wrapper aqui é só área de clique: o
+                      // anel desenhado nele seguia o raio do wrapper (14px)
+                      // enquanto o cartão tem 10px, e sobrava nos cantos — e o
+                      // `overflow-hidden` ainda cortava o anel, que o Tailwind
+                      // desenha por FORA da caixa. O realce vai no cartão.
+                      <div
+                        key={doc.id}
+                        onClickCapture={(e) =>
+                          handleClick(selectionKey, e, () => navigate(documentPath(doc)))
+                        }
+                        onContextMenu={(e) => abrirMenu(doc, e)}
+                        className="contents"
+                      >
+                        <DocumentCard
+                          document={doc}
+                          showFolder
+                          selecionado={selecionado}
+                          renomeando={renomear.estaEditando(doc.id)}
+                          onRename={() => renomear.abrir(doc.id)}
+                          erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                          camposDeRenomear={propsDoCampo({
+                            valorAtual: doc.title,
+                            endpoint: `/documents/${doc.id}/`,
+                            campo: 'title',
+                            gravar: renomear.gravar,
+                            fechar: renomear.fechar,
+                          })}
+                          className={cn(
+                            selecionado &&
+                              'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
+                          )}
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
+              </section>
+            ))}
           </div>
         ) : (
           <EmptyState
             icon={Clock}
-            title={query || category ? 'Nenhum resultado' : 'Nada por aqui ainda'}
+            title={query || category ? t('Nenhum resultado') : t('Nada por aqui ainda')}
             description={
               query || category
-                ? 'Tente outro termo ou remova o filtro.'
-                : 'Assim que você criar conteúdo, ele aparece aqui em ordem de edição.'
+                ? t('Tente outro termo ou remova o filtro.')
+                : t('Assim que você criar conteúdo, ele aparece aqui em ordem de edição.')
             }
           />
         )}
@@ -238,19 +247,19 @@ export default function Recent() {
       {selectedIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
           <span className="text-xs font-medium">
-            {selectedIds.length} selecionado(s)
+            {selectedIds.length} {t('selecionado(s)')}
           </span>
           <div className="h-4 w-px bg-ink-700" />
           <button
             onClick={handleBulkDeleteWithDialog}
             className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
           >
-            <Trash2 size={14} /> Excluir
+            <Trash2 size={14} /> {t('Excluir')}
           </button>
           <button
             onClick={clear}
             className="rounded p-1 text-ink-400 transition hover:text-white"
-            title="Limpar seleção"
+            title={t('Limpar seleção')}
           >
             <X size={14} />
           </button>
@@ -267,7 +276,7 @@ export default function Recent() {
           menu?.payload?.isMultiple
             ? [
                 {
-                  label: `Excluir (${selectedIds.length} selecionados)`,
+                  label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
                   onClick: handleBulkDeleteWithDialog,
@@ -278,7 +287,7 @@ export default function Recent() {
                   ...(menu.payload.document.folder
                     ? [
                         {
-                          label: 'Ir para pasta',
+                          label: t('Ir para pasta'),
                           icon: FolderIcon,
                           onClick: () => navigate(`/folders/${menu.payload.document.folder}`),
                         },
@@ -295,30 +304,14 @@ export default function Recent() {
       {deleteDialogs}
       {docActionDialogs}
 
-      <Modal
+      <ConfirmDialog
         open={bulkDeleteModalOpen}
         onClose={() => setBulkDeleteModalOpen(false)}
-        title="Excluir múltiplos itens"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              loading={isDeletingBulk}
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
-            >
-              Sim, excluir {selectedIds.length} itens
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          Você está prestes a excluir <strong>{selectedIds.length}</strong> itens de forma permanente.
-          Deseja continuar?
-        </p>
-      </Modal>
+        title={t('Excluir itens selecionados')}
+        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
+        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
+        onConfirm={handleBulkDelete}
+      />
     </>
   )
 }

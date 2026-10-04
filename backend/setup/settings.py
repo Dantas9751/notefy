@@ -67,6 +67,9 @@ MIDDLEWARE = [
     # headers sobrevivam a redirects.
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # Ativa o idioma do cabeçalho Accept-Language que o app manda: as
+    # mensagens do Django e do DRF e os textos de `core.idioma` seguem ele.
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -197,6 +200,14 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ),
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
+    # Erro de validação do modelo e conflito do banco viram 400/409, e não
+    # 500 (ver core/excecoes.py).
+    "EXCEPTION_HANDLER": "core.excecoes.tratar_excecao",
+    "DEFAULT_PARSER_CLASSES": (
+        "core.excecoes.JSONParserSeguro",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ),
     "PAGE_SIZE": 30,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.ScopedRateThrottle",),
@@ -255,6 +266,7 @@ if DESKTOP_MODE:
 # ---------------------------------------------------------------------------
 
 LANGUAGE_CODE = "pt-br"
+LANGUAGES = [("pt-br", "Português (Brasil)"), ("en", "English")]
 TIME_ZONE = "America/Sao_Paulo"
 USE_I18N = True
 USE_TZ = True
@@ -271,6 +283,10 @@ MEDIA_URL = "media/"
 # Junto do banco, pelo mesmo motivo: os arquivos enviados são dados do
 # usuário e precisam de um lugar gravável, não da pasta de instalação.
 MEDIA_ROOT = DATA_DIR / "media"
+
+# Os testes usam uma pasta temporária: sem isto cada execução da suíte
+# largava centenas de arquivos aqui, junto dos uploads de verdade.
+TEST_RUNNER = "core.testrunner.ExecutorComMidiaTemporaria"
 
 MAX_UPLOAD_SIZE = env("MAX_UPLOAD_SIZE_MB") * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE

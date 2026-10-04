@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model, password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.core.validators import URLValidator
 from rest_framework import serializers
@@ -10,6 +11,7 @@ from rest_framework_simplejwt.serializers import (
     TokenRefreshSerializer,
 )
 
+from .inicio import MAX_RASCUNHO, limpar_inicio
 from .models import User, UserPreferences
 
 
@@ -45,6 +47,15 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
         validators=[URLValidator(schemes=["http", "https"]), validar_endereco_de_ia],
     )
     ai_key_set = serializers.SerializerMethodField()
+    scratch_pad = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=False, max_length=MAX_RASCUNHO
+    )
+
+    def validate_home_layout(self, value):
+        try:
+            return limpar_inicio(value)
+        except DjangoValidationError as erro:
+            raise serializers.ValidationError(erro.messages)
 
     def get_ai_key_set(self, obj):
         return bool(obj.ai_key)
@@ -66,6 +77,8 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "ai_model",
             "ai_base_url",
             "ai_key_set",
+            "home_layout",
+            "scratch_pad",
         )
 
 

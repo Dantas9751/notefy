@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import { cn, readableTextColor } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /* -------------------------------------------------------------------- */
 /* Button                                                                */
@@ -112,7 +113,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
           </div>
           <button
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t('Fechar')}
             className="-mr-1 rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800"
           >
             <X size={17} />
@@ -189,7 +190,7 @@ export function ErrorState({ message, onRetry }) {
       <p>{message}</p>
       {onRetry && (
         <button onClick={onRetry} className="mt-2 font-medium underline underline-offset-2">
-          Tentar novamente
+          {t('Tentar novamente')}
         </button>
       )}
     </div>

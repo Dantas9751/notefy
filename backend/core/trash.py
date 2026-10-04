@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from content.models import Document
+from core.idioma import texto
 from organization.models import Category, Folder
 from planner.models import Board, Task
 
@@ -42,7 +43,7 @@ def _serialize(tipo, obj, campo_nome):
     return {
         "id": str(obj.id),
         "type": tipo,
-        "name": getattr(obj, campo_nome, "") or "(sem nome)",
+        "name": getattr(obj, campo_nome, "") or texto("(sem nome)", "(no name)"),
         "deleted_at": obj.deleted_at.isoformat() if obj.deleted_at else None,
         # `kind` só existe em Document; a interface usa para escolher o ícone.
         "kind": getattr(obj, "kind", None),

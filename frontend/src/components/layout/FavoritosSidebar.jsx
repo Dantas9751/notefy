@@ -6,6 +6,7 @@ import { kindMeta } from '@/lib/documents'
 import { ICONE } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 import FavoriteButton from '@/components/FavoriteButton'
+import { t } from '@/lib/i18n'
 
 /**
  * Quantos favoritos a barra mostra sem pedir licença.
@@ -79,11 +80,11 @@ export default function FavoritosSidebar({ aoAbrirMenu }) {
       {/* Sem ícone: o título já diz "Favoritos", e a estrela ao lado
           dele repetia a mesma informação que cada linha abaixo já
           carrega na ponta direita. "Categorias" também é só o nome. */}
-      <h2 className="secao px-2 pb-1 pt-5">Favoritos</h2>
+      <h2 className="secao px-2 pb-1 pt-5">{t('Favoritos')}</h2>
 
       {loading && !data ? null : itens.length === 0 ? (
         <p className="px-2 pb-2 text-xs text-ink-400">
-          Clique na estrela de um item ou de uma pasta para deixá-lo aqui.
+          {t('Clique na estrela de um item ou de uma pasta para deixá-lo aqui.')}
         </p>
       ) : (
         <>
@@ -150,7 +151,7 @@ export default function FavoritosSidebar({ aoAbrirMenu }) {
                 size={12}
                 className={cn('shrink-0 transition-transform', expandido && 'rotate-180')}
               />
-              {expandido ? 'Exibir menos' : `Exibir mais (${escondidos})`}
+              {expandido ? t('Exibir menos') : t('Exibir mais ({escondidos})', { escondidos })}
             </button>
           )}
         </>

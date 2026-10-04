@@ -12,23 +12,26 @@
  * completo de RRULE seria uma tela inteira para um caso que não aparece.
  */
 
+import { t } from './i18n.js'
+
 export const OPCOES = [
-  { valor: '', rotulo: 'Não se repete' },
-  { valor: 'FREQ=DAILY', rotulo: 'Todo dia' },
-  { valor: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', rotulo: 'Dias úteis' },
-  { valor: 'FREQ=WEEKLY', rotulo: 'Toda semana' },
-  { valor: 'FREQ=WEEKLY;INTERVAL=2', rotulo: 'A cada 2 semanas' },
-  { valor: 'FREQ=MONTHLY', rotulo: 'Todo mês' },
-  { valor: 'FREQ=YEARLY', rotulo: 'Todo ano' },
+  { valor: '', get rotulo() { return t('Não se repete') } },
+  { valor: 'FREQ=DAILY', get rotulo() { return t('Todo dia') } },
+  { valor: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', get rotulo() { return t('Dias úteis') } },
+  { valor: 'FREQ=WEEKLY', get rotulo() { return t('Toda semana') } },
+  { valor: 'FREQ=WEEKLY;INTERVAL=2', get rotulo() { return t('A cada 2 semanas') } },
+  { valor: 'FREQ=MONTHLY', get rotulo() { return t('Todo mês') } },
+  { valor: 'FREQ=YEARLY', get rotulo() { return t('Todo ano') } },
 ]
 
-const PORVALOR = new Map(OPCOES.map((o) => [o.valor, o.rotulo]))
+// Procurado na hora: o rótulo é traduzido, e o idioma pode mudar com o app aberto.
+const rotuloPorValor = (valor) => OPCOES.find((o) => o.valor === valor)?.rotulo
 
 const NOMES = {
-  DAILY: ['Todo dia', 'A cada {n} dias'],
-  WEEKLY: ['Toda semana', 'A cada {n} semanas'],
-  MONTHLY: ['Todo mês', 'A cada {n} meses'],
-  YEARLY: ['Todo ano', 'A cada {n} anos'],
+  get DAILY() { return [t('Todo dia'), 'A cada {n} dias'] },
+  get WEEKLY() { return [t('Toda semana'), 'A cada {n} semanas'] },
+  get MONTHLY() { return [t('Todo mês'), 'A cada {n} meses'] },
+  get YEARLY() { return [t('Todo ano'), 'A cada {n} anos'] },
 }
 
 /**
@@ -41,7 +44,8 @@ const NOMES = {
 export function descrever(regra) {
   const texto = String(regra || '').trim()
   if (!texto) return ''
-  if (PORVALOR.has(texto)) return PORVALOR.get(texto)
+  const rotulo = rotuloPorValor(texto)
+  if (rotulo) return rotulo
 
   const partes = Object.fromEntries(
     texto
@@ -55,5 +59,7 @@ export function descrever(regra) {
   const nome = NOMES[(partes.FREQ || '').toUpperCase()]
   if (!nome) return texto
   const intervalo = Number(partes.INTERVAL || 1)
-  return intervalo === 1 ? nome[0] : nome[1].replace('{n}', intervalo)
+  // O plural fica fora de `t()` literal porque a forma vem da tabela;
+  // as quatro estão no dicionário do mesmo jeito.
+  return intervalo === 1 ? nome[0] : t(nome[1], { n: intervalo })
 }

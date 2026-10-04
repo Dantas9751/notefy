@@ -1,8 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões das janelas do Notefy: o padrão do Tauri, o direito de executar o backend empacotado e o de destacar uma aba em janela própria.",
-  "windows": ["main", "notefy-*"],
+  "description": "Permissões das janelas do Notefy: o padrão do Tauri, o direito de executar o backend empacotado e o de destacar uma aba em janela própria. Só no desktop: no Android não há backend empacotado nem janelas extras.",
+  "windows": [
+    "main",
+    "notefy-*"
+  ],
+  "platforms": [
+    "windows",
+    "macOS",
+    "linux"
+  ],
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",

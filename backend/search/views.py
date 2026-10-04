@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from content.models import Document
+from core.idioma import data_hora, texto
 from core.validators import uuids_validos
 from organization.models import Category, Folder
 from planner.models import Task
@@ -202,11 +203,6 @@ class GlobalSearchView(APIView):
             qs = qs.filter(filtro).distinct()
         return qs
 
-    @staticmethod
-    def _document_ui(document):
-        icon, route = _DOCUMENT_UI.get(document.kind, ("file", "/notes"))
-        return document.icon or icon, route
-
     # ------------------------------------------------------------------
     # Documentos (nota, arquivo, planilha, diagrama, canvas)
     # ------------------------------------------------------------------
@@ -262,7 +258,7 @@ class GlobalSearchView(APIView):
                     "type": doc.kind,
                     "id": str(doc.id),
                     "title": doc.title,
-                    "subtitle": doc.folder.name if doc.folder_id else "Sem pasta",
+                    "subtitle": doc.folder.name if doc.folder_id else texto("Sem pasta", "No folder"),
                     "snippet": doc.excerpt,
                     "status": doc.status,
                     "color": doc.color or None,
@@ -292,7 +288,7 @@ class GlobalSearchView(APIView):
                 "type": "folder",
                 "id": str(f.id),
                 "title": f.name,
-                "subtitle": f.category.name if f.category_id else "Sem categoria",
+                "subtitle": f.category.name if f.category_id else texto("Sem categoria", "No category"),
                 "snippet": f.description[:200],
                 "status": "archived" if f.is_archived else "active",
                 "color": f.color or (f.category.color if f.category_id else None),
@@ -322,7 +318,7 @@ class GlobalSearchView(APIView):
                 "type": "task",
                 "id": str(t.id),
                 "title": t.title,
-                "subtitle": t.starts_at.strftime("%d/%m/%Y %H:%M") if t.starts_at else "Sem data",
+                "subtitle": data_hora(t.starts_at) if t.starts_at else texto("Sem data", "No date"),
                 "snippet": t.description[:200],
                 "status": t.status,
                 "color": t.color or None,

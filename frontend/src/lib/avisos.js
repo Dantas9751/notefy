@@ -1,5 +1,5 @@
 import { addDays, format, isSameDay, startOfDay } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
+import { localeDatas, t } from './i18n.js'
 
 /**
  * Quando uma tarefa merece aviso, e o que o aviso diz.
@@ -21,10 +21,10 @@ const DIA = 24 * HORA
  * `etapaAtual` percorre a lista e fica com a última que já começou.
  */
 export const ETAPAS = [
-  { id: '1d', antes: DIA, rotulo: '1 dia antes' },
-  { id: '1h', antes: HORA, rotulo: '1 hora antes' },
-  { id: '10m', antes: 10 * MINUTO, rotulo: '10 minutos antes' },
-  { id: 'prazo', antes: 0, rotulo: 'Quando o prazo chegar' },
+  { id: '1d', antes: DIA, get rotulo() { return t('1 dia antes') } },
+  { id: '1h', antes: HORA, get rotulo() { return t('1 hora antes') } },
+  { id: '10m', antes: 10 * MINUTO, get rotulo() { return t('10 minutos antes') } },
+  { id: 'prazo', antes: 0, get rotulo() { return t('Quando o prazo chegar') } },
 ]
 
 export const TODAS_AS_ETAPAS = new Set(ETAPAS.map((e) => e.id))
@@ -105,10 +105,10 @@ export function etapaAtual(prazo, agora, { diaInteiro = false, ligadas = TODAS_A
 
 /** "hoje", "amanhã", "ontem" ou o dia por extenso, relativo a `agora`. */
 function nomeDoDia(data, agora) {
-  if (isSameDay(data, agora)) return 'hoje'
-  if (isSameDay(data, addDays(agora, 1))) return 'amanhã'
-  if (isSameDay(data, addDays(agora, -1))) return 'ontem'
-  return format(data, "EEEE, d 'de' MMM", { locale: ptBR })
+  if (isSameDay(data, agora)) return t('hoje')
+  if (isSameDay(data, addDays(agora, 1))) return t('amanhã')
+  if (isSameDay(data, addDays(agora, -1))) return t('ontem')
+  return format(data, t("EEEE, d 'de' MMM"), { locale: localeDatas })
 }
 
 /**
@@ -122,17 +122,21 @@ function nomeDoDia(data, agora) {
 export function textoDoAviso(prazo, agora, { diaInteiro = false } = {}) {
   const falta = prazo.getTime() - agora
   const dia = nomeDoDia(prazo, agora)
-  const hora = format(prazo, 'HH:mm')
+  const hora = format(prazo, t('HH:mm'))
 
-  if (diaInteiro) return `Vence ${dia}`
+  if (diaInteiro) return t('Vence {dia}', { dia })
 
-  if (falta <= 0) return dia === 'hoje' ? `Venceu às ${hora}` : `Venceu ${dia} às ${hora}`
+  if (falta <= 0) {
+    return isSameDay(prazo, agora)
+      ? t('Venceu às {hora}', { hora })
+      : t('Venceu {dia} às {hora}', { dia, hora })
+  }
 
   const minutos = Math.ceil(falta / MINUTO)
-  if (minutos < 60) return `Vence em ${minutos} min, às ${hora}`
-  if (minutos === 60) return `Vence em 1 hora, às ${hora}`
+  if (minutos < 60) return t('Vence em {minutos} min, às {hora}', { minutos, hora })
+  if (minutos === 60) return t('Vence em 1 hora, às {hora}', { hora })
 
-  return `Vence ${dia} às ${hora}`
+  return t('Vence {dia} às {hora}', { dia, hora })
 }
 
 /**
@@ -170,7 +174,7 @@ export function avisosNovos(tarefas, { agora, disparados = {}, ligadas = TODAS_A
     novos.push({
       chave,
       tarefaId: tarefa.id,
-      titulo: tarefa.title || 'Tarefa sem título',
+      titulo: tarefa.title || t('Tarefa sem título'),
       etapa,
       texto: textoDoAviso(prazo, agora, { diaInteiro }),
       criadoEm: agora,

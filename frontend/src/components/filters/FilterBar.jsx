@@ -2,6 +2,7 @@ import { Search, X } from 'lucide-react'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Select } from '@/components/ui'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Barra de pesquisa + filtros dinâmicos.
@@ -16,7 +17,7 @@ import { cn } from '@/lib/utils'
 export default function FilterBar({
   query,
   onQueryChange,
-  placeholder = 'Buscar...',
+  placeholder = t('Buscar...'),
   statusOptions,
   status,
   onStatusChange,
@@ -58,7 +59,8 @@ export default function FilterBar({
           onChange={(e) => onQueryChange?.(e.target.value)}
           onKeyDown={onQueryKeyDown}
           placeholder={placeholder}
-          className="input pl-9"
+          // Mesma altura dos seletores ao lado (h-9); com o `py-2` do `.input` sobravam 2px.
+          className="input h-9 py-0 pl-9"
           type="search"
         />
       </div>
@@ -68,9 +70,9 @@ export default function FilterBar({
           value={status ?? ''}
           onChange={(e) => onStatusChange?.(e.target.value)}
           className="h-9 w-auto py-0 text-sm"
-          aria-label="Filtrar por status"
+          aria-label={t('Filtrar por status')}
         >
-          <option value="">Todos os status</option>
+          <option value="">{t('Todos os status')}</option>
           {statusOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
@@ -84,9 +86,9 @@ export default function FilterBar({
           value={category ?? ''}
           onChange={(e) => onCategoryChange(e.target.value)}
           className="h-9 w-auto py-0 text-sm"
-          aria-label="Filtrar por categoria"
+          aria-label={t('Filtrar por categoria')}
         >
-          <option value="">Todas as categorias</option>
+          <option value="">{t('Todas as categorias')}</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -100,7 +102,7 @@ export default function FilterBar({
           value={sort ?? ''}
           onChange={(e) => onSortChange?.(e.target.value)}
           className="h-9 w-auto py-0 text-sm"
-          aria-label="Ordenar"
+          aria-label={t('Ordenar')}
         >
           {sortOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -118,7 +120,7 @@ export default function FilterBar({
           className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-ink-500 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800"
         >
           <X size={13} />
-          Limpar
+          {t('Limpar')}
         </button>
       )}
     </div>

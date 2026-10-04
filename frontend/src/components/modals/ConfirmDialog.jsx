@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { extractError } from '@/lib/api'
 import { Button, ErrorState, Modal } from '@/components/ui'
+import { t } from '@/lib/i18n'
 
 /**
  * Confirmação de ação destrutiva.
@@ -13,7 +14,7 @@ export default function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = 'Excluir',
+  confirmLabel = t('Excluir'),
   onClose,
   onConfirm,
 }) {
@@ -49,7 +50,7 @@ export default function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button variant="danger" loading={loading} onClick={handleConfirm}>
             {confirmLabel}

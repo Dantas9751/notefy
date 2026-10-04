@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import api, { extractError } from '@/lib/api'
 import { Button, Modal, Spinner } from '@/components/ui'
+import { t } from '@/lib/i18n'
 
 /**
  * Aviso de arquivo duplicado no upload, no estilo do OneDrive.
@@ -196,19 +197,19 @@ export function useUploadComConflitos({ onEnviado, onErro } = {}) {
     <Modal
       open
       onClose={ignorar}
-      title="Arquivos duplicados"
-      description="Já existe um arquivo com este nome nesta pasta. Manter cria uma cópia com um número (ex: nome(1).pdf); Substituir troca o conteúdo no mesmo item."
+      title={t('Arquivos duplicados')}
+      description={t('Já existe um arquivo com este nome nesta pasta. Manter cria uma cópia com um número (ex: nome(1).pdf); Substituir troca o conteúdo no mesmo item.')}
       size="sm"
       footer={
         <>
           <Button variant="secondary" onClick={ignorar} disabled={estado.enviando}>
-            Ignorar e continuar
+            {t('Ignorar e continuar')}
           </Button>
           <Button
             onClick={() => resolver(estado.decisao)}
             disabled={estado.enviando}
           >
-            {estado.enviando ? <Spinner size={14} /> : 'Continuar'}
+            {estado.enviando ? <Spinner size={14} /> : t('Continuar')}
           </Button>
         </>
       }
@@ -237,7 +238,7 @@ export function useUploadComConflitos({ onEnviado, onErro } = {}) {
                     : 'text-ink-500 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800'
                 }`}
               >
-                Manter
+                {t('Manter')}
               </button>
               <button
                 onClick={() =>
@@ -249,8 +250,8 @@ export function useUploadComConflitos({ onEnviado, onErro } = {}) {
                 disabled={estado.enviando || !conflito.docId}
                 title={
                   conflito.docId
-                    ? 'Sobrescreve o arquivo existente'
-                    : 'Nome repetido dentro do mesmo envio'
+                    ? t('Sobrescreve o arquivo existente')
+                    : t('Nome repetido dentro do mesmo envio')
                 }
                 className={`rounded px-2 py-1 text-[11px] font-medium transition disabled:opacity-40 ${
                   estado.decisao[conflito.nome] === 'substituir'
@@ -258,7 +259,7 @@ export function useUploadComConflitos({ onEnviado, onErro } = {}) {
                     : 'text-ink-500 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800'
                 }`}
               >
-                Substituir
+                {t('Substituir')}
               </button>
             </span>
           </div>

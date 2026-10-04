@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileUp, FolderPlus, Plus } from 'lucide-react'
+import { FileUp, FolderPlus, LayoutTemplate, Plus } from 'lucide-react'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
+import { t } from '@/lib/i18n'
 
 /**
  * O único lugar de onde nasce conteúdo.
@@ -81,29 +82,29 @@ export default function CreateMenu({
 
   return (
     <>
-      {/* 
+      {/*
         w-fit + shrink-0 são importantes aqui.
         O CreateMenu passa a ter exatamente a largura do botão,
         em vez de tentar ocupar a largura disponível do pai.
+        `alignRight` só alinha o menu; quem posiciona o botão é o pai (o
+        `ml-auto` de antes o jogava para a direita até no `justify-center`
+        da pasta vazia).
       */}
-      <div
-        className={cn(
-          'relative w-fit max-w-full shrink-0',
-          alignRight && 'ml-auto'
-        )}
-      >
+      <div className="relative w-fit max-w-full shrink-0">
         <Button
           size="sm"
           icon={Plus}
           loading={uploading}
           className={cn(
             'max-w-full whitespace-nowrap',
-            collapsed && 'px-0'
+            // Recolhido: o quadrado do trilho, com o nome na dica ao lado.
+            collapsed && 'h-9 w-9 rounded-lg px-0'
           )}
           onClick={() => setOpen((v) => !v)}
-          title="Criar"
+          aria-label={t('Criar')}
+          aria-expanded={open}
         >
-          {!collapsed && 'Criar'}
+          {!collapsed && t('Criar')}
         </Button>
 
         {open && (
@@ -155,6 +156,26 @@ export default function CreateMenu({
                 )
               })}
 
+              {/* Item já com conteúdo: ata, aula, plano de estudos, os
+                  modelos salvos. A pasta aberta segue junto. */}
+              <button
+                onClick={() => {
+                  setOpen(false)
+                  navigate(defaultFolderId ? `/templates?folder=${defaultFolderId}` : '/templates')
+                }}
+                className="flex w-full min-w-0 items-start gap-2.5 rounded px-2 py-2 text-left transition hover:bg-ink-50 dark:hover:bg-ink-800"
+              >
+                <LayoutTemplate size={15} className="mt-0.5 shrink-0 text-ink-400" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-ink-800 dark:text-ink-100">
+                    {t('A partir de um modelo')}
+                  </span>
+                  <span className="block text-[11px] leading-snug text-ink-400">
+                    {t('Aula, reunião, diário, plano de estudos e os seus')}
+                  </span>
+                </span>
+              </button>
+
               <div className="my-1 border-t border-ink-100 dark:border-ink-800" />
 
               <button
@@ -168,11 +189,11 @@ export default function CreateMenu({
 
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-ink-800 dark:text-ink-100">
-                    Enviar arquivo
+                    {t('Enviar arquivo')}
                   </span>
 
                   <span className="block text-[11px] leading-snug text-ink-400">
-                    PDF, imagem, áudio e outros.
+                    {t('PDF, imagem, áudio e outros.')}
                   </span>
                 </span>
               </button>
@@ -195,11 +216,11 @@ export default function CreateMenu({
 
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-ink-800 dark:text-ink-100">
-                    Pasta
+                    {t('Pasta')}
                   </span>
 
                   <span className="block text-[11px] leading-snug text-ink-400">
-                    Dentro de uma categoria ou de outra pasta.
+                    {t('Dentro de uma categoria ou de outra pasta.')}
                   </span>
                 </span>
               </button>

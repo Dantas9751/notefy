@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Maximize2 } from 'lucide-react'
+import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Maximize2, Sparkles } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
@@ -15,9 +15,11 @@ import { conectarJanelas } from '@/lib/desktop'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
+import AtalhosModal from '@/components/modals/AtalhosModal'
 import { kindMeta } from '@/lib/documents'
 import { NotificacoesProvider } from '@/context/NotificacoesContext'
 import { AvisosFlutuantes, CentralDeNotificacoes } from './Notificacoes'
+import { t } from '@/lib/i18n'
 
 export default function AppLayout() {
   const { mobileSidebarOpen, setMobileSidebarOpen, toggleZen } = useUI()
@@ -34,6 +36,7 @@ export default function AppLayout() {
 
   const [folderModal, setFolderModal] = useState(null)
   const [categoryModal, setCategoryModal] = useState(null)
+  const [atalhosAbertos, setAtalhosAbertos] = useState(false)
 
   // 1. Redirecionamento da Tela Inicial
   useEffect(() => {
@@ -80,6 +83,12 @@ export default function AppLayout() {
       // Ctrl+J abre o assistente de IA sobre o lado em foco: com o
       // "abrir ao lado" aberto e o foco no painel, ele cobre o painel;
       // senão, a main view.
+      // Ctrl+/ mostra a lista de atalhos: a convenção do Gmail, do Slack
+      // e do Notion, e livre no Chrome e no Edge.
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault()
+        setAtalhosAbertos((aberto) => !aberto)
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
         e.preventDefault()
         alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
@@ -121,6 +130,9 @@ export default function AppLayout() {
   // — favoritar numa aparece na outra, sem nenhuma tela saber disso.
   useEffect(() => conectarJanelas(), [])
 
+  const abrirLaviel = () =>
+    alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
+
   // Lógica dinâmica rigorosa para o menu de contexto com base na rota atual
   //
   // `path` e `irPara` vêm de QUEM foi clicado: com o painel aberto, o
@@ -133,13 +145,13 @@ export default function AppLayout() {
     if (path === '/' || path === '/dashboard') {
       return [
         {
-          label: 'Criar categoria',
+          label: t('Criar categoria'),
           icon: Tag,
           onClick: () => setCategoryModal({}),
         },
         { separator: true },
         {
-          label: 'Nova pasta',
+          label: t('Nova pasta'),
           icon: FolderPlus,
           onClick: () => setFolderModal({ parent: null }),
         },
@@ -151,7 +163,7 @@ export default function AppLayout() {
       const categoryId = path.split('/')[2]
       return [
         {
-          label: 'Nova pasta',
+          label: t('Nova pasta'),
           icon: FolderPlus,
           onClick: () => setFolderModal({ parent: null, categoryId }),
         },
@@ -163,30 +175,36 @@ export default function AppLayout() {
       const folderId = path.split('/')[2]
       return [
         {
-          label: 'Nova subpasta',
+          label: t('Nova subpasta'),
           icon: FolderPlus,
           onClick: () => setFolderModal({ parent: { id: folderId } }),
         },
         { separator: true },
         {
-          label: 'Nova nota',
+          label: t('Nova nota'),
           icon: FileText,
           onClick: () => irPara(`${kindMeta('note').route}/new?folder=${folderId}`),
         },
         {
-          label: 'Nova planilha',
+          label: t('Nova planilha'),
           icon: Table,
           onClick: () => irPara(`${kindMeta('spreadsheet').route}/new?folder=${folderId}`),
         },
         {
-          label: 'Novo diagrama',
+          label: t('Novo diagrama'),
           icon: Network,
           onClick: () => irPara(`${kindMeta('diagram').route}/new?folder=${folderId}`),
         },
         {
-          label: 'Novo canvas',
-          icon: LayoutTemplate,
+          label: t('Novo canvas'),
+          icon: kindMeta('canvas').icon,
           onClick: () => irPara(`${kindMeta('canvas').route}/new?folder=${folderId}`),
+        },
+        { separator: true },
+        {
+          label: t('Novo a partir de modelo...'),
+          icon: LayoutTemplate,
+          onClick: () => irPara(`/templates?folder=${folderId}`),
         },
       ]
     }
@@ -234,7 +252,7 @@ export default function AppLayout() {
             aria-hidden
           />
           <div className="relative animate-slide-up">
-            <Sidebar />
+            <Sidebar sempreAberta />
           </div>
         </div>
       )}
@@ -244,19 +262,23 @@ export default function AppLayout() {
         <header className="app-topbar flex h-14 shrink-0 items-center gap-3 border-b border-ink-200 px-4 lg:hidden dark:border-ink-800">
           <button
             onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Abrir menu"
+            aria-label={t('Abrir menu')}
             className="rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             <Menu size={18} />
           </button>
-          <span className="text-[15px] font-semibold tracking-tight">Notefy</span>
-          <button
-            onClick={() => navigate('/search')}
-            aria-label="Buscar"
-            className="ml-auto rounded p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
-          >
-            <Search size={18} />
-          </button>
+          <span className="text-[15px] font-semibold tracking-tight">{t('Notefy')}</span>
+          <div className="ml-auto flex items-stretch self-stretch">
+            <button
+              onClick={() => navigate('/search')}
+              aria-label={t('Buscar')}
+              className="flex items-center px-3 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+            >
+              <Search size={18} />
+            </button>
+            <BotaoLaviel onClick={abrirLaviel} />
+            <CentralDeNotificacoes />
+          </div>
         </header>
 
         {/* Sair do zen. Fica fora do cabecalho de proposito: o cabecalho
@@ -264,8 +286,8 @@ export default function AppLayout() {
             ficaria preso no modo sem saber como voltar. */}
         <button
           onClick={toggleZen}
-          title="Sair do modo zen (Ctrl+.)"
-          aria-label="Sair do modo zen"
+          title={t('Sair do modo zen (Ctrl+.)')}
+          aria-label={t('Sair do modo zen')}
           // Canto inferior: o superior direito e onde todo editor poe a
           // acao primaria — aqui ele cobria o botao Salvar da nota, e no
           // zen o cabecalho sumido deixa a barra do editor ainda mais alta.
@@ -274,7 +296,7 @@ export default function AppLayout() {
           className="app-zen-exit fixed bottom-4 right-4 z-50 items-center gap-1.5 rounded-full border border-ink-200 bg-white/90 px-3 py-1.5 text-xs text-ink-500 shadow-pop backdrop-blur transition hover:text-ink-800 dark:border-ink-700 dark:bg-ink-900/90 dark:hover:text-ink-100"
         >
           <Maximize2 size={13} />
-          Sair do zen
+          {t('Sair do zen')}
         </button>
 
         {/* A faixa de abas e o sino dividem a mesma linha. O sino fica
@@ -282,7 +304,12 @@ export default function AppLayout() {
             junto e sumiria do canto. */}
         <div className="app-tabs flex shrink-0 items-stretch border-b border-ink-200 bg-ink-50/60 dark:border-ink-800 dark:bg-ink-900/40">
           <TabBar />
-          <CentralDeNotificacoes />
+          {/* Laviel e sino ficam sempre no canto superior direito. No
+              mobile a barra de cima é o cabeçalho, e eles vão para lá. */}
+          <div className="ml-auto hidden shrink-0 items-stretch lg:flex">
+            <BotaoLaviel onClick={abrirLaviel} />
+            <CentralDeNotificacoes />
+          </div>
         </div>
 
         {/* `SplitPane` devolve os filhos crus quando não há painel aberto:
@@ -337,9 +364,30 @@ export default function AppLayout() {
         }}
       />
 
+      <AtalhosModal open={atalhosAbertos} onClose={() => setAtalhosAbertos(false)} />
+
       <AvisosFlutuantes />
     </div>
     </NotificacoesProvider>
+  )
+}
+
+/**
+ * Atalho para o Laviel. Leva cor e nome (a partir de `sm`) porque, só como
+ * ícone cinza, passava despercebido — e no toque não há Ctrl+J.
+ */
+function BotaoLaviel({ onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={t('Abrir o Laviel (Ctrl+J)')}
+      aria-label={t('Abrir o Laviel')}
+      className="flex shrink-0 items-center gap-1.5 border-l border-ink-200 px-3 text-xs font-medium text-accent-600 transition hover:bg-accent-50 dark:border-ink-800 dark:text-accent-400 dark:hover:bg-accent-500/10"
+    >
+      <Sparkles size={16} />
+      <span className="hidden sm:inline">{t('Laviel')}</span>
+    </button>
   )
 }
 
@@ -355,7 +403,9 @@ export function PageHeader({ title, subtitle, breadcrumb, actions, children }) {
             <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{subtitle}</p>
           )}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {/* `flex-wrap` + `max-w-full`: no celular os botões quebram linha em vez
+            de sair da tela (o "Criar" da pasta ficava fora, sem como tocar). */}
+        {actions && <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {children}
     </div>

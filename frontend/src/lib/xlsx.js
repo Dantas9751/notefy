@@ -16,6 +16,7 @@
 // Com extensão: o `node --test` roda estes módulos direto, sem passar
 // pelo Vite, e o ESM do Node não completa o caminho sozinho.
 import { valorDaCelula } from './celulas.js'
+import { t } from './i18n.js'
 
 /** Escapa o que não pode entrar cru num XML. */
 function esc(valor) {
@@ -70,7 +71,7 @@ function celula(ref, valor) {
  * e o chamador passava as linhas de verdade: toda célula saía vazia e o
  * arquivo exportado tinha só o cabeçalho.
  */
-export async function buildXlsx(columns, rows, nomeAba = 'Planilha') {
+export async function buildXlsx(columns, rows, nomeAba = t('Planilha')) {
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
 
@@ -94,7 +95,7 @@ export async function buildXlsx(columns, rows, nomeAba = 'Planilha') {
   // O Excel usa o nome da aba na interface e recusa estes caracteres,
   // além de um limite de 31. Truncar aqui evita um arquivo que abre
   // "reparado".
-  const aba = String(nomeAba).replace(/[\\/?*[\]:]/g, '_').slice(0, 31) || 'Planilha'
+  const aba = String(nomeAba).replace(/[\\/?*[\]:]/g, '_').slice(0, 31) || t('Planilha')
 
   zip.file(
     '[Content_Types].xml',

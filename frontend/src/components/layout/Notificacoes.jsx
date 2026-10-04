@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AlarmClock, Bell, Settings, X } from 'lucide-react'
 import { useNotificacoes } from '@/context/NotificacoesContext'
 import { cn, formatRelative } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /** Por quanto tempo o aviso flutuante fica na tela, sem o mouse em cima. */
 const DURACAO_FLUTUANTE_MS = 8000
@@ -71,8 +72,8 @@ export function CentralDeNotificacoes() {
   }, [aberta])
 
   const rotulo = naoLidas
-    ? `Notificações, ${naoLidas} ${naoLidas === 1 ? 'nova' : 'novas'}`
-    : 'Notificações'
+    ? t(naoLidas === 1 ? 'Notificações, {n} nova' : 'Notificações, {n} novas', { n: naoLidas })
+    : t('Notificações')
 
   return (
     <div ref={raizRef} className="relative flex shrink-0">
@@ -83,16 +84,21 @@ export function CentralDeNotificacoes() {
         aria-label={rotulo}
         aria-expanded={aberta}
         aria-haspopup="dialog"
+        // Com nome, como o botão do Laviel ao lado: só o sino, no canto da
+        // barra de abas, passava despercebido.
         className={cn(
-          'relative flex items-center border-l border-ink-200 px-3 transition dark:border-ink-800',
+          'relative flex items-center gap-1.5 border-l border-ink-200 px-3 text-xs font-medium transition dark:border-ink-800',
           aberta
             ? 'bg-white text-ink-800 dark:bg-ink-950 dark:text-ink-100'
-            : 'text-ink-400 hover:bg-ink-100/70 hover:text-ink-700 dark:hover:bg-ink-800/50 dark:hover:text-ink-200',
+            : naoLidas > 0
+              ? 'text-accent-600 hover:bg-ink-100/70 dark:text-accent-400 dark:hover:bg-ink-800/50'
+              : 'text-ink-600 hover:bg-ink-100/70 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-ink-800/50 dark:hover:text-ink-50',
         )}
       >
-        <Bell size={14} />
+        <Bell size={16} />
+        <span className="hidden sm:inline">{t('Avisos')}</span>
         {naoLidas > 0 && (
-          <span className="absolute right-1.5 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent-600 px-1 text-[9px] font-semibold leading-none text-white">
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white max-sm:absolute max-sm:right-1 max-sm:top-1.5">
             {naoLidas > 9 ? '9+' : naoLidas}
           </span>
         )}
@@ -101,16 +107,16 @@ export function CentralDeNotificacoes() {
       {aberta && (
         <div
           role="dialog"
-          aria-label="Notificações"
+          aria-label={t('Notificações')}
           className="absolute right-1 top-full z-40 mt-1 w-[22rem] max-w-[calc(100vw-1rem)] animate-fade-in overflow-hidden rounded-lg border border-ink-200 bg-white shadow-pop dark:border-ink-700 dark:bg-ink-900"
         >
           <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2 dark:border-ink-800">
-            <h2 className="secao">Notificações</h2>
+            <h2 className="secao">{t('Notificações')}</h2>
             <Link
               to="/settings/notificacoes"
               onClick={() => setAberta(false)}
-              title="Escolher quando avisar"
-              aria-label="Configurar notificações"
+              title={t('Escolher quando avisar')}
+              aria-label={t('Configurar notificações')}
               className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
             >
               <Settings size={13} />
@@ -119,7 +125,7 @@ export function CentralDeNotificacoes() {
 
           {itens.length === 0 ? (
             <p className="px-4 py-8 text-center text-xs leading-relaxed text-ink-400">
-              Nada por aqui. Tarefas com prazo avisam neste sino antes de vencer.
+              {t('Nada por aqui. Tarefas com prazo avisam neste sino antes de vencer.')}
             </p>
           ) : (
             <ul className="max-h-96 divide-y divide-ink-100 overflow-y-auto dark:divide-ink-800">
@@ -174,7 +180,7 @@ export function CentralDeNotificacoes() {
                 onClick={limpar}
                 className="rounded px-2 py-1 text-[11px] text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100"
               >
-                Limpar tudo
+                {t('Limpar tudo')}
               </button>
             </div>
           )}
@@ -211,7 +217,7 @@ function AvisoFlutuante({ item, dispensar, abrir }) {
       <button
         type="button"
         onClick={() => dispensar(item.chave)}
-        aria-label="Dispensar aviso"
+        aria-label={t('Dispensar aviso')}
         className="shrink-0 rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
       >
         <X size={13} />

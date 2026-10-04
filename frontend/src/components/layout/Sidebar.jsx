@@ -3,14 +3,15 @@ import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   CalendarDays,
   GanttChartSquare,
-  ChevronsLeft,
-  ChevronsRight,
   Clock,
   FolderPlus,
   Folder as FolderIcon,
   Kanban,
   LayoutDashboard,
+  LayoutTemplate,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Pencil,
   Plus,
@@ -29,7 +30,10 @@ import { cn } from '@/lib/utils'
 import { useRenomear } from '@/hooks/useRenomear'
 import StudyTimer from '@/components/layout/StudyTimer'
 import FavoritosSidebar from '@/components/layout/FavoritosSidebar'
-import { Button, Spinner, Modal } from '@/components/ui'
+import { Spinner } from '@/components/ui'
+import DicaLateral from '@/components/ui/DicaLateral'
+// O ícone do app instalado, e não uma cópia: trocou lá, troca aqui.
+import logo from '../../../src-tauri/icons/64x64.png'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import CategoryTree from './CategoryTree'
 import CreateMenu from './CreateMenu'
@@ -38,44 +42,61 @@ import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import DestinationModal from '@/components/modals/DestinationModal'
 import { useCascadeDelete } from '@/hooks/useCascadeDelete'
 import { exportBatchAsZip, exportFolderAsZip } from '@/components/ExportMenu'
+import { t } from '@/lib/i18n'
+import { semMouse } from '@/lib/desktop'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
-  { to: '/recent', label: 'Recentes', icon: Clock },
+  { to: '/', get label() { return t('Início') }, icon: LayoutDashboard, end: true },
+  { to: '/recent', get label() { return t('Recentes') }, icon: Clock },
   // Favoritos não entra aqui: a seção mais abaixo JÁ É a lista, e um
   // item de navegação levaria a uma tela com os mesmos nomes que já
   // estão à vista. A seção é o favorito inteiro; não há rota /favorites.
-  { to: '/files', label: 'Arquivos', icon: Paperclip },
-  { to: '/search', label: 'Buscar', icon: Search }, 
-  { to: '/board', label: 'Quadro', icon: Kanban },
-  { to: '/calendar', label: 'Calendário', icon: CalendarDays },
-  { to: '/roadmap', label: 'Roadmap', icon: GanttChartSquare },
-  { to: '/trash', label: 'Lixeira', icon: Trash2, },
+  { to: '/files', get label() { return t('Arquivos') }, icon: Paperclip },
+  { to: '/search', get label() { return t('Buscar') }, icon: Search }, 
+  { to: '/board', get label() { return t('Quadro') }, icon: Kanban },
+  { to: '/calendar', get label() { return t('Calendário') }, icon: CalendarDays },
+  { to: '/roadmap', get label() { return t('Roadmap') }, icon: GanttChartSquare },
+  { to: '/templates', get label() { return t('Modelos') }, icon: LayoutTemplate },
+  { to: '/trash', get label() { return t('Lixeira') }, icon: Trash2, },
 ]
+
+/** Ativo na barra recolhida: quadrado cheio na cor de destaque, porque ali o ícone é o único sinal. */
+const ATIVO_NO_TRILHO = 'bg-accent-100 text-accent-800 dark:bg-accent-500/20 dark:text-accent-200'
+/** Botão quadrado do trilho (barra recolhida). */
+const QUADRADO = 'mx-auto flex h-9 w-9 items-center justify-center rounded-lg transition'
 
 function NavItem({ to, label, icon: Icon, end, collapsed }) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      title={collapsed ? label : undefined}
-      className={({ isActive }) =>
-        cn(
-          'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition',
-          collapsed && 'justify-center px-0',
-          isActive
-            ? 'bg-ink-100 font-medium text-ink-900 dark:bg-ink-800 dark:text-ink-50'
-            : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800/70',
-        )
-      }
-    >
-      <Icon size={16} className="shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
-    </NavLink>
+    <DicaLateral rotulo={label} ativa={collapsed}>
+      <NavLink
+        to={to}
+        end={end}
+        aria-label={collapsed ? label : undefined}
+        className={({ isActive }) =>
+          collapsed
+            ? cn(QUADRADO, isActive ? ATIVO_NO_TRILHO : 'text-ink-500 hover:bg-ink-200/60 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100')
+            : cn(
+                'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition',
+                isActive
+                  ? 'bg-ink-100 font-medium text-ink-900 dark:bg-ink-800 dark:text-ink-50'
+                  : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800/70',
+              )
+        }
+      >
+        <Icon size={16} className="shrink-0" />
+        {!collapsed && <span className="truncate">{label}</span>}
+      </NavLink>
+    </DicaLateral>
   )
 }
 
-export default function Sidebar() {
+/**
+ * `sempreAberta`: a gaveta do celular. Lá não existe trilho — a gaveta já é
+ * o jeito de esconder a barra —, então ela ignora a preferência e não
+ * mostra o botão de recolher.
+ */
+export default function Sidebar({ sempreAberta = false }) {
   const { sidebarCollapsed, toggleSidebar, setMobileSidebarOpen } = useUI()
   const { user, logout } = useAuth()
   const { categories, loading, refresh } = useWorkspace()
@@ -94,7 +115,6 @@ export default function Sidebar() {
   // Estados de Multi-Seleção e Ações em Massa
   const [selectedIds, setSelectedIds] = useState([])
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
   const [moveModalOpen, setMoveModalOpen] = useState(false)
   
   // Tratamento da Rota Dinâmica
@@ -102,7 +122,7 @@ export default function Sidebar() {
   const homeRoute = rawHome.startsWith('/') ? rawHome : `/${rawHome}`
   
   const dynamicNav = NAV_ITEMS.map((item) =>
-    item.label === 'Início' ? { ...item, to: homeRoute } : item
+    item.to === '/' ? { ...item, to: homeRoute } : item
   )
 
   // Função Timerzinho para erros (Desaparece em 4s)
@@ -122,7 +142,7 @@ export default function Sidebar() {
     onError: displayError, // Conectado com o Timer
   })
 
-  const collapsed = sidebarCollapsed
+  const collapsed = sidebarCollapsed && !sempreAberta
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -225,7 +245,6 @@ export default function Sidebar() {
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return
     setError(null)
-    setIsDeletingBulk(true)
 
     const total = selectedIds.length
     const bloqueados = []
@@ -237,10 +256,9 @@ export default function Sidebar() {
 
     setSelectedIds([])
     setBulkDeleteModalOpen(false)
-    setIsDeletingBulk(false)
 
     if (bloqueados.length) {
-      displayError(`${bloqueados.length} de ${total} não foram excluídos. ${bloqueados[0]}`)
+      displayError(t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total, motivo: bloqueados[0] }))
     }
 
     await refresh()
@@ -286,7 +304,7 @@ export default function Sidebar() {
     }
 
     if (documentos.length === 0) {
-      displayError('Nada para exportar na seleção.')
+      displayError(t('Nada para exportar na seleção.'))
       return
     }
 
@@ -359,7 +377,7 @@ export default function Sidebar() {
       }
 
       if (!raizes.length) {
-        displayError('Nada para exportar nesta categoria.')
+        displayError(t('Nada para exportar nesta categoria.'))
         return
       }
 
@@ -401,18 +419,18 @@ export default function Sidebar() {
     if (payload.isMultiple) {
       return [
         {
-          label: `Mover (${selectedIds.length})`,
+          label: t('Mover ({length})', { length: selectedIds.length }),
           icon: FolderIcon,
           onClick: () => setMoveModalOpen(true),
         },
         {
-          label: `Exportar (${selectedIds.length}) como .zip`,
+          label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
           onClick: handleBulkExport,
         },
         { separator: true },
         {
-          label: `Excluir (${selectedIds.length})`,
+          label: t('Excluir ({length})', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
           onClick: () => setBulkDeleteModalOpen(true),
@@ -423,11 +441,11 @@ export default function Sidebar() {
     if (payload.type === 'bookmark') {
       const isFile = payload.item.type !== 'folder' && payload.item.type !== 'category'
       return [
-        { label: 'Abrir', icon: ExternalLink, onClick: () => navigate(payload.item.url) },
+        { label: t('Abrir'), icon: ExternalLink, onClick: () => navigate(payload.item.url) },
         ...(isFile && payload.item.folder
           ? [
               {
-                label: 'Ir para pasta',
+                label: t('Ir para pasta'),
                 icon: FolderIcon,
                 onClick: () => navigate(`/folders/${payload.item.folder}`),
               },
@@ -435,7 +453,7 @@ export default function Sidebar() {
           : []),
         { separator: true },
         {
-          label: 'Remover dos favoritos',
+          label: t('Remover dos favoritos'),
           icon: Trash2,
           danger: true,
           onClick: async () => {
@@ -456,35 +474,35 @@ export default function Sidebar() {
       const category = payload.category
       return [
         {
-          label: 'Abrir',
+          label: t('Abrir'),
           icon: Tag,
           onClick: () => navigate(`/categories/${category.id}`),
         },
         {
-          label: 'Nova pasta aqui',
+          label: t('Nova pasta aqui'),
           icon: FolderPlus,
           onClick: () => setFolderModal({ parent: null, categoryId: category.id }),
         },
         { separator: true },
         {
-          label: 'Renomear',
+          label: t('Renomear'),
           icon: Pencil,
           atalho: 'F2',
           onClick: () => renomear.abrir(category.id),
         },
         {
           // O modal continua: ele edita cor e descrição, não só o nome.
-          label: 'Editar...',
+          label: t('Editar...'),
           icon: Settings,
           onClick: () => setCategoryModal({ category }),
         },
         {
-          label: 'Exportar como .zip',
+          label: t('Exportar como .zip'),
           icon: Download,
           onClick: () => handleCategoryExport(category),
         },
         {
-          label: 'Excluir',
+          label: t('Excluir'),
           icon: Trash2,
           danger: true,
           onClick: () => {
@@ -497,14 +515,19 @@ export default function Sidebar() {
 
     const folder = payload.node
     return [
-      { label: 'Abrir', icon: FolderIcon, onClick: () => navigate(`/folders/${folder.id}`) },
+      { label: t('Abrir'), icon: FolderIcon, onClick: () => navigate(`/folders/${folder.id}`) },
       {
-        label: 'Nova subpasta',
+        label: t('Nova subpasta'),
         icon: FolderPlus,
         onClick: () => setFolderModal({ parent: folder, categoryId: payload.categoryId }),
       },
       {
-        label: 'Mover para...',
+        label: t('Novo a partir de modelo...'),
+        icon: LayoutTemplate,
+        onClick: () => navigate(`/templates?folder=${folder.id}`),
+      },
+      {
+        label: t('Mover para...'),
         icon: FolderIcon,
         onClick: () => {
           setSelectedIds([`folder:${folder.id}`])
@@ -512,24 +535,24 @@ export default function Sidebar() {
         },
       },
       {
-        label: 'Exportar como .zip',
+        label: t('Exportar como .zip'),
         icon: Download,
         onClick: () => handleFolderExport(folder),
       },
       { separator: true },
       {
-        label: 'Renomear',
+        label: t('Renomear'),
         icon: Pencil,
         atalho: 'F2',
         onClick: () => renomear.abrir(folder.id),
       },
       {
-        label: 'Editar...',
+        label: t('Editar...'),
         icon: Settings,
         onClick: () => setFolderModal({ folder, categoryId: payload.categoryId }),
       },
       {
-        label: 'Excluir',
+        label: t('Excluir'),
         icon: Trash2,
         danger: true,
         onClick: () => {
@@ -554,34 +577,27 @@ export default function Sidebar() {
           collapsed ? 'w-[60px]' : 'w-64',
         )}
       >
-        <div className="flex h-14 items-center justify-between px-3">
-          {!collapsed && (
-            <Link 
+        <div className={cn('flex h-14 items-center px-3', collapsed && 'justify-center px-0')}>
+          <DicaLateral rotulo={t('Início')} ativa={collapsed}>
+            <Link
               to={homeRoute}
-              className="truncate text-[15px] font-semibold tracking-tight text-ink-900 dark:text-ink-50 transition hover:text-accent-600"
+              aria-label={collapsed ? t('Início') : undefined}
+              className="flex min-w-0 items-center gap-2 text-[15px] font-semibold tracking-tight text-ink-900 transition hover:text-accent-600 dark:text-ink-50"
             >
-              Notefy
+              <img src={logo} alt="" className="h-7 w-7 shrink-0 rounded-full bg-white object-cover ring-1 ring-ink-200 dark:ring-ink-700" />
+              {!collapsed && <span className="truncate">{t('Notefy')}</span>}
             </Link>
-          )}
-          <button
-            onClick={toggleSidebar}
-            aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
-            className={cn(
-              'rounded p-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700',
-              'dark:hover:bg-ink-800 dark:hover:text-ink-200',
-              collapsed && 'mx-auto',
-            )}
-          >
-            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-          </button>
+          </DicaLateral>
         </div>
 
-        <div className="px-3 pb-1">
-          <CreateMenu collapsed={collapsed} />
+        <div className={cn('px-3 pb-1', collapsed && 'flex justify-center px-0')}>
+          <DicaLateral rotulo={t('Criar')} ativa={collapsed}>
+            <CreateMenu collapsed={collapsed} />
+          </DicaLateral>
         </div>
 
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-          <div className="space-y-0.5 pt-3">
+        <nav className={cn('min-h-0 flex-1 overflow-y-auto pb-4', collapsed ? 'px-0' : 'px-3')}>
+          <div className={cn('pt-3', collapsed ? 'space-y-1' : 'space-y-0.5')}>
             {dynamicNav.map((item) => (
               <NavItem key={item.to} {...item} collapsed={collapsed} />
             ))}
@@ -592,12 +608,12 @@ export default function Sidebar() {
               {/* Seção Categorias */}
               <div className="flex items-center justify-between px-2 pb-1 pt-3">
                 <span className="secao">
-                  Categorias
+                  {t('Categorias')}
                 </span>
                 <button
                   onClick={() => setCategoryModal({})}
-                  aria-label="Nova categoria"
-                  title="Nova categoria"
+                  aria-label={t('Nova categoria')}
+                  title={t('Nova categoria')}
                   className="rounded p-0.5 text-ink-400 transition hover:text-accent-600"
                 >
                   <Plus size={13} />
@@ -633,47 +649,90 @@ export default function Sidebar() {
               )}
 
               <p className="mt-4 px-2 text-[10px] leading-relaxed text-ink-400">
-                Arraste itens e pastas para mover. Clique com o botão direito para mais opções.
+                {semMouse()
+            ? t('Toque e segure um item ou uma pasta para ver as opções.')
+            : t('Arraste itens e pastas para mover. Clique com o botão direito para mais opções. Ctrl+/ mostra os atalhos.')}
               </p>
 
               <FavoritosSidebar aoAbrirMenu={openMenu} />
             </>
           )}
 
+          {/* No trilho, as categorias viram iniciais na cor delas: um clique
+              leva à categoria e o botão direito abre o mesmo menu da árvore. */}
           {collapsed && (
-            <div className="mt-3 flex flex-col items-center gap-1 border-t border-ink-200 pt-3 dark:border-ink-800">
-              <button
-                onClick={() => setCategoryModal({})}
-                title="Nova categoria"
-                className="rounded p-2 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
-              >
-                <Tag size={16} />
-              </button>
+            <div className="mx-3 mt-3 space-y-1 border-t border-ink-200 pt-3 dark:border-ink-800">
+              {categories.map((c) => {
+                const cor = c.color || '#8C8A86'
+                return (
+                  <DicaLateral key={c.id} rotulo={c.name}>
+                    <NavLink
+                      to={`/categories/${c.id}`}
+                      aria-label={c.name}
+                      onContextMenu={(e) => openMenu(e, { type: 'category', category: c })}
+                      style={{ backgroundColor: `${cor}26`, color: cor, '--tw-ring-color': cor }}
+                      className={({ isActive }) =>
+                        cn(
+                          QUADRADO,
+                          'text-[13px] font-semibold',
+                          isActive ? 'ring-2 ring-offset-2 ring-offset-ink-50 dark:ring-offset-ink-900' : 'hover:brightness-110',
+                        )
+                      }
+                    >
+                      {/* Duas palavras, duas letras: "Pesquisa Acadêmica" e "Pessoal" não viram dois "P". */}
+                      {c.name.split(/\s+/).slice(0, 2).map((p) => p.charAt(0)).join('').toUpperCase()}
+                    </NavLink>
+                  </DicaLateral>
+                )
+              })}
+              <DicaLateral rotulo={t('Nova categoria')}>
+                <button
+                  onClick={() => setCategoryModal({})}
+                  aria-label={t('Nova categoria')}
+                  className={cn(QUADRADO, 'border border-dashed border-ink-300 text-ink-400 hover:border-accent-500 hover:text-accent-600 dark:border-ink-700')}
+                >
+                  <Plus size={15} />
+                </button>
+              </DicaLateral>
             </div>
           )}
         </nav>
 
-        <div className="border-t border-ink-200 p-3 dark:border-ink-800">
+        <div className={cn('border-t border-ink-200 dark:border-ink-800', collapsed ? 'space-y-1 px-0 py-3' : 'p-3')}>
           <StudyTimer collapsed={collapsed} />
-          <div className={cn('flex items-center gap-2', collapsed && 'justify-center')}>
-            <NavLink
-              to="/settings/conta"
-              title="Sua conta"
-              aria-label="Sua conta"
-              className="shrink-0 rounded-full ring-accent-400 transition hover:ring-2"
-            >
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt=""
-                  className="h-7 w-7 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-600 text-[11px] font-semibold text-white">
-                  {(user?.full_name || user?.username || '?').charAt(0).toUpperCase()}
-                </div>
-              )}
-            </NavLink>
+          {collapsed && (
+            <DicaLateral rotulo={t('Configurações')}>
+              <NavLink
+                to="/settings"
+                aria-label={t('Configurações')}
+                className={({ isActive }) =>
+                  cn(QUADRADO, isActive ? ATIVO_NO_TRILHO : 'text-ink-500 hover:bg-ink-200/60 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100')
+                }
+              >
+                <Settings size={16} />
+              </NavLink>
+            </DicaLateral>
+          )}
+          <div className={cn('flex items-center gap-2', collapsed && 'justify-center pt-1')}>
+            <DicaLateral rotulo={t('Sua conta')} ativa={collapsed}>
+              <NavLink
+                to="/settings/conta"
+                aria-label={t('Sua conta')}
+                className="block shrink-0 rounded-full ring-accent-400 transition hover:ring-2"
+              >
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt=""
+                    className="h-7 w-7 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-600 text-[11px] font-semibold text-white">
+                    {(user?.full_name || user?.username || '?').charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </NavLink>
+            </DicaLateral>
             {!collapsed && (
               <>
                 <NavLink to="/settings/conta" className="min-w-0 flex-1">
@@ -683,14 +742,14 @@ export default function Sidebar() {
                 </NavLink>
                 <NavLink
                   to="/settings"
-                  aria-label="Configurações"
+                  aria-label={t('Configurações')}
                   className="rounded p-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
                 >
                   <Settings size={15} />
                 </NavLink>
                 <button
                   onClick={handleLogout}
-                  aria-label="Sair"
+                  aria-label={t('Sair')}
                   className="rounded p-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-red-600 dark:hover:bg-ink-800"
                 >
                   <LogOut size={15} />
@@ -699,6 +758,28 @@ export default function Sidebar() {
             )}
           </div>
         </div>
+
+        {/* Recolher e expandir no MESMO lugar, o pé da barra: o botão fica
+            embaixo do cursor nos dois estados, e dá para ir e voltar sem
+            procurar. */}
+        {!sempreAberta && (
+          <div className={cn('border-t border-ink-200 dark:border-ink-800', collapsed ? 'py-2' : 'p-2')}>
+            <DicaLateral rotulo={t('Expandir menu')} ativa={collapsed}>
+              <button
+                onClick={toggleSidebar}
+                aria-label={collapsed ? t('Expandir menu') : t('Recolher menu')}
+                aria-expanded={!collapsed}
+                className={cn(
+                  'text-ink-500 transition hover:bg-ink-200/60 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100',
+                  collapsed ? QUADRADO : 'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs',
+                )}
+              >
+                {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                {!collapsed && t('Recolher menu')}
+              </button>
+            </DicaLateral>
+          </div>
+        )}
       </aside>
 
       <ContextMenu
@@ -739,8 +820,8 @@ export default function Sidebar() {
 
       <DestinationModal
         open={moveModalOpen}
-        title={`Mover ${selectedIds.length} item(s)`}
-        confirmLabel="Mover para cá"
+        title={t('Mover {length} item(s)', { length: selectedIds.length })}
+        confirmLabel={t('Mover para cá')}
         onClose={() => {
           setMoveModalOpen(false)
           setSelectedIds([])
@@ -748,30 +829,14 @@ export default function Sidebar() {
         onPick={handleBulkMove}
       />
 
-      <Modal
+      <ConfirmDialog
         open={bulkDeleteModalOpen}
         onClose={() => setBulkDeleteModalOpen(false)}
-        title="Excluir múltiplos itens"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBulkDeleteModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              loading={isDeletingBulk}
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white border-transparent"
-            >
-              Sim, excluir {selectedIds.length} itens
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          Você está prestes a excluir <strong>{selectedIds.length}</strong> itens de forma permanente.
-          Se houver subpastas com conteúdo, eles também serão forçados a serem excluídos. Deseja continuar?
-        </p>
-      </Modal>
+        title={t('Excluir itens selecionados')}
+        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
+        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
+        onConfirm={handleBulkDelete}
+      />
 
       {deleteDialogs}
     </>

@@ -7,6 +7,7 @@ import { valorDaCelula } from '@/lib/celulas'
 import { buscarArquivo } from '@/lib/fileMedia'
 import { useMenuSuspenso } from '@/hooks/useMenuSuspenso'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Formatos de exportação por tipo de documento.
@@ -17,13 +18,13 @@ import { cn } from '@/lib/utils'
  */
 const FORMATS = {
   note: [
-    { ext: 'md', label: 'Markdown', default: true },
+    { ext: 'md', get label() { return t('Markdown') }, default: true },
     { ext: 'pdf', label: 'PDF' },
     { ext: 'html', label: 'HTML' },
   ],
   spreadsheet: [
     { ext: 'csv', label: 'CSV', default: true },
-    { ext: 'xlsx', label: 'Excel' },
+    { ext: 'xlsx', get label() { return t('Excel') } },
     { ext: 'json', label: 'JSON' },
   ],
   diagram: [
@@ -37,7 +38,7 @@ const FORMATS = {
     { ext: 'json', label: 'JSON' },
   ],
   file: [
-    { ext: null, label: 'Formato original', default: true },
+    { ext: null, get label() { return t('Formato original') }, default: true },
   ],
 }
 
@@ -51,7 +52,7 @@ export { FORMATS }
  * do ZIP: uma nota chamada "Antes/Depois" viraria duas pastas aninhadas
  * ao descompactar.
  */
-function sanitizarNome(nome, padrao = 'documento') {
+function sanitizarNome(nome, padrao = t('documento')) {
   return (nome || padrao).replace(/[/\\?%*:|"<>]/g, '_')
 }
 
@@ -103,7 +104,7 @@ async function exportDocument(doc, ext, onSaved, onError) {
         // caminho sobre a origem da API, que é o que o resto do app já
         // fazia para preview e download.
         const response = await buscarArquivo(doc.file_url)
-        await downloadBlob(response.data, doc.original_name || doc.title || 'arquivo')
+        await downloadBlob(response.data, doc.original_name || doc.title || t('arquivo'))
       }
       return
     }
@@ -306,10 +307,10 @@ function svgParaPng({ texto, largura, altura }) {
       ctx.drawImage(imagem, 0, 0, canvas.width, canvas.height)
       canvas.toBlob((blob) => {
         if (blob) resolve(blob)
-        else reject(new Error('Não foi possível gerar o PNG.'))
+        else reject(new Error(t('Não foi possível gerar o PNG.')))
       }, 'image/png')
     }
-    imagem.onerror = () => reject(new Error('Não foi possível ler o desenho.'))
+    imagem.onerror = () => reject(new Error(t('Não foi possível ler o desenho.')))
     imagem.src = `data:image/svg+xml;charset=utf-8,${codificado}`
   })
 }
@@ -361,8 +362,8 @@ export default function ExportMenu({ document: doc, disabled, onError }) {
       <button
         onClick={() => (formatoUnico ? handleExport(defaultFormat.ext) : setOpen((v) => !v))}
         disabled={disabled || busy}
-        title={disabled ? 'Salve antes de exportar' : 'Baixar'}
-        aria-label="Baixar"
+        title={disabled ? t('Salve antes de exportar') : t('Baixar')}
+        aria-label={t('Baixar')}
         aria-expanded={formatoUnico ? undefined : open}
         className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 disabled:opacity-50 dark:hover:bg-ink-800"
       >
@@ -380,7 +381,7 @@ export default function ExportMenu({ document: doc, disabled, onError }) {
             )}
           >
             <p className="px-2 py-1 secao">
-              Baixar como
+              {t('Baixar como')}
             </p>
             {formats.map((fmt) => (
               <button
@@ -424,7 +425,7 @@ export async function exportBatchAsZip(documents, onError) {
         zip.file(`${title}.csv`, buildSpreadsheetCsv(doc))
       } else if (doc.kind === 'file' && doc.file_url) {
         const response = await buscarArquivo(doc.file_url, 'arraybuffer')
-        zip.file(doc.title || 'arquivo', response.data)
+        zip.file(doc.title || t('arquivo'), response.data)
       } else {
         zip.file(`${title}.json`, JSON.stringify(doc.data ?? {}, null, 2))
       }
@@ -452,7 +453,7 @@ export async function exportFolderAsZip(tree, onError) {
     for (const node of nodes) {
       // Sanitizar aqui também: uma pasta chamada "Antes/Depois" abriria
       // dois níveis de diretório ao descompactar.
-      const nome = sanitizarNome(node.name, 'pasta')
+      const nome = sanitizarNome(node.name, t('pasta'))
       const folderPath = prefix ? `${prefix}/${nome}` : nome
 
       // Documentos desta pasta
@@ -465,7 +466,7 @@ export async function exportFolderAsZip(tree, onError) {
             zip.file(`${folderPath}/${title}.csv`, buildSpreadsheetCsv(doc))
           } else if (doc.kind === 'file' && doc.file_url) {
             const response = await buscarArquivo(doc.file_url, 'arraybuffer')
-            zip.file(`${folderPath}/${doc.title || 'arquivo'}`, response.data)
+            zip.file(`${folderPath}/${doc.title || t('arquivo')}`, response.data)
           } else {
             zip.file(`${folderPath}/${title}.json`, JSON.stringify(doc.data ?? {}, null, 2))
           }

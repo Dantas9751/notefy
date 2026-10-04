@@ -13,6 +13,7 @@ import { comandosPara, instrucaoDoComando, sugestoesPara } from './comandos'
 import { detectarAcao, rotuloAcao } from './acoes'
 import { mergeDocumento } from './merge'
 import { anexarTextoNaNota } from './executar'
+import { t } from '../../lib/i18n.js'
 
 //: Segmento da rota -> `kind` do documento.
 const KIND_DA_ROTA = {
@@ -148,7 +149,7 @@ export default function AssistentePanel() {
   // A aba do assistente leva o nome do arquivo em contexto.
   useEffect(() => {
     if (!aberto || !ativaId) return
-    renomearConversa(ativaId, docNaTela?.title || 'Conversa', docNaTela)
+    renomearConversa(ativaId, docNaTela?.title || t('Conversa'), docNaTela)
   }, [aberto, ativaId, docNaTela, renomearConversa])
 
   // Abrir o painel é sinal de vontade de digitar: foco no campo. O
@@ -201,14 +202,14 @@ export default function AssistentePanel() {
       setFracao(Math.min(FRACAO_MAX, Math.max(FRACAO_MIN, nova)))
     }
     const soltar = () => setArrastando(false)
-    window.addEventListener('mousemove', mover)
-    window.addEventListener('mouseup', soltar)
+    window.addEventListener('pointermove', mover)
+    window.addEventListener('pointerup', soltar)
     const cursorAntes = document.body.style.cursor
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
     return () => {
-      window.removeEventListener('mousemove', mover)
-      window.removeEventListener('mouseup', soltar)
+      window.removeEventListener('pointermove', mover)
+      window.removeEventListener('pointerup', soltar)
       document.body.style.cursor = cursorAntes
       document.body.style.userSelect = ''
     }
@@ -285,7 +286,7 @@ export default function AssistentePanel() {
           const rotulo = rotuloAcao(acao.task)
           setMensagens((m) => {
             const copia = [...m]
-            copia[copia.length - 1] = { role: 'assistant', content: `${rotulo} na pasta atual.` }
+            copia[copia.length - 1] = { role: 'assistant', content: t('{rotulo} na pasta atual.', { rotulo }) }
             return copia
           })
           // Novo item em pasta/lista aberta: sidebar e listas precisam saber.
@@ -299,7 +300,7 @@ export default function AssistentePanel() {
           // de texto.
           const pedido =
             acao.task === 'nota.texto'
-              ? `Escreva um texto de estudo sobre ${acao.input}, com títulos curtos e parágrafos objetivos.`
+              ? t('Escreva um texto de estudo sobre {assunto}, com títulos curtos e parágrafos objetivos.', { assunto: acao.input })
               : undefined
           const resultado = await runIA({
             task: acao.task === 'nota.texto' ? 'chat' : acao.task,
@@ -355,7 +356,7 @@ export default function AssistentePanel() {
           // Usuário parou: remove a bolha vazia, sem erro na tela.
           setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
         } else {
-          setErro(err.message || 'Falha ao gerar.')
+          setErro(err.message || t('Falha ao gerar.'))
           setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
         }
       } finally {
@@ -397,7 +398,7 @@ export default function AssistentePanel() {
       if (err.name === 'AbortError') {
         setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
       } else {
-        setErro(err.message || 'Falha na chamada de IA.')
+        setErro(err.message || t('Falha na chamada de IA.'))
         setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
       }
     } finally {
@@ -409,14 +410,18 @@ export default function AssistentePanel() {
 
   if (!aberto) return null
 
+  // No celular, metade da tela não dá para ler nem escrever: a gaveta cobre
+  // o lado inteiro.
+  const cobertura = (regiao?.width ?? 0) < 640 ? 1 : fracao
+
   return (
     <div
       data-assistente=""
       className="fixed z-40 flex flex-col border-l border-ink-200 bg-white shadow-2xl dark:border-ink-800 dark:bg-ink-950"
       style={{
-        left: (regiao?.left ?? 0) + (regiao?.width ?? 0) * (1 - fracao),
+        left: (regiao?.left ?? 0) + (regiao?.width ?? 0) * (1 - cobertura),
         top: regiao?.top ?? 0,
-        width: (regiao?.width ?? 0) * fracao,
+        width: (regiao?.width ?? 0) * cobertura,
         height: regiao?.height ?? 0,
       }}
     >
@@ -424,13 +429,13 @@ export default function AssistentePanel() {
       <div
         role="separator"
         aria-orientation="vertical"
-        title="Arraste para redimensionar"
-        onMouseDown={(e) => {
+        title={t('Arraste para redimensionar')}
+        onPointerDown={(e) => {
           e.preventDefault()
           setArrastando(true)
         }}
         className={cn(
-          'absolute inset-y-0 -left-1 w-2 cursor-col-resize transition',
+          'absolute inset-y-0 -left-1 w-2 cursor-col-resize touch-none transition',
           arrastando ? 'bg-accent-500/40' : 'hover:bg-accent-500/20',
         )}
       />
@@ -438,7 +443,7 @@ export default function AssistentePanel() {
       <div className="flex shrink-0 items-center gap-2 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
         <Sparkles size={16} className="text-accent-600" />
         <h2 className="flex-1 truncate text-sm font-semibold text-ink-900 dark:text-ink-50">
-          Laviel
+          {t('Laviel')}
         </h2>
         {contextoDoc && (
           <span
@@ -450,26 +455,26 @@ export default function AssistentePanel() {
             )}
             title={
               ativa?.fixada
-                ? `Fixada em "${contextoDoc.title || 'este item'}". Não muda ao navegar.`
-                : `O chat lê "${contextoDoc.title || 'este item'}" como contexto`
+                ? t('Fixada em "{valor}". Não muda ao navegar.', { valor: contextoDoc.title || t('este item') })
+                : t('O chat lê "{valor}" como contexto', { valor: contextoDoc.title || t('este item') })
             }
           >
             {ativa?.fixada && <Pin size={9} className="shrink-0" />}
-            <span className="truncate">{contextoDoc.title || 'Sem título'}</span>
+            <span className="truncate">{contextoDoc.title || t('Sem título')}</span>
           </span>
         )}
         <button
           onClick={() => limparConversa(ativaId)}
           disabled={!mensagens.length}
           className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-ink-800 dark:hover:text-ink-200"
-          title="Limpar conversa"
+          title={t('Limpar conversa')}
         >
           <Eraser size={15} />
         </button>
         <button
           onClick={fechar}
           className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
-          title="Fechar (Esc)"
+          title={t('Fechar (Esc)')}
         >
           <X size={16} />
         </button>
@@ -489,20 +494,20 @@ export default function AssistentePanel() {
               openMenu(e, {
                 items: [
                   {
-                    label: c.fixada ? 'Desafixar conversa' : 'Manter esta conversa',
+                    label: c.fixada ? t('Desafixar conversa') : t('Manter esta conversa'),
                     icon: Pin,
                     onClick: () => fixarConversa(c.id, docNaTela),
                   },
                   { separator: true },
-                  { label: 'Limpar conversa', icon: Eraser, onClick: () => limparConversa(c.id) },
-                  { label: 'Fechar', icon: X, onClick: () => fecharConversa(c.id) },
+                  { label: t('Limpar conversa'), icon: Eraser, onClick: () => limparConversa(c.id) },
+                  { label: t('Fechar'), icon: X, onClick: () => fecharConversa(c.id) },
                   {
-                    label: 'Fechar as outras',
+                    label: t('Fechar as outras'),
                     icon: X,
                     disabled: conversas.length < 2,
                     onClick: () => fecharOutras(c.id),
                   },
-                  { label: 'Fechar todas', icon: X, onClick: fecharTodas },
+                  { label: t('Fechar todas'), icon: X, onClick: fecharTodas },
                 ],
               })
             }}
@@ -512,7 +517,7 @@ export default function AssistentePanel() {
                 ? 'bg-white text-ink-900 dark:bg-ink-950 dark:text-ink-50'
                 : 'text-ink-500 hover:bg-ink-100/70 dark:text-ink-400 dark:hover:bg-ink-800/50',
             )}
-            title={c.fixada ? `${c.titulo} (fixada)` : c.titulo}
+            title={c.fixada ? t('{titulo} (fixada)', { titulo: c.titulo }) : c.titulo}
           >
             {c.fixada && <Pin size={10} className="shrink-0 text-accent-600" />}
             <span className="min-w-0 flex-1 truncate">{c.titulo}</span>
@@ -522,7 +527,7 @@ export default function AssistentePanel() {
                 fecharConversa(c.id)
               }}
               className="shrink-0 rounded p-0.5 text-ink-400 opacity-0 transition group-hover:opacity-100 hover:bg-ink-200 hover:text-ink-700 dark:hover:bg-ink-700"
-              title="Fechar conversa"
+              title={t('Fechar conversa')}
             >
               <X size={11} />
             </button>
@@ -531,7 +536,7 @@ export default function AssistentePanel() {
         <button
           onClick={abrirConversa}
           className="flex shrink-0 items-center border-r border-ink-200 px-2.5 text-ink-400 transition hover:bg-ink-100/70 hover:text-accent-600 dark:border-ink-800 dark:hover:bg-ink-800/50"
-          title="Nova conversa"
+          title={t('Nova conversa')}
         >
           <Plus size={14} />
         </button>
@@ -549,13 +554,13 @@ export default function AssistentePanel() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <Sparkles size={28} className="text-ink-300 dark:text-ink-600" />
           <p className="text-sm text-ink-500 dark:text-ink-400">
-            Configure sua chave de IA nas configurações para falar com o Laviel.
+            {t('Configure sua chave de IA nas configurações para falar com o Laviel.')}
           </p>
           <a
             href="/settings"
             className="flex items-center gap-2 rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent-700"
           >
-            <Settings size={14} /> Abrir configurações
+            <Settings size={14} /> {t('Abrir configurações')}
           </a>
         </div>
       ) : (
@@ -564,15 +569,15 @@ export default function AssistentePanel() {
             {mensagens.length === 0 && (
               <p className="mt-4 text-center text-xs text-ink-400 dark:text-ink-500">
                 {comandosDisponiveis.length
-                  ? 'Peça ao Laviel para explicar, resumir ou organizar o item aberto. Digite / para ver os comandos.'
-                  : 'Abra uma nota, planilha, diagrama ou canvas para o Laviel trabalhar sobre ele.'}
+                  ? t('Peça ao Laviel para explicar, resumir ou organizar o item aberto. Digite / para ver os comandos.')
+                  : t('Abra uma nota, planilha, diagrama ou canvas para o Laviel trabalhar sobre ele.')}
               </p>
             )}
             {mensagens.map((m, i) => (
               <div
                 key={i}
                 className={cn(
-                  'mb-2 whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed',
+                  'mb-2 select-text whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed',
                   m.role === 'user'
                     ? 'ml-8 bg-accent-600 text-white'
                     : 'mr-8 bg-ink-100 text-ink-800 dark:bg-ink-800/60 dark:text-ink-100',
@@ -638,7 +643,7 @@ export default function AssistentePanel() {
                   </button>
                 ))}
                 <span className="self-center text-[11px] text-ink-400">
-                  digite / para ver todos
+                  {t('digite / para ver todos')}
                 </span>
               </div>
             )}
@@ -689,8 +694,8 @@ export default function AssistentePanel() {
                 }}
                 placeholder={
                   comandosDisponiveis.length
-                    ? 'Pergunte ao Laviel ou digite /'
-                    : 'Pergunte ao Laviel…'
+                    ? t('Pergunte ao Laviel ou digite /')
+                    : t('Pergunte ao Laviel…')
                 }
                 className="min-w-0 flex-1 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-accent-500 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-100"
               />
@@ -698,9 +703,9 @@ export default function AssistentePanel() {
                 <button
                   onClick={parar}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-sm text-ink-600 transition hover:bg-ink-100 dark:border-ink-800 dark:text-ink-300 dark:hover:bg-ink-800"
-                  title="Parar"
+                  title={t('Parar')}
                 >
-                  <Square size={13} /> Parar
+                  <Square size={13} /> {t('Parar')}
                 </button>
               ) : (
                 <button
@@ -708,7 +713,7 @@ export default function AssistentePanel() {
                   disabled={!prompt.trim()}
                   className="flex shrink-0 items-center gap-1.5 rounded-md bg-accent-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <Send size={13} /> Enviar
+                  <Send size={13} /> {t('Enviar')}
                 </button>
               )}
             </div>

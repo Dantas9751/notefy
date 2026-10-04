@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { extractError } from '@/lib/api'
 import { Button, Field, Input } from '@/components/ui'
+import { t } from '@/lib/i18n'
 
 export default function Login() {
   const { login } = useAuth()
@@ -24,7 +25,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err?.response?.status === 401
-          ? 'Nome de usuário ou senha incorretos.'
+          ? t('Nome de usuário ou senha incorretos.')
           : extractError(err),
       )
     } finally {
@@ -37,10 +38,10 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="titulo text-[28px] font-medium">
-            Notefy
+            {t('Notefy')}
           </h1>
           <p className="mt-1.5 text-sm text-ink-500 dark:text-ink-400">
-            Caderno de estudos.
+            {t('Caderno de estudos.')}
           </p>
         </div>
 
@@ -54,19 +55,19 @@ export default function Login() {
             </p>
           )}
 
-          <Field label="Nome de usuário">
+          <Field label={t('Nome de usuário')}>
             <Input
               type="text"
               autoComplete="username"
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-              placeholder="Usuário"
+              placeholder={t('Usuário')}
               autoFocus
               required
             />
           </Field>
 
-          <Field label="Senha">
+          <Field label={t('Senha')}>
             <Input
               type="password"
               autoComplete="current-password"
@@ -78,17 +79,17 @@ export default function Login() {
           </Field>
 
           <Button type="submit" size="lg" className="w-full" loading={loading}>
-            Entrar
+            {t('Entrar')}
           </Button>
         </form>
 
         <p className="mt-5 text-center text-sm text-ink-500 dark:text-ink-400">
-          Ainda não tem conta?{' '}
+          {t('Ainda não tem conta?')}{' '}
           <Link
             to="/register"
             className="font-medium text-accent-600 underline-offset-2 hover:underline dark:text-accent-400"
           >
-            Criar conta
+            {t('Criar conta')}
           </Link>
         </p>
       </div>

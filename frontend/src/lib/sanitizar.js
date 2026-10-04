@@ -42,6 +42,24 @@ export function limparHtml(html) {
 }
 
 /**
+ * Limpa, no lugar, o que uma biblioteca de preview desenhou no DOM.
+ *
+ * `docx-preview` e `pptx-preview` montam o documento com a API do DOM,
+ * mas copiam do ARQUIVO os endereços dos links. Um .docx com um link
+ * `javascript:` virava um `<a href="javascript:...">` no meio da página do
+ * app: um clique e o código rodava aqui, onde mora o token de sessão.
+ * Provado com um .docx fabricado: o clique trocou a página inteira pelo
+ * `document.domain`. Um arquivo recebido por e-mail e aberto no Notefy
+ * bastava.
+ *
+ * `IN_PLACE` e não serializar e reinserir: preserva os `<style>` e as
+ * classes que a biblioteca gerou, e só arranca o que é ativo.
+ */
+export function limparNoLugar(elemento) {
+  if (elemento) DOMPurify.sanitize(elemento, { IN_PLACE: true })
+}
+
+/**
  * Texto puro -> HTML seguro, para quando se MONTA markup com um texto
  * que veio de fora.
  *

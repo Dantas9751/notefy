@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { buscarArquivo } from '@/lib/fileMedia'
 import { Spinner } from '@/components/ui'
 import { formatBytes } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Acima disto, ler o arquivo inteiro na memória da janela trava a
@@ -129,7 +130,7 @@ export default function TextFilePreview({ doc }) {
         if (ativo) setHtml(highlightCode(data, linguagem))
       })
       .catch(() => {
-        if (ativo) setErro('Não foi possível ler o arquivo.')
+        if (ativo) setErro(t('Não foi possível ler o arquivo.'))
       })
 
     return () => {
@@ -140,8 +141,7 @@ export default function TextFilePreview({ doc }) {
   if (grandeDemais) {
     return (
       <p className="text-sm text-ink-500 dark:text-ink-400">
-        Arquivo de {formatBytes(doc.size)}, grande demais para pré-visualizar. Baixe para
-        abrir no seu editor.
+        {t('Arquivo de')} {formatBytes(doc.size)}{t(', grande demais para pré-visualizar. Baixe para abrir no seu editor.')}
       </p>
     )
   }
@@ -194,8 +194,8 @@ export default function TextFilePreview({ doc }) {
           </table>
         </div>
         <p className="shrink-0 pt-2 text-[11px] text-ink-400">
-          {corpo.length} linha(s)
-          {corpo.length > visiveis.length && `, mostrando as ${TETO_LINHAS_CSV} primeiras`}
+          {corpo.length} {t('linha(s)')}
+          {corpo.length > visiveis.length && t(', mostrando as {TETO_LINHAS_CSV} primeiras', { TETO_LINHAS_CSV })}
         </p>
       </div>
     )
@@ -203,7 +203,7 @@ export default function TextFilePreview({ doc }) {
 
   return (
     <div className="h-full w-full overflow-auto rounded-lg border border-ink-200 bg-ink-50/50 dark:border-ink-800 dark:bg-ink-900/40">
-      <pre className="hljs m-0 bg-transparent p-4 text-xs leading-relaxed">
+      <pre className="hljs m-0 select-text bg-transparent p-4 text-xs leading-relaxed">
         <code
           className={`language-${linguagem}`}
           // `html` sai do highlight.js, que escapa o conteúdo antes de

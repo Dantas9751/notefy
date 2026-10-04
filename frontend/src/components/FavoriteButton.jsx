@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Star } from 'lucide-react'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 /**
  * Estrela de favorito.
@@ -73,8 +74,8 @@ export default function FavoriteButton({ endpoint, value = false, onChanged, cla
       type="button"
       onClick={alternar}
       disabled={salvando}
-      title={ativo ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
-      aria-label={ativo ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+      title={ativo ? t('Remover dos favoritos') : t('Adicionar aos favoritos')}
+      aria-label={ativo ? t('Remover dos favoritos') : t('Adicionar aos favoritos')}
       aria-pressed={ativo}
       className={cn(
         'shrink-0 rounded p-0.5 transition',

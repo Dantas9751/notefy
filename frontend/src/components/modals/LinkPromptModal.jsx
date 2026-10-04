@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Field, Input, Modal } from '@/components/ui'
+import { t } from '@/lib/i18n'
 
 /**
  * Pede o endereço de um link.
@@ -41,20 +42,20 @@ export default function LinkPromptModal({ open, valorInicial = '', onClose, onCo
     <Modal
       open={open}
       onClose={onClose}
-      title="Inserir link"
+      title={t('Inserir link')}
       size="sm"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button onClick={confirmar} disabled={!url.trim()}>
-            Inserir
+            {t('Inserir')}
           </Button>
         </>
       }
     >
-      <Field label="Endereço">
+      <Field label={t('Endereço')}>
         <Input
           ref={inputRef}
           value={url}
@@ -69,7 +70,7 @@ export default function LinkPromptModal({ open, valorInicial = '', onClose, onCo
               confirmar()
             }
           }}
-          placeholder="https://exemplo.com"
+          placeholder={t('https://exemplo.com')}
           autoFocus
         />
       </Field>

@@ -9,6 +9,11 @@ from .cripto import cifrar, decifrar
 from django.utils import timezone
 
 
+def capa_upload_path(instance, filename):
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    return f"capas/{instance.pk}/{uuid.uuid4().hex}.{ext}"
+
+
 def avatar_upload_path(instance, filename):
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
     return f"avatars/{instance.pk}/{uuid.uuid4().hex}.{ext}"
@@ -122,6 +127,17 @@ class UserPreferences(models.Model):
     #: SQLite; o frontend divide por 100 na hora de desenhar.
     canvas_highlighter_opacity = models.PositiveSmallIntegerField(default=35)
     canvas_eraser_radius = models.PositiveSmallIntegerField(default=20)
+
+    # Início: capa, quais blocos aparecem, em que ordem e largura, e como
+    # os itens são desenhados. O formato é conferido em `users/inicio.py`.
+    home_layout = models.JSONField("layout do início", default=dict, blank=True)
+    #: Bloco de rascunho do Início. Texto puro e com teto (`MAX_RASCUNHO`):
+    #: é o post-it da tela inicial, e "salvar como nota" é o caminho para
+    #: o que crescer.
+    scratch_pad = models.TextField("rascunho do início", blank=True, default="")
+    #: Foto enviada do computador para a capa do Início. Uma só por conta:
+    #: enviar outra apaga a anterior (`CapaDoInicioView`).
+    home_cover = models.ImageField("capa do início", upload_to=capa_upload_path, blank=True, null=True)
 
     # ------------------------------------------------------------------
     # Inteligência Artificial — configurada pelo usuário nas Configurações.

@@ -4,12 +4,11 @@ import { useWorkspace, findFolder } from '@/context/WorkspaceContext'
 import { Button, ColorDot, Field, Modal, Select } from '@/components/ui'
 import DestinationModal from './DestinationModal'
 import { DOCUMENT_STATUS } from '@/lib/documents'
-import { cn } from '@/lib/utils'
+import { cn, PRESET_COLORS } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
-const COLORS = [
-  '', '#4F46E5', '#0EA5E9', '#10B981',
-  '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6',
-]
+// Sem cor e os mesmos tons do resto do app.
+const COLORS = ['', ...PRESET_COLORS.slice(0, 7)]
 
 /**
  * Propriedades de um item: onde mora, etiquetas, status e cor.
@@ -44,21 +43,21 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
       <Modal
         open={open && !picking}
         onClose={onClose}
-        title="Propriedades"
+        title={t('Propriedades')}
         description={doc?.title}
         footer={
           <>
             <Button variant="secondary" onClick={onClose}>
-              Cancelar
+              {t('Cancelar')}
             </Button>
             <Button loading={saving} disabled={!form.folder} onClick={() => onSave(form)}>
-              Salvar
+              {t('Salvar')}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <Field label="Onde mora" hint="A categoria do item vem da pasta escolhida.">
+          <Field label={t('Onde mora')} hint={t('A categoria do item vem da pasta escolhida.')}>
             <button
               type="button"
               onClick={() => setPicking(true)}
@@ -77,20 +76,20 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
                   </div>
                 </>
               ) : (
-                <span className="flex-1 text-ink-400">Escolher pasta...</span>
+                <span className="flex-1 text-ink-400">{t('Escolher pasta...')}</span>
               )}
               <FolderInput size={14} className="shrink-0 text-ink-400" />
             </button>
           </Field>
 
           <Field
-            label="Etiquetas"
-            hint="Atravessam as pastas: a mesma nota pode ser “prova” e “revisar”."
+            label={t('Etiquetas')}
+            hint={t('Atravessam as pastas: a mesma nota pode ser “prova” e “revisar”.')}
           >
             <div className="flex flex-wrap gap-1.5">
               {categories.length === 0 && (
                 <p className="text-xs text-ink-400">
-                  Nenhuma categoria criada ainda.
+                  {t('Nenhuma categoria criada ainda.')}
                 </p>
               )}
               {categories.map((categoria) => {
@@ -123,7 +122,7 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
             </div>
           </Field>
 
-          <Field label="Status">
+          <Field label={t('Status')}>
             <Select
               value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
@@ -136,7 +135,7 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
             </Select>
           </Field>
 
-          <Field label="Cor">
+          <Field label={t('Cor')}>
             <div className="flex flex-wrap gap-1.5">
               {COLORS.map((color) => (
                 <button
@@ -144,7 +143,7 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, color }))}
                   style={color ? { backgroundColor: color } : undefined}
-                  aria-label={color || 'Sem cor'}
+                  aria-label={color || t('Sem cor')}
                   className={cn(
                     'h-6 w-6 rounded-full border-2 text-[10px] text-ink-400 transition',
                     form.color === color
@@ -162,8 +161,8 @@ export default function DocumentMetaModal({ open, onClose, document: doc, onSave
 
       <DestinationModal
         open={picking}
-        title="Mover item"
-        confirmLabel="Escolher"
+        title={t('Mover item')}
+        confirmLabel={t('Escolher')}
         currentFolderId={form.folder}
         onClose={() => setPicking(false)}
         onPick={(folderId) => {

@@ -11,6 +11,8 @@
  * mandar: a chave do dia muda e o contador começa do zero.
  */
 
+import { t } from './i18n.js'
+
 /** Quanto tempo sem teclado/mouse/toque antes de considerar que parou. */
 export const OCIOSO_MS = 60_000
 
@@ -130,7 +132,7 @@ export function somarSegundo(mapa, documento) {
     ...mapa,
     [documento.id]: {
       s: (atual?.s ?? 0) + 1,
-      titulo: documento.titulo || atual?.titulo || 'Sem título',
+      titulo: documento.titulo || atual?.titulo || t('Sem título'),
       kind: documento.kind || atual?.kind || 'note',
     },
   }

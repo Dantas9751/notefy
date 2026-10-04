@@ -15,13 +15,18 @@ import zipfile
 from datetime import datetime, timezone as dt_timezone
 from io import BytesIO
 
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
-from content.models import Document
+from content.midia import trocar_caminhos
+from content.models import Document, Template
+from core.idioma import texto
 from organization.models import Category, Folder
 from planner.models import ChecklistItem, Task
 
+from .inicio import MAX_RASCUNHO, limpar_inicio
 from .models import UserPreferences
 
 #: Sobe quando o formato mudar de um jeito que a leitura antiga não entenda.
@@ -55,6 +60,10 @@ CAMPOS_DE_PREFERENCIA = (
     "accent_color",
     "editor_font_size",
     "week_starts_on_monday",
+    # Conferidos de novo na volta (`_preferencias_do_backup`): são os dois
+    # campos livres da lista, e o .zip vem de fora.
+    "home_layout",
+    "scratch_pad",
 )
 
 
@@ -71,6 +80,7 @@ def exportar(user):
     )
 
     prefs = UserPreferences.objects.filter(user=user).first()
+    modelos = list(Template.objects.filter(owner=user).order_by("created_at"))
 
     dados = {
         "notefy_backup": FORMATO,
@@ -158,14 +168,29 @@ def exportar(user):
             }
             for i in checklist
         ],
+        "modelos": [
+            {
+                "id": str(m.id),
+                "name": m.name,
+                "description": m.description,
+                "kind": m.kind,
+                "data": m.data,
+            }
+            for m in modelos
+        ],
     }
 
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(MANIFESTO, json.dumps(dados, ensure_ascii=False, indent=1))
+        # Um item duplicado compartilha o arquivo com o original. Gravar o
+        # mesmo caminho duas vezes no zip gera entrada repetida, que o
+        # `zipfile` aceita com um aviso e outros descompactadores recusam.
+        gravados = set()
         for documento in documentos:
-            if not documento.file:
+            if not documento.file or documento.file.name in gravados:
                 continue
+            gravados.add(documento.file.name)
             try:
                 with documento.file.open("rb") as fh:
                     zf.writestr(PASTA_MEDIA + documento.file.name, fh.read())
@@ -219,11 +244,11 @@ def _ler_manifesto(zf):
         ) from exc
     try:
         dados = json.loads(bruto.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise BackupInvalido("O notefy.json do backup está corrompido.") from exc
 
-    formato = dados.get("notefy_backup")
-    if formato is None:
+    formato = dados.get("notefy_backup") if isinstance(dados, dict) else None
+    if not isinstance(formato, int):
         raise BackupInvalido("O arquivo não parece um backup do Notefy.")
     if formato > FORMATO:
         raise BackupInvalido(
@@ -232,8 +257,66 @@ def _ler_manifesto(zf):
     return dados
 
 
-@transaction.atomic
+#: O manifesto é texto e cresce com a conta; os arquivos entraram no app
+#: pelo upload, e nenhum passou do limite dele.
+LIMITE_MANIFESTO = 200 * 1024 * 1024
+#: Conteúdo de verdade (PDF, imagem, JSON) não comprime mais que umas
+#: dezenas de vezes. Bomba de zip comprime mil.
+TAXA_MAXIMA = 50
+
+
+def _conferir_tamanhos(zf):
+    """Recusa bomba de zip ANTES de ler qualquer coisa.
+
+    O import lê cada arquivo inteiro para a memória e grava no disco. Um
+    zip de 200 KB que descomprime para 200 MB passava, e um de 50 MB
+    descomprimindo para 50 GB derrubaria o processo e encheria o disco. Os
+    tamanhos declarados no índice do zip bastam: o `zipfile` não entrega
+    mais bytes do que o índice declara.
+
+    Não há teto para o total: um backup legítimo com muitos PDFs pode ter
+    gigas, e recusá-lo seria perder a restauração de quem mais precisa.
+    """
+    total = comprimido = 0
+    for info in zf.infolist():
+        limite = LIMITE_MANIFESTO if info.filename == MANIFESTO else settings.MAX_UPLOAD_SIZE
+        if info.file_size > limite:
+            raise BackupInvalido(
+                f"O backup tem um arquivo grande demais ({info.file_size // 2**20} MB)."
+            )
+        total += info.file_size
+        comprimido += info.compress_size
+    if total > 100 * 2**20 and total > TAXA_MAXIMA * max(comprimido, 1):
+        raise BackupInvalido("O backup está compactado de um jeito anormal e foi recusado.")
+
+
 def importar(user, arquivo, substituir=False):
+    """Portão do import: confere o zip e traduz dado malformado em erro legível.
+
+    O .zip vem de fora, e o corpo do import confia na forma do JSON
+    (`item["id"]`, `dados.get(...)`). Um campo trocado ou ausente virava
+    KeyError, TypeError ou erro de validação do modelo, e a pessoa via
+    "erro do servidor". Como o corpo é atômico, qualquer falha desfaz tudo:
+    ou o backup entra inteiro, ou nada muda.
+    """
+    with zipfile.ZipFile(arquivo) as zf:
+        _conferir_tamanhos(zf)
+    arquivo.seek(0)
+    try:
+        return _importar(user, arquivo, substituir)
+    except BackupInvalido:
+        raise
+    except (
+        KeyError, TypeError, ValueError, AttributeError,
+        DjangoValidationError, IntegrityError, RecursionError,
+    ) as exc:
+        raise BackupInvalido(
+            "O backup está incompleto ou foi alterado, e não dá para restaurá-lo."
+        ) from exc
+
+
+@transaction.atomic
+def _importar(user, arquivo, substituir=False):
     """Recria o conteúdo do backup na conta de `user`.
 
     `substituir=False` (padrão) ADICIONA: tudo entra com ids novos, e o que
@@ -260,11 +343,16 @@ def importar(user, arquivo, substituir=False):
             Folder.objects.filter(owner=user).hard_delete()
             Category.objects.filter(owner=user).hard_delete()
             Task.objects.filter(owner=user).hard_delete()
+            Template.objects.filter(owner=user).delete()
 
         # De id do backup para o objeto recém-criado.
         categorias = {}
         pastas = {}
         documentos = {}
+        #: Caminho do arquivo no backup -> caminho que ele ganhou aqui.
+        trocas = {}
+        #: Caminho do arquivo no backup -> primeiro documento que o trouxe.
+        restaurados = {}
 
         # Nomes já ocupados na conta, para não esbarrar na unicidade.
         # Depois de `substituir` o conjunto nasce vazio, e nada é renomeado.
@@ -313,15 +401,21 @@ def importar(user, arquivo, substituir=False):
         # Duas passadas: `attached_to` aponta para outro documento, que
         # pode aparecer depois no arquivo.
         pendentes_anexo = []
-        for item in dados.get("documentos", []):
+        # Donos antes dos anexos, para o anexo já NASCER ligado. Criado
+        # solto e ligado depois, ele passava pela regra de nome único da
+        # pasta como se fosse item comum, e dois prints "image.png" na
+        # mesma pasta derrubavam a restauração inteira.
+        ordenados = sorted(dados.get("documentos", []), key=lambda i: bool(i.get("attached_to")))
+        for item in ordenados:
             pasta = pastas.get(item.get("folder"))
             if pasta is None:
                 continue
             documento = Document(
                 owner=user,
                 folder=pasta,
+                attached_to=documentos.get(item.get("attached_to")),
                 kind=item.get("kind", Document.Kind.NOTE),
-                title=item.get("title", "Sem título"),
+                title=item.get("title", texto("Sem título", "Untitled")),
                 status=item.get("status", Document.Status.DRAFT),
                 color=item.get("color", ""),
                 icon=item.get("icon", ""),
@@ -335,7 +429,16 @@ def importar(user, arquivo, substituir=False):
             )
 
             caminho = item.get("arquivo")
-            if caminho:
+            ja_restaurado = restaurados.get(caminho) if caminho else None
+            if ja_restaurado is not None:
+                # Outra linha do backup já trouxe este arquivo: as duas o
+                # compartilhavam (item duplicado) e continuam compartilhando.
+                # Restaurar de novo criaria um segundo arquivo, e a nota
+                # reescrita apontaria para o do OUTRO item.
+                documento.file = ja_restaurado.file.name
+                for campo in ("size", "mime_type", "file_kind", "checksum"):
+                    setattr(documento, campo, getattr(ja_restaurado, campo))
+            elif caminho:
                 try:
                     conteudo = zf.read(PASTA_MEDIA + caminho)
                 except KeyError:
@@ -351,7 +454,10 @@ def importar(user, arquivo, substituir=False):
 
             documento.save()
             documentos[item["id"]] = documento
-            if item.get("attached_to"):
+            if caminho and documento.file and caminho not in restaurados:
+                trocas[caminho] = documento.file.name
+                restaurados[caminho] = documento
+            if item.get("attached_to") and documento.attached_to_id is None:
                 pendentes_anexo.append((documento, item["attached_to"]))
 
         for documento, alvo in pendentes_anexo:
@@ -360,12 +466,25 @@ def importar(user, arquivo, substituir=False):
                 documento.attached_to = pai
                 documento.save(update_fields=["attached_to"])
 
+        # Cada arquivo voltou com caminho novo; quem o cita por dentro
+        # (imagem colada na nota, no canvas) ainda aponta para o antigo.
+        # Com "substituir", o antigo acabou de ser apagado do disco: sem
+        # esta passada, toda imagem colada voltava quebrada.
+        for documento in documentos.values():
+            if documento.kind not in Document.EDITABLE_KINDS:
+                continue
+            reescrito = trocar_caminhos(documento.data, trocas)
+            if reescrito is not documento.data:
+                # `update()` e não `save()`: só o caminho mudou, e o texto
+                # que a busca indexa é o mesmo.
+                Document.objects.filter(pk=documento.pk).update(data=reescrito)
+
         tarefas_criadas = 0
         tarefas_por_id = {}
         for item in dados.get("tarefas", []):
             tarefa = Task.objects.create(
                 owner=user,
-                title=item.get("title", "Sem título"),
+                title=item.get("title", texto("Sem título", "Untitled")),
                 description=item.get("description", ""),
                 status=item.get("status", Task.Status.TODO),
                 priority=item.get("priority", 1),
@@ -399,23 +518,60 @@ def importar(user, arquivo, substituir=False):
                 position=item.get("position", 0),
             )
 
-        prefs = dados.get("preferencias")
+        modelos_criados = 0
+        for item in dados.get("modelos", []):
+            if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
+                continue
+            try:
+                Template.objects.create(
+                    owner=user,
+                    name=str(item.get("name") or texto("Modelo", "Template"))[:120],
+                    description=str(item.get("description") or "")[:300],
+                    kind=item.get("kind"),
+                    # Imagem dentro do modelo aponta para o arquivo como ele
+                    # voltou, igual aos documentos acima.
+                    data=trocar_caminhos(item["data"], trocas),
+                )
+                modelos_criados += 1
+            except DjangoValidationError:
+                # Um modelo estragado não derruba a restauração do resto:
+                # é molde, e a conta continua inteira sem ele.
+                continue
+
+        prefs = _preferencias_do_backup(dados.get("preferencias"))
         if prefs:
-            # SÓ os campos que a exportação escreve. `defaults=prefs`
-            # passava o objeto cru do .zip para o `update_or_create`, que
-            # faz `setattr` de toda chave recebida — um backup montado à
-            # mão escrevia qualquer campo do modelo, inclusive `user_id`
-            # (a chave primária) e o endereço do provedor de IA.
-            #
             # O .zip vem de fora: é a única entrada do app em que o
             # conteúdo não passou por serializer nenhum.
-            limpo = {c: prefs[c] for c in CAMPOS_DE_PREFERENCIA if c in prefs}
-            if limpo:
-                UserPreferences.objects.update_or_create(user=user, defaults=limpo)
+            UserPreferences.objects.update_or_create(user=user, defaults=prefs)
 
     return {
         "categorias": len(categorias),
         "pastas": len(pastas),
         "documentos": len(documentos),
         "tarefas": tarefas_criadas,
+        "modelos": modelos_criados,
     }
+
+
+def _preferencias_do_backup(prefs):
+    """SÓ os campos que a exportação escreve, e os livres conferidos.
+
+    `defaults=prefs` passava o objeto cru do .zip para o `update_or_create`,
+    que faz `setattr` de toda chave recebida — um backup montado à mão
+    escrevia qualquer campo do modelo, inclusive `user_id` (a chave
+    primária) e o endereço do provedor de IA.
+    """
+    if not isinstance(prefs, dict):
+        return {}
+    limpo = {c: prefs[c] for c in CAMPOS_DE_PREFERENCIA if c in prefs}
+    if "home_layout" in limpo:
+        try:
+            limpo["home_layout"] = limpar_inicio(limpo["home_layout"])
+        except DjangoValidationError:
+            del limpo["home_layout"]
+    if "scratch_pad" in limpo:
+        if isinstance(limpo["scratch_pad"], str):
+            limpo["scratch_pad"] = limpo["scratch_pad"][:MAX_RASCUNHO]
+        else:
+            del limpo["scratch_pad"]
+    return limpo

@@ -46,18 +46,27 @@ const SATURACAO = {
   900: 0.56,
 }
 
+/**
+ * Tons de material — tinta, tecido de encadernação, lápis —, e não os 500 do
+ * Tailwind (índigo, ciano, esmeralda...), que são a cara de app gerado. O
+ * primeiro é o musgo que o index.css já desenha: o círculo "padrão" mostrava
+ * índigo e o app pintava verde.
+ */
 export const CORES_PADRAO = [
-  '#4F46E5', // índigo (padrão de fábrica)
-  '#0EA5E9', // azul
-  '#10B981', // verde
-  '#F59E0B', // âmbar
-  '#EF4444', // vermelho
-  '#EC4899', // rosa
-  '#8B5CF6', // violeta
-  '#64748B', // ardósia
+  '#70864C', // musgo (padrão de fábrica, o mesmo --accent-500 do index.css)
+  '#3E6A8A', // tinta azul
+  '#2F7A6B', // petróleo
+  '#B08A3E', // mostarda
+  '#8A3B44', // vinho
+  '#A0526D', // rosa antigo
+  '#6E5A8A', // ameixa
+  '#5B6470', // grafite
 ]
 
 export const ACCENT_PADRAO = CORES_PADRAO[0]
+
+/** O padrão de antes: quem nunca escolheu cor tem ele salvo, e continua no padrão. */
+export const ACCENT_PADRAO_ANTIGO = '#4F46E5'
 
 /** '#4F46E5' → { h, s, l } com s e l em 0–100. */
 export function hexParaHsl(hex) {
@@ -147,7 +156,7 @@ export function aplicarAccent(hex) {
     document.head.appendChild(folha)
   }
 
-  // No padrão, a regra fica vazia para valer o índigo exato do index.css.
+  // No padrão, a regra fica vazia para valer o musgo exato do index.css.
   // A escala derivada chega perto, mas não é idêntica, e não faz sentido
   // "quase" reproduzir a paleta original que já está na folha de estilo.
   if (cor.toLowerCase() === ACCENT_PADRAO.toLowerCase()) {

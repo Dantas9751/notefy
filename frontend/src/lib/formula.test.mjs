@@ -178,3 +178,42 @@ test('ordenação joga as células vazias para o fim', () => {
   })
   assert.deepEqual(shown.map((r) => r.id), ['r1', 'r3', 'r2'])
 })
+
+// ------------------------------------------------ travas (ataque ao app)
+
+test('fórmula que cita a linha de cima duas vezes não explode', () => {
+  // Sem cache, cada linha dobrava o trabalho: 22 linhas levavam 7 s para
+  // UMA célula, e 30 travavam a aba.
+  const columns = [{ id: 'f', type: 'formula' }]
+  const rows = Array.from({ length: 60 }, (_, i) => ({ cells: { f: i === 0 ? '=1' : `=A${i}+A${i}` } }))
+  const inicio = performance.now()
+  const { value, error } = evaluateFormula(rows[59].cells.f, { columns, rows })
+  assert.equal(error, null)
+  assert.equal(value, 2 ** 59)
+  assert.ok(performance.now() - inicio < 500)
+})
+
+test('intervalo maior que a planilha é recortado, não percorrido', () => {
+  const columns = [{ id: 'a', type: 'number' }]
+  const rows = [{ cells: { a: 2 } }, { cells: { a: 3 } }]
+  const inicio = performance.now()
+  const { value } = evaluateFormula('=SOMA(A1:ZZZ9999999)', { columns, rows })
+  assert.equal(value, 5)
+  assert.ok(performance.now() - inicio < 500)
+})
+
+test('o cache não responde por uma versão nova da planilha', () => {
+  const columns = [{ id: 'a', type: 'number' }, { id: 'f', type: 'formula' }]
+  const antes = [{ cells: { a: 1, f: '=A1*10' } }, { cells: { f: '=B1' } }]
+  assert.equal(evaluateFormula('=B1', { columns, rows: antes }).value, 10)
+  // Editar troca o array (estado imutável): o resultado tem que acompanhar.
+  const depois = [{ cells: { a: 7, f: '=A1*10' } }, antes[1]]
+  assert.equal(evaluateFormula('=B1', { columns, rows: depois }).value, 70)
+})
+
+test('ciclo continua sendo pego com o cache ligado', () => {
+  const columns = [{ id: 'f', type: 'formula' }]
+  const rows = [{ cells: { f: '=A2' } }, { cells: { f: '=A1' } }, { cells: { f: '=A1+1' } }]
+  assert.match(evaluateFormula(rows[2].cells.f, { columns, rows }).error, /circular/i)
+  assert.match(evaluateFormula(rows[0].cells.f, { columns, rows }).error, /circular/i)
+})

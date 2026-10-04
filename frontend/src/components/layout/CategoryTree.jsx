@@ -4,16 +4,15 @@ import {
   ChevronRight,
   Folder as FolderIcon,
   FolderPlus,
-  Pencil,
   Plus,
   Star,
-  Trash2,
 } from 'lucide-react'
 import { ColorDot } from '@/components/ui'
 import { canDrop, hasItemPayload, limparDragPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
 import { cn } from '@/lib/utils'
 import { usePersistedSet } from '@/hooks/usePersistedSet'
 import { propsDoCampo } from '@/hooks/useRenomear'
+import { t } from '@/lib/i18n'
 
 const EXPANDED_KEY = 'notefy.expanded'
 
@@ -143,7 +142,7 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200 outline-none',
             !hasChildren && 'invisible',
           )}
-          aria-label={isOpen ? 'Recolher' : 'Expandir'}
+          aria-label={isOpen ? t('Recolher') : t('Expandir')}
           aria-expanded={hasChildren ? isOpen : undefined}
         >
           <ChevronRight
@@ -208,8 +207,8 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             e.stopPropagation()
             actions.onCreateFolder({ parent: node, categoryId })
           }}
-          title="Nova subpasta"
-          aria-label={`Nova subpasta em ${node.name}`}
+          title={t('Nova subpasta')}
+          aria-label={t('Nova subpasta em {name}', { name: node.name })}
           className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100 outline-none"
         >
           <Plus size={13} />
@@ -268,7 +267,7 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
             'shrink-0 rounded p-1 text-ink-400 transition hover:text-ink-700 dark:hover:text-ink-200 outline-none',
             !folders.length && 'invisible',
           )}
-          aria-label={isOpen ? 'Recolher' : 'Expandir'}
+          aria-label={isOpen ? t('Recolher') : t('Expandir')}
           aria-expanded={folders.length ? isOpen : undefined}
         >
           <ChevronRight
@@ -328,8 +327,8 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
             e.preventDefault()
             actions.onCreateFolder({ parent: null, categoryId: category.id })
           }}
-          title="Nova pasta"
-          aria-label={`Nova pasta em ${category.name}`}
+          title={t('Nova pasta')}
+          aria-label={t('Nova pasta em {name}', { name: category.name })}
           className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:text-accent-600 focus-visible:opacity-100 group-hover:opacity-100 outline-none"
         >
           <FolderPlus size={13} />
@@ -354,7 +353,7 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
       )}
 
       {folders.length === 0 && (
-        <p className="py-1 pl-8 text-[11px] text-ink-400">Nenhuma pasta aqui.</p>
+        <p className="py-1 pl-8 text-[11px] text-ink-400">{t('Nenhuma pasta aqui.')}</p>
       )}
     </li>
   )
@@ -366,7 +365,7 @@ export default function CategoryTree({ categories, selectedIds = [], onSelectIds
   if (!categories.length) {
     return (
       <p className="px-2 py-3 text-xs leading-relaxed text-ink-400">
-        Crie uma categoria para começar. Tudo mora dentro de uma categoria.
+        {t('Crie uma categoria para começar. Tudo mora dentro de uma categoria.')}
       </p>
     )
   }
@@ -386,5 +385,3 @@ export default function CategoryTree({ categories, selectedIds = [], onSelectIds
     </ul>
   )
 }
-
-export { FolderPlus, Pencil, Trash2 }

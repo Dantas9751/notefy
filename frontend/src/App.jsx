@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { UIProvider } from '@/context/UIContext'
@@ -8,6 +8,8 @@ import { SplitProvider } from '@/context/SplitContext'
 import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
+import { ligarToqueLongo } from '@/lib/toqueLongo'
+import { idioma } from '@/lib/i18n'
 
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
@@ -29,6 +31,7 @@ import AbaLaviel from '@/pages/settings/AbaLaviel'
 import AbaDados from '@/pages/settings/AbaDados'
 import AbaSeguranca from '@/pages/settings/AbaSeguranca'
 import Trash from '@/pages/Trash'
+import Templates from '@/pages/Templates'
 import Roadmap from '@/pages/Roadmap'
 import NotFound from '@/pages/NotFound'
 
@@ -140,6 +143,7 @@ function AppRoutes() {
         {/* O perfil virou a aba "Conta". A rota antiga continua de pé
             porque ela está em atalhos e em janelas já abertas. */}
         <Route path="profile" element={<Navigate to="/settings/conta" replace />} />
+        <Route path="templates" element={<Templates />} />
         <Route path="trash" element={<Trash />} />
         <Route path="roadmap" element={<Roadmap />} />
       </Route>
@@ -164,10 +168,23 @@ export default function App() {
     return () => document.removeEventListener('contextmenu', handler)
   }, [])
 
+  // Toque longo abre os mesmos menus do botão direito (ver lib/toqueLongo).
+  useEffect(() => ligarToqueLongo(), [])
+
+  // Trocar o idioma redesenha as telas sem recarregar a página: a sessão
+  // (AuthProvider) e o tema ficam; abaixo deles tudo remonta já no idioma
+  // novo, na mesma rota, com as mesmas abas (sessionStorage).
+  const [lingua, setLingua] = useState(idioma)
+  useEffect(() => {
+    const trocou = (e) => setLingua(e.detail)
+    window.addEventListener('notefy:idioma', trocou)
+    return () => window.removeEventListener('notefy:idioma', trocou)
+  }, [])
+
   return (
     <UIProvider>
       <AuthProvider>
-        <AppRoutes />
+        <AppRoutes key={lingua} />
       </AuthProvider>
     </UIProvider>
   )

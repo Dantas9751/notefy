@@ -7,6 +7,19 @@
  * mantém o resto do código sem `if (tauri)` espalhado.
  */
 
+import { t } from './i18n.js'
+
+/** O app rodando no celular (a webview do Tauri no Android). */
+export const emCelular = () =>
+  typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+
+/**
+ * Tela de toque, sem mouse: celular e tablet. Decide o texto das dicas,
+ * que no desktop falam de "arraste" e "botão direito".
+ */
+export const semMouse = () =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
+
 /** O Tauri injeta este objeto na webview antes de qualquer script rodar. */
 export const noDesktop = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
@@ -18,7 +31,7 @@ export const noDesktop = () => typeof window !== 'undefined' && !!window.__TAURI
  * de o React existir para interpretar `/notes/<id>`. Quem desvia para a
  * rota certa é o `main.jsx`, antes de montar a aplicação.
  */
-export async function abrirEmNovaJanela(rota, titulo = 'Notefy') {
+export async function abrirEmNovaJanela(rota, titulo = t('Notefy')) {
   const query = `?open=${encodeURIComponent(rota)}`
 
   if (!noDesktop()) {
@@ -55,7 +68,7 @@ export async function abrirEmNovaJanela(rota, titulo = 'Notefy') {
  * não anunciar sucesso nem falha.
  */
 export async function salvarArquivo(blob, nomeSugerido) {
-  const nome = nomeSugerido || 'arquivo'
+  const nome = nomeSugerido || t('arquivo')
 
   if (!noDesktop()) {
     const url = URL.createObjectURL(blob)
@@ -71,6 +84,10 @@ export async function salvarArquivo(blob, nomeSugerido) {
     setTimeout(() => URL.revokeObjectURL(url), 30_000)
     return true
   }
+
+  // No Android quem grava é o compartilhamento nativo, que ainda não foi
+  // ligado. Avisar é melhor que um `invoke` que falha com texto de Rust.
+  if (emCelular()) throw new Error(t('Exportar arquivos ainda não funciona no Android.'))
 
   const { invoke } = await import('@tauri-apps/api/core')
   const bytes = new Uint8Array(await blob.arrayBuffer())

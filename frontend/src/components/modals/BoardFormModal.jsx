@@ -4,6 +4,7 @@ import { useMutation } from '@/hooks/useFetch'
 import { Button, ErrorState, Field, Input, Modal } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import { cn, PRESET_COLORS } from '@/lib/utils'
+import { t } from '@/lib/i18n'
 
 const EMPTY = { name: '', color: PRESET_COLORS[0] }
 
@@ -45,17 +46,17 @@ export default function BoardFormModal({ open, onClose, onSaved, board }) {
     <Modal
       open={open}
       onClose={onClose}
-      title={board ? 'Renomear quadro' : 'Novo quadro'}
+      title={board ? t('Renomear quadro') : t('Novo quadro')}
       description={
-        board ? undefined : 'Um conjunto separado de tarefas, com as mesmas colunas.'
+        board ? undefined : t('Um conjunto separado de tarefas, com as mesmas colunas.')
       }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancelar
+            {t('Cancelar')}
           </Button>
           <Button onClick={handleSubmit} loading={loading} disabled={!form.name.trim()}>
-            {board ? 'Salvar' : 'Criar quadro'}
+            {board ? t('Salvar') : t('Criar quadro')}
           </Button>
         </>
       }
@@ -63,17 +64,17 @@ export default function BoardFormModal({ open, onClose, onSaved, board }) {
       {error && <ErrorState message={error} />}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Field label="Nome">
+        <Field label={t('Nome')}>
           <Input
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="Faculdade, Casa, Trabalho..."
+            placeholder={t('Faculdade, Casa, Trabalho...')}
             autoFocus
             required
           />
         </Field>
 
-        <Field label="Cor">
+        <Field label={t('Cor')}>
           <div className="flex flex-wrap items-center gap-2">
             {PRESET_COLORS.map((color) => (
               <button

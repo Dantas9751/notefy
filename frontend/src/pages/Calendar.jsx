@@ -14,7 +14,6 @@ import {
   startOfWeek,
   subMonths,
 } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Inbox, Plus } from 'lucide-react'
 import api from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
@@ -25,8 +24,10 @@ import { useTaskActions } from '@/hooks/useTaskActions'
 import TaskFormModal from '@/components/modals/TaskFormModal'
 import TaskScheduler from '@/components/TaskScheduler'
 import { TASK_PRIORITY, TASK_STATUS, cn } from '@/lib/utils'
+import { localeDatas, t } from '@/lib/i18n'
+import { semMouse } from '@/lib/desktop'
 
-const WEEK_DAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+const weekDays = () => [t('dom'), t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sáb')]
 const MAX_VISIBLE_PER_DAY = 3
 const TASK_MIME = 'application/x-notefy-task'
 
@@ -182,34 +183,35 @@ export default function Calendar() {
   return (
     <>
       <PageHeader
-        title="Calendário"
-        subtitle={format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}
+        title={t('Calendário')}
+        subtitle={format(cursor, t("MMMM 'de' yyyy"), { locale: localeDatas })}
         actions={
           <>
-            <div className="flex items-center rounded-md border border-ink-200 dark:border-ink-700">
+            {/* h-8, a altura dos botões `sm` dos cabeçalhos. */}
+            <div className="flex h-8 items-center overflow-hidden rounded-md border border-ink-200 dark:border-ink-700">
               <button
                 onClick={() => setCursor((c) => subMonths(c, 1))}
-                aria-label="Mês anterior"
-                className="p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+                aria-label={t('Mês anterior')}
+                className="h-full px-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
               >
                 <ChevronLeft size={16} />
               </button>
               <button
                 onClick={() => setCursor(new Date())}
-                className="border-x border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
+                className="h-full border-x border-ink-200 px-3 text-xs font-medium text-ink-600 transition hover:bg-ink-100 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800"
               >
-                Hoje
+                {t('Hoje')}
               </button>
               <button
                 onClick={() => setCursor((c) => addMonths(c, 1))}
-                aria-label="Próximo mês"
-                className="p-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+                aria-label={t('Próximo mês')}
+                className="h-full px-1.5 text-ink-500 transition hover:bg-ink-100 dark:hover:bg-ink-800"
               >
                 <ChevronRight size={16} />
               </button>
             </div>
-            <Button icon={Plus} onClick={() => setModal({ date: new Date() })}>
-              Nova tarefa
+            <Button size="sm" icon={Plus} onClick={() => setModal({ date: new Date() })}>
+              {t('Nova tarefa')}
             </Button>
           </>
         }
@@ -225,10 +227,10 @@ export default function Calendar() {
             <div className="mb-2 flex items-center gap-1.5">
               <Inbox size={13} className="text-ink-400" />
               <h2 className="secao">
-                A agendar ({backlog.data.length})
+                {t('A agendar (')}{backlog.data.length})
               </h2>
               <span className="text-[11px] text-ink-400">
-                arraste para um dia do calendário
+                {semMouse() ? t('toque para escolher a data') : t('arraste para um dia do calendário')}
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -242,7 +244,7 @@ export default function Calendar() {
                   }}
                   onClick={() => setScheduling(task)}
                   onContextMenu={(e) => openMenu(e, { task })}
-                  title="Arraste para um dia ou clique para escolher a data"
+                  title={t('Arraste para um dia ou clique para escolher a data')}
                   className="inline-flex cursor-grab items-center gap-1.5 rounded-full border border-ink-200 bg-white px-2.5 py-1 text-xs text-ink-600 transition hover:border-accent-400 hover:text-accent-700 active:cursor-grabbing dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300"
                 >
                   <span
@@ -258,7 +260,7 @@ export default function Calendar() {
 
         <div className="overflow-hidden rounded-lg border border-ink-200 dark:border-ink-800">
           <div className="grid grid-cols-7 border-b border-ink-200 bg-ink-50/60 dark:border-ink-800 dark:bg-ink-900/40">
-            {WEEK_DAYS.map((day) => (
+            {weekDays().map((day) => (
               <div
                 key={day}
                 className="px-2 py-2 secao text-center"
@@ -366,7 +368,7 @@ export default function Calendar() {
                     {events.slice(0, MAX_VISIBLE_PER_DAY).map((event) => (
                       <div
                         key={event.id}
-                        title={`${event.title} (arraste para outro dia)`}
+                        title={t('{title} (arraste para outro dia)', { title: event.title })}
                         draggable
                         onDragStart={(e) => {
                           e.stopPropagation()
@@ -395,7 +397,7 @@ export default function Calendar() {
                     ))}
                     {events.length > MAX_VISIBLE_PER_DAY && (
                       <div className="px-1.5 text-[10px] text-ink-400">
-                        +{events.length - MAX_VISIBLE_PER_DAY} mais
+                        +{events.length - MAX_VISIBLE_PER_DAY} {t('mais')}
                       </div>
                     )}
                   </div>
@@ -410,7 +412,7 @@ export default function Calendar() {
           <div className="mt-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold tracking-tight text-ink-900 dark:text-ink-100">
-                {format(selectedDay, "d 'de' MMMM", { locale: ptBR })}
+                {format(selectedDay, t("d 'de' MMMM"), { locale: localeDatas })}
               </h2>
               <Button
                 size="sm"
@@ -418,7 +420,7 @@ export default function Calendar() {
                 icon={Plus}
                 onClick={() => setModal({ date: selectedDay })}
               >
-                Adicionar
+                {t('Adicionar')}
               </Button>
             </div>
 
@@ -453,7 +455,7 @@ export default function Calendar() {
             ) : (
               <p className="rounded-lg border border-dashed border-ink-200 px-4 py-6 text-center text-sm text-ink-400 dark:border-ink-800">
                 <CalendarDays size={18} className="mx-auto mb-2 opacity-60" />
-                Nenhuma tarefa neste dia.
+                {t('Nenhuma tarefa neste dia.')}
               </p>
             )}
           </div>
@@ -491,7 +493,7 @@ export default function Calendar() {
             : menu?.payload?.day
               ? [
                   {
-                    label: 'Nova tarefa',
+                    label: t('Nova tarefa'),
                     icon: Plus,
                     onClick: () => setModal({ date: menu.payload.day }),
                   },

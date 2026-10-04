@@ -23,10 +23,14 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
-# Sobe o backend empacotado como processo filho.
-tauri-plugin-shell = "2"
 # Abre o "Salvar como" nativo. Só o lado Rust é usado: quem grava o arquivo
 # e o comando `salvar_arquivo` em lib.rs, e nao o plugin `fs` a partir do
 # JavaScript — este ultimo exigiria abrir o escopo de escrita para todo o
 # disco, ja que o caminho so e conhecido depois que o usuario escolhe.
 tauri-plugin-dialog = "2"
+
+# Sobe o backend empacotado como processo filho. Só no desktop: o Android
+# não executa um `.exe` ao lado do app, e lá a SPA fala com o servidor na
+# nuvem (ver `tauri.android.conf.json`).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-shell = "2"
