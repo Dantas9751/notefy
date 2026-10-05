@@ -109,6 +109,8 @@ const NoteEditor = forwardRef(function NoteEditor({
   onCommit,
   onUndo,
   onRedo,
+  //: Item somente leitura (Propriedades): sem barra, sem alças, nada editável.
+  somenteLeitura = false,
 }, ref) {
   const pagina = useMemo(() => normalizar(data?.sections), [data?.sections])
   const notaVazia = pagina.length === 1 && htmlVazio(pagina[0].html)
@@ -347,6 +349,49 @@ const NoteEditor = forwardRef(function NoteEditor({
     editor.emitir()
   }
 
+  /**
+   * Fonte e tamanho por NOME e NÚMERO, como no Word. O `execCommand` só
+   * conhece `<font face>` e os sete tamanhos do HTML antigo; então ele
+   * marca o trecho com um valor sentinela e a marca vira o que a pessoa
+   * escolheu: o nome da fonte, ou um `font-size` em pt. "Padrão" (vazio)
+   * tira a fonte do trecho, que volta à fonte das notas.
+   */
+  const aplicarFonte = (nome) => {
+    const editor = editorAtivo()
+    if (!editor?.el) return
+    const sel = window.getSelection()
+    if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    document.execCommand('fontName', false, 'notefy-sentinela')
+    for (const el of [...editor.el.querySelectorAll('font[face="notefy-sentinela"]')]) {
+      if (nome) el.setAttribute('face', nome)
+      else {
+        el.removeAttribute('face')
+        if (el.attributes.length === 0) el.replaceWith(...el.childNodes)
+      }
+    }
+    editor.emitir()
+    document.dispatchEvent(new Event('selectionchange'))
+  }
+  const aplicarTamanho = (pt) => {
+    const editor = editorAtivo()
+    if (!editor?.el) return
+    const sel = window.getSelection()
+    if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    document.execCommand('fontSize', false, '7')
+    for (const el of [...editor.el.querySelectorAll('font[size="7"]')]) {
+      // Fica o elemento: o navegador junta tamanho e fonte no MESMO
+      // `<font face size>`, e trocá-lo inteiro apagava a fonte escolhida.
+      el.removeAttribute('size')
+      el.style.fontSize = `${pt}pt`
+      // O tamanho de dentro some: senão um trecho já aumentado não mudaria.
+      for (const filho of el.querySelectorAll('[style*="font-size"]')) filho.style.removeProperty('font-size')
+    }
+    editor.emitir()
+    // A seleção não mudou, então o navegador não avisa: a barra relê agora
+    // e a caixa mostra o tamanho novo.
+    document.dispatchEvent(new Event('selectionchange'))
+  }
+
   const inserir = (tipo) => {
     if (COMANDOS_DE_BLOCO.has(tipo)) {
       // Cursor num bloco: o novo entra logo depois dele.
@@ -389,7 +434,17 @@ const NoteEditor = forwardRef(function NoteEditor({
           ),
           bloco: String(document.queryCommandValue('formatBlock') || 'p').replace(/[<>]/g, '').toLowerCase(),
           fonte: String(document.queryCommandValue('fontName') || '').replace(/["']/g, ''),
-          tamanho: String(document.queryCommandValue('fontSize') || '3'),
+          // Em pt, do que está NA TELA: vale para o tamanho escolhido, para o
+          // título e para o texto padrão da nota.
+          tamanho: (() => {
+            // O começo da seleção; depois de formatar, ele pode ser o parágrafo
+            // apontando para o trecho novo, e o tamanho é o DO TRECHO.
+            const faixa = sel.getRangeAt(0)
+            let no = faixa.startContainer
+            if (no.nodeType === 1 && no.childNodes[faixa.startOffset]) no = no.childNodes[faixa.startOffset]
+            if (no.nodeType !== 1) no = no.parentElement
+            return no ? Math.round(parseFloat(getComputedStyle(no).fontSize) * 0.75) : 11
+          })(),
         })
       } catch {
         /* queryCommandState lança sem seleção viva */
@@ -620,6 +675,7 @@ const NoteEditor = forwardRef(function NoteEditor({
     onChange: (patch) => mudarSecao(secao.id, patch),
     onSair: (direcao) => sair(secao.id, direcao),
     onApagarBloco: () => removerBloco(secao.id),
+    readOnly: somenteLeitura,
   })
 
   const blocoAberto = menu?.payload?.id
@@ -627,6 +683,7 @@ const NoteEditor = forwardRef(function NoteEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {!somenteLeitura && (
       <div className="sticky top-0 z-20 border-b border-ink-150 bg-white/95 backdrop-blur dark:border-ink-800 dark:bg-ink-950/95">
         <BarraDeFuncoes
           estado={{ ...estadoDaBarra, emTexto: !!foco?.texto }}
@@ -636,11 +693,14 @@ const NoteEditor = forwardRef(function NoteEditor({
             refazer,
             comando,
             cor: aplicarCor,
+            fonte: aplicarFonte,
+            tamanho: aplicarTamanho,
             inserir,
             guardarSelecao: () => editorAtivo()?.guardarSelecao(),
           }}
         />
       </div>
+      )}
 
       {/* A mesa e a folha: no celular a folha ocupa a tela, sem margem. */}
       <div className="flex-1 bg-ink-50 pb-10 sm:px-6 sm:pt-6 dark:bg-black/25">
@@ -670,6 +730,7 @@ const NoteEditor = forwardRef(function NoteEditor({
                       onChange={(html) => mudarSecao(secao.id, { html })}
                       documentId={documentId}
                       onError={onError}
+                      editavel={!somenteLeitura}
                       dicaSempre={notaVazia}
                       placeholder={
                         notaVazia
@@ -686,7 +747,7 @@ const NoteEditor = forwardRef(function NoteEditor({
                         if (barraRef.current?.id === secao.id) setBarra(null)
                       }}
                     />
-                    {notaVazia && aoComecar}
+                    {notaVazia && !somenteLeitura && aoComecar}
                   </div>
                 )
               }
@@ -708,19 +769,21 @@ const NoteEditor = forwardRef(function NoteEditor({
                   // Botão direito (e toque longo) em qualquer ponto do bloco abre
                   // o menu dele: era só pela alça, e ninguém achava como apagar
                   // uma tabela. Parar aqui deixa o menu do Laviel para o texto.
-                  onContextMenu={(e) => openMenu(e, { id: secao.id })}
+                  onContextMenu={(e) => !somenteLeitura && openMenu(e, { id: secao.id })}
                   className={cn('group/bloco relative', arrastando === indice && 'opacity-40')}
                 >
+                  {!somenteLeitura && (
                   <AlcaDoBloco
                     rotulo={secao.id}
                     onMenu={(e) => openMenu(e, { id: secao.id })}
                     onArrastar={() => setTimeout(() => setArrastando(indice), 0)}
                     onSoltarArraste={() => setArrastando(null)}
                   />
+                  )}
                   {/* A lixeira à vista, na margem direita. O código já tem a dele
                       no cabeçalho; no celular a margem não existe e excluir fica
                       no menu da alça. */}
-                  {secao.type !== 'code' && (
+                  {secao.type !== 'code' && !somenteLeitura && (
                     <button
                       type="button"
                       tabIndex={-1}
@@ -757,7 +820,7 @@ const NoteEditor = forwardRef(function NoteEditor({
             })}
           </div>
 
-          <div className="min-h-[18vh] cursor-text" onMouseDown={focarFim} aria-hidden />
+          <div className={cn('min-h-[18vh]', !somenteLeitura && 'cursor-text')} onMouseDown={somenteLeitura ? undefined : focarFim} aria-hidden />
 
           {rodape && <div className="pb-8">{rodape}</div>}
         </div>

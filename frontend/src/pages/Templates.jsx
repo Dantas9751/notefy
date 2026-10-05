@@ -16,6 +16,7 @@ import { kindMeta } from '@/lib/documents'
 import { MODELOS_PRONTOS, resumoDoModelo } from '@/lib/modelos'
 import { limparHtml } from '@/lib/sanitizar'
 import { cn } from '@/lib/utils'
+import { ICONE } from '@/lib/ui'
 import { t } from '@/lib/i18n'
 
 /**
@@ -191,12 +192,21 @@ export default function Templates() {
               onClick={() => setFiltro(f.kind)}
               aria-pressed={filtro === f.kind}
               className={cn(
-                'rounded-full border px-3 py-1 text-xs font-medium transition [@media(pointer:coarse)]:py-2',
+                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition [@media(pointer:coarse)]:py-2',
                 filtro === f.kind
                   ? 'border-accent-500 bg-accent-50 text-accent-800 dark:bg-accent-500/15 dark:text-accent-200'
                   : 'border-ink-200 text-ink-600 hover:border-ink-300 dark:border-ink-700 dark:text-ink-300',
               )}
             >
+              {/* O ícone e a cor de cada tipo, como nos filtros do Início e da busca. */}
+              {f.kind ? (
+                (() => {
+                  const meta = kindMeta(f.kind)
+                  return <meta.icon size={ICONE.sm} className="shrink-0" style={{ color: meta.accent }} />
+                })()
+              ) : (
+                <LayoutTemplate size={ICONE.sm} className="shrink-0" />
+              )}
               {f.label}
             </button>
           ))}

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   LayoutTemplate,
+  Lock,
   Paperclip,
   Settings2,
   Star,
@@ -27,7 +28,7 @@ import {
 import NoteEditor from '@/components/editors/NoteEditor'
 import SpreadsheetEditor from '@/components/editors/SpreadsheetEditor'
 import GraphEditor from '@/components/editors/GraphEditor'
-import DocumentMetaModal from '@/components/modals/DocumentMetaModal'
+import { usePropriedades } from '@/context/PropriedadesContext'
 import DestinationModal from '@/components/modals/DestinationModal'
 import ModeloModal from '@/components/modals/ModeloModal'
 import ExportMenu from '@/components/ExportMenu'
@@ -51,6 +52,9 @@ import { cn, formatBytes, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
 const AUTOSAVE_MS = 1500
+
+//: Desfazer e refazer de um item somente leitura: não há o que desfazer.
+const nada = () => {}
 
 /** Corpo do POST/PATCH de um documento.
 
@@ -137,7 +141,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const edicoesRef = useRef(0)
   const [savedAt, setSavedAt] = useState(null)
   const [saveError, setSaveError] = useState(null)
-  const [showMeta, setShowMeta] = useState(false)
+  const propriedades = usePropriedades()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [salvandoModelo, setSalvandoModelo] = useState(false)
   const autosaveRef = useRef(null)
@@ -170,6 +174,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const historyRef = useRef(null)
   const docRef = useRef(doc)
   docRef.current = doc
+  // Propriedades > Somente leitura: o conteúdo não muda (o servidor também recusa).
+  const somenteLeitura = !isCreate && !!doc?.is_read_only
 
   // Garante que a pilha existe mesmo antes do primeiro commit.
   useEffect(() => {
@@ -426,6 +432,16 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   }, [scheduleAutosave])
 
   const patch = (changes) => {
+    if (somenteLeitura) {
+      // Só o enquadramento do quadro (arrastar o fundo, zoom) passa, e só na
+      // tela: nada fica sujo nem vai para o servidor.
+      const atual = docRef.current?.data ?? {}
+      const soEnquadramento =
+        Object.keys(changes).every((chave) => chave === 'data') &&
+        Object.keys(changes.data ?? {}).every((chave) => chave === 'viewport' || changes.data[chave] === atual[chave])
+      if (soEnquadramento) setDoc((current) => ({ ...current, ...changes }))
+      return
+    }
     edicoesRef.current += 1
     setDoc((current) => {
       const next = { ...current, ...changes }
@@ -436,6 +452,17 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   }
 
   const save = () => persist(doc).catch(() => {})
+
+  /** "Permitir edição" da faixa: desmarca o somente leitura sem abrir as Propriedades. */
+  const permitirEdicao = async () => {
+    try {
+      const { data: atualizado } = await api.patch(`/documents/${doc.id}/`, { is_read_only: false })
+      setData(atualizado)
+      window.dispatchEvent(new Event('notefy:moved'))
+    } catch (err) {
+      setSaveError(extractError(err))
+    }
+  }
 
   // ----------------------------------------------------------------
   // IA dentro do editor
@@ -689,6 +716,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             }}
             placeholder={sugestaoTitulo ? '' : t('{label} sem título', { label: meta.label })}
             autoFocus={isCreate}
+            readOnly={somenteLeitura}
             className={cn('relative w-full border-0 bg-transparent p-0 font-semibold tracking-tight text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-0 dark:text-ink-50 dark:placeholder:text-ink-700', kind === 'note' ? 'text-3xl' : 'text-2xl')}
           />
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -838,6 +866,12 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
           )}
 
           <Badge className={status.className}>{status.label}</Badge>
+          {somenteLeitura && (
+            <Badge className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+              <Lock size={11} />
+              {t('Somente leitura')}
+            </Badge>
+          )}
 
           {!isCreate && (
             <>
@@ -865,14 +899,22 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             </>
           )}
 
-          <button
-            onClick={() => setShowMeta(true)}
-            aria-label={t('Propriedades')}
-            title={t('Pasta, categorias e status')}
-            className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
-          >
-            <Settings2 size={15} />
-          </button>
+          {/* A mesma janela de Propriedades do botão direito. Só depois de
+              criado: ela lê o item do servidor. A edição dos últimos segundos
+              vai antes, para a janela e o editor verem o mesmo item. */}
+          {!isCreate && (
+            <button
+              onClick={async () => {
+                if (dirty) await persist(docRef.current).catch(() => {})
+                propriedades?.abrirPropriedades({ tipo: 'documento', id: doc.id })
+              }}
+              aria-label={t('Propriedades')}
+              title={t('Propriedades')}
+              className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+            >
+              <Settings2 size={15} />
+            </button>
+          )}
 
           {/* Excluir por último, junto do botão principal: a mesma ordem da
               tela de arquivo (propriedades, depois excluir). */}
@@ -892,6 +934,16 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         </div>
       </div>
 
+      {somenteLeitura && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+          <Lock size={13} className="shrink-0" />
+          <span className="min-w-0 flex-1">{t('Somente leitura: o conteúdo não pode ser editado.')}</span>
+          <Button size="sm" variant="secondary" onClick={permitirEdicao}>
+            {t('Permitir edição')}
+          </Button>
+        </div>
+      )}
+
       {saveError && (
         <div className="px-4 pt-3">
           <ErrorState message={saveError} />
@@ -909,7 +961,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         <div
           className="flex min-h-0 flex-1 flex-col"
           onContextMenu={(e) => {
-            if (isCreate) return
+            if (isCreate || somenteLeitura) return
             abrirMenuIA(e, { items: [itemIA] })
           }}
         >
@@ -926,8 +978,9 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             rodape={blocoDosAnexos}
             aoComecar={sugestoesDeModelo}
             onCommit={commitHistory}
-            onUndo={undo}
-            onRedo={redo}
+            onUndo={somenteLeitura ? nada : undo}
+            onRedo={somenteLeitura ? nada : redo}
+            somenteLeitura={somenteLeitura}
           />
         </div>
       )}
@@ -936,14 +989,18 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       <div
         className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-4"
         onContextMenu={(e) => {
-          if (isCreate) return
+          if (isCreate || somenteLeitura) return
           abrirMenuIA(e, { items: [itemIA] })
         }}
       >
 
         {kind === 'spreadsheet' && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-ink-200 dark:border-ink-800">
-            <SpreadsheetEditor data={doc.data} onChange={(next) => patch({ data: next })} />
+            {/* Somente leitura: o `fieldset` desliga os campos e botões de
+                dentro, e a rolagem e a seleção continuam. */}
+            <fieldset disabled={somenteLeitura} className="contents">
+              <SpreadsheetEditor data={doc.data} onChange={(next) => patch({ data: next })} />
+            </fieldset>
           </div>
         )}
 
@@ -959,8 +1016,9 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
               data={doc.data}
               onChange={(next) => patch({ data: next })}
               onCommit={commitHistory}
-              onUndo={undo}
-              onRedo={redo}
+              onUndo={somenteLeitura ? nada : undo}
+              onRedo={somenteLeitura ? nada : redo}
+              somenteLeitura={somenteLeitura}
             />
           </div>
         )}
@@ -983,19 +1041,6 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
 
       <ModeloModal open={salvandoModelo} documento={doc} onClose={() => setSalvandoModelo(false)} />
 
-      <DocumentMetaModal
-        open={showMeta}
-        document={doc}
-        saving={saving}
-        onClose={() => setShowMeta(false)}
-        onSave={async (changes) => {
-          const next = { ...doc, ...changes }
-          setDoc(next)
-          setShowMeta(false)
-          await persist(next).catch(() => {})
-        }}
-      />
-
       {/* Escolha da pasta na criação: sem destino, não há o que salvar. */}
       <DestinationModal
         open={pickingFolder}
@@ -1014,7 +1059,6 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title={t('Excluir {valor}', { valor: meta.label.toLowerCase() })}
-        description={t('Esta ação não pode ser desfeita.')}
         size="sm"
         footer={
           <>
@@ -1028,7 +1072,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         }
       >
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          <strong>{doc.title || t('Sem título')}</strong> {t('será removido permanentemente')}
+          <strong>{doc.title || t('Sem título')}</strong> {t('vai para a lixeira')}
           {doc.attachments?.length > 0 && t(', junto com {length} anexo(s)', { length: doc.attachments.length })}.
         </p>
       </Modal>

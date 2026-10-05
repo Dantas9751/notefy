@@ -11,6 +11,7 @@ import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import { runIA } from '@/lib/ai'
 import FilterBar from '@/components/filters/FilterBar'
 import { DOCUMENT_KINDS } from '@/lib/documents'
@@ -43,6 +44,7 @@ export default function SearchPage() {
   // Contextos
   const { refresh } = useWorkspace()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  const fimDoMenu = usePropriedadesNoMenu()
 
   const [actionError, setActionError] = useState(null)
 
@@ -645,6 +647,7 @@ export default function SearchPage() {
                     danger: true,
                     onClick: handleBulkDeleteWithDialog,
                   },
+                  ...(menu?.payload?.item?.type === 'folder' ? fimDoMenu('pasta', menu.payload.item.id) : []),
                 ]
         }
       />

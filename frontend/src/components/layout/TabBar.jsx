@@ -46,6 +46,22 @@ export default function TabBar() {
   const [destino, setDestino] = useState(null)
   const ativaRef = useRef(null)
 
+  // Quanto cabe para cada aba. Como no navegador, as abas encolhem quando
+  // são muitas, em vez de a fileira rolar: apertadas, as de fundo perdem o
+  // X (fica o da aba aberta e o botão do meio); muito apertadas, só o ícone.
+  const listaRef = useRef(null)
+  const [largura, setLargura] = useState(0)
+  useEffect(() => {
+    const lista = listaRef.current
+    if (!lista) return undefined
+    const observador = new ResizeObserver(([entrada]) => setLargura(entrada.contentRect.width))
+    observador.observe(lista)
+    return () => observador.disconnect()
+  }, [])
+  const porAba = largura / Math.max(1, tabs.length + (painel ? 1 : 0))
+  const apertada = porAba < 96
+  const muitoApertada = porAba < 60
+
   // Trocar de aba pelo teclado ou abrir um documento de outra tela deixa a
   // aba ativa fora da vista quando há muitas. Trazê-la de volta é o que
   // torna os atalhos utilizáveis.
@@ -192,6 +208,7 @@ export default function TabBar() {
       <div
         role="tablist"
         aria-label={t('Documentos abertos')}
+        ref={listaRef}
         onWheel={(e) => {
           if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY
         }}
@@ -265,7 +282,10 @@ export default function TabBar() {
                 openMenu(e, { tab })
               }}
               className={cn(
-                'group flex min-w-[8rem] max-w-[13rem] shrink-0 cursor-pointer items-center gap-1.5 border-r border-ink-200 px-3 py-1.5 text-xs transition dark:border-ink-800',
+                // Largura de 13rem que encolhe junto com as outras até 2.75rem.
+                'group flex w-[13rem] min-w-[2.75rem] cursor-pointer items-center gap-1.5 border-r border-ink-200 py-1.5 text-xs transition dark:border-ink-800',
+                apertada ? 'px-2' : 'px-3',
+                muitoApertada && !ativa && 'justify-center',
                 ativa
                   ? 'bg-white text-ink-900 dark:bg-ink-950 dark:text-ink-50'
                   : 'text-ink-500 hover:bg-ink-100/70 dark:text-ink-400 dark:hover:bg-ink-800/50',
@@ -273,7 +293,7 @@ export default function TabBar() {
               )}
             >
               <Icon size={13} className="shrink-0" style={{ color: meta.accent }} />
-              <span className="min-w-0 flex-1 truncate">{tab.title || t('Sem título')}</span>
+              {!(muitoApertada && !ativa) && <span className="min-w-0 flex-1 truncate">{tab.title || t('Sem título')}</span>}
 
               {/* Ponto de não salvo ocupa o mesmo lugar do X e some ao
                   passar o mouse: sem isso, o botão de fechar empurraria o
@@ -284,7 +304,7 @@ export default function TabBar() {
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-500 group-hover:hidden [@media(hover:none)]:hidden"
                 />
               )}
-              {!fixa && (
+              {!fixa && !(apertada && !ativa) && (
               <button
                 type="button"
                 aria-label={t('Fechar {valor}', { valor: tab.title || t('aba') })}
@@ -323,7 +343,8 @@ export default function TabBar() {
               openMenu(e, { painel })
             }}
             className={cn(
-              'group flex min-w-[8rem] max-w-[13rem] shrink-0 cursor-default items-center gap-1.5 border-r border-ink-200 px-3 py-1.5 text-xs transition dark:border-ink-800',
+              'group flex w-[13rem] min-w-[2.75rem] cursor-default items-center gap-1.5 border-r border-ink-200 py-1.5 text-xs transition dark:border-ink-800',
+              apertada ? 'px-2' : 'px-3',
               'text-ink-500 dark:text-ink-400',
             )}
           >

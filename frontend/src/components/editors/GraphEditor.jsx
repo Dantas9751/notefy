@@ -120,6 +120,9 @@ export default function GraphEditor({
   //: engolia o erro: a pessoa colava um print e o quadro seguia vazio,
   //: sem nada dizendo que o envio falhou.
   onError,
+  //: Item somente leitura: sem paleta, e só o enquadramento (arrastar o
+  //: fundo, zoom) muda — o resto do `update` é ignorado.
+  somenteLeitura = false,
 }) {
   const palette = useMemo(() => paletteFor(kind), [kind])
   const isCanvas = kind === 'canvas'
@@ -298,11 +301,12 @@ export default function GraphEditor({
   // cada traço, e com ele o `setViewport` que depende dele.
   const update = useCallback(
     (patch) => {
+      if (somenteLeitura && Object.keys(patch).some((chave) => chave !== 'viewport')) return dataRef.current
       const next = { ...dataRef.current, ...patch }
       onChange(next)
       return next
     },
-    [onChange],
+    [onChange, somenteLeitura],
   )
   const setViewport = useCallback((next) => update({ viewport: next }), [update])
 
@@ -1205,6 +1209,7 @@ export default function GraphEditor({
           'w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800',
           'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-30 max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
           !paletaAberta && 'max-sm:hidden',
+          somenteLeitura && 'hidden',
         )}
       >
         {/* O diagrama também ganha ferramentas, só que duas: selecionar e

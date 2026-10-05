@@ -5,6 +5,7 @@ import api, { extractError } from '@/lib/api'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useSplit } from '@/context/SplitContext'
 import { useAuth } from '@/context/AuthContext'
+import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import { documentMenuItems } from '@/components/DocumentCard'
 import { AvisoIA } from '@/components/ai/useAcoesIA'
 import { runIA } from '@/lib/ai'
@@ -40,6 +41,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const { refresh } = useWorkspace()
   const { abrirAoLado } = useSplit()
   const { user } = useAuth()
+  const fimDoMenu = usePropriedadesNoMenu()
 
   const [moving, setMoving] = useState(null)
   const [deleting, setDeleting] = useState(null)
@@ -112,7 +114,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
     [done, navigate],
   )
 
-  const buildMenu = useCallback(
+  const montarMenu = useCallback(
     (doc) => {
       const itens = documentMenuItems(doc, {
         navigate,
@@ -200,6 +202,12 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
     [navigate, done, abrirAoLado, user, gerando, criarAPartirDe, onRename],
   )
 
+  // Propriedades fecha o menu de todo item, como no Explorer.
+  const buildMenu = useCallback(
+    (doc) => [...montarMenu(doc), ...fimDoMenu('documento', doc.id)],
+    [montarMenu, fimDoMenu],
+  )
+
   const extrairZip = useCallback(
     async (folderId) => {
       if (!extrair) return
@@ -252,7 +260,8 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
         title={t('Excluir item')}
         message={
           <>
-            <strong>{deleting?.title}</strong> {t('será removido permanentemente')}
+            {/* Vai para a lixeira, como toda exclusão do app. */}
+            <strong>{deleting?.title}</strong> {t('vai para a lixeira')}
             {deleting?.attachment_count > 0 &&
               t(', junto com {attachment_count} anexo(s)', { attachment_count: deleting.attachment_count })}
             .

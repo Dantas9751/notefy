@@ -32,7 +32,8 @@ const VISIVEIS = 6
  * ela tinha de exclusivo — poder desfavoritar sem abrir o item — virou a
  * estrela à direita de cada linha.
  */
-export default function FavoritosSidebar({ aoAbrirMenu }) {
+//: `noPainel`: dentro do painel da barra recolhida, sem o respiro de seção.
+export default function FavoritosSidebar({ aoAbrirMenu, noPainel = false }) {
   const [expandido, setExpandido] = useState(false)
   const { pathname } = useLocation()
 
@@ -80,7 +81,7 @@ export default function FavoritosSidebar({ aoAbrirMenu }) {
       {/* Sem ícone: o título já diz "Favoritos", e a estrela ao lado
           dele repetia a mesma informação que cada linha abaixo já
           carrega na ponta direita. "Categorias" também é só o nome. */}
-      <h2 className="secao px-2 pb-1 pt-5">{t('Favoritos')}</h2>
+      <h2 className={cn('secao px-2 pb-1', noPainel ? 'pt-1.5' : 'pt-5')}>{t('Favoritos')}</h2>
 
       {loading && !data ? null : itens.length === 0 ? (
         <p className="px-2 pb-2 text-xs text-ink-400">

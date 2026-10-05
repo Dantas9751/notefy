@@ -27,6 +27,7 @@ import { useRenomear } from '@/hooks/useRenomear'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
@@ -137,6 +138,7 @@ export default function Home() {
   const { categories, loading, refresh } = useWorkspace()
   const navigate = useNavigate()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  const fimDoMenu = usePropriedadesNoMenu()
   const { prefs, salvar } = usePreferencias()
   const layout = layoutDoInicio(prefs.home_layout)
 
@@ -659,6 +661,7 @@ export default function Home() {
                       requestDelete({ kind: 'category', id: menu.payload.category.id, name: menu.payload.category.name })
                     },
                   },
+                  ...fimDoMenu('categoria', menu.payload.category.id),
                 ]
               : menu?.payload?.document
                 ? buildMenu(menu.payload.document)

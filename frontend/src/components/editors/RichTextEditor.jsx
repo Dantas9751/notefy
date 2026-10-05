@@ -58,6 +58,8 @@ const RichTextEditor = forwardRef(function RichTextEditor(
     onInput,
     onFocus,
     onBlur,
+    //: Falso no item somente leitura: o texto continua selecionável e copiável.
+    editavel = true,
     className,
   },
   ref,
@@ -277,13 +279,13 @@ const RichTextEditor = forwardRef(function RichTextEditor(
     <>
       <div
         ref={editorRef}
-        contentEditable
+        contentEditable={editavel}
         suppressContentEditableWarning
         role="textbox"
         aria-multiline="true"
         aria-label={t('Conteúdo da nota')}
         aria-busy={enviandoImagem || undefined}
-        data-placeholder={placeholder}
+        data-placeholder={editavel ? placeholder : undefined}
         data-sempre={dicaSempre ? '' : undefined}
         onInput={handleInput}
         onPaste={handlePaste}

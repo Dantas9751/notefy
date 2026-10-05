@@ -42,7 +42,7 @@ class DocumentListSerializer(serializers.ModelSerializer):
         fields = (
             "id", "kind", "title", "excerpt", "status", "color", "icon",
             "folder", "folder_name", "category", "categories_detail",
-            "is_favorite", "is_archived", "position",
+            "is_favorite", "is_archived", "is_read_only", "position",
             "word_count", "attachment_count",
             "file_url", "file_kind", "mime_type", "size", "original_name",
             "created_at", "updated_at",
@@ -91,7 +91,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         fields = (
             "id", "kind", "kind_label", "title", "status", "color", "icon",
             "folder", "breadcrumb", "category", "categories", "categories_detail",
-            "is_favorite", "is_archived", "position",
+            "is_favorite", "is_archived", "is_read_only", "position",
             "content", "content_format", "data",
             "file", "file_url", "file_kind", "mime_type", "size", "original_name",
             "attached_to", "attachments",

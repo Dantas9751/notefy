@@ -9,6 +9,7 @@ import { useTabState } from '@/context/TabsContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
@@ -33,6 +34,7 @@ export default function CategoryDetail({ id: idProp }) {
   const navigate = useNavigate()
   const { refresh } = useWorkspace()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  const fimDoMenu = usePropriedadesNoMenu()
 
   const { data, loading, error, refetch } = useFetch(`/categories/${id}/contents/`, {
     deps: [id],
@@ -296,6 +298,7 @@ export default function CategoryDetail({ id: idProp }) {
           requestDelete({ kind: 'folder', id: folder.id, name: folder.name })
         },
       },
+      ...fimDoMenu('pasta', folder.id),
     ]
   }
 

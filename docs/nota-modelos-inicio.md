@@ -99,12 +99,30 @@ recorte é guardado como ponto (`x`, `y`, em %) e `zoom`, e não em pixels:
 `object-position` mantém aquele ponto da foto no mesmo ponto da faixa, então
 ele vale em qualquer largura de tela.
 
-## Recentes
+## Recentes e Arquivos
 
-Tudo em ordem de edição, em grupos por data como no Google Fotos: Hoje, Ontem,
-Esta semana, Semana passada, Este mês e, antes disso, um grupo por mês
-(`grupoDaData` em `lib/utils.js`). A semana começa no domingo, como no
-Calendário.
+Tudo em grupos por data, como no Google Fotos: Hoje, Ontem, Esta semana,
+Semana passada, Este mês e, antes disso, um grupo por mês (`grupoDaData` em
+`lib/utils.js`). Recentes agrupa pela última edição; Arquivos, pela data em
+que o arquivo entrou. A semana começa no domingo, como no Calendário.
+
+## Propriedades
+
+O último item do botão direito de qualquer nota, planilha, diagrama, canvas,
+arquivo, pasta ou categoria, como no Explorer do Windows
+(`components/modals/PropriedadesModal.jsx`, aberto pelo
+`PropriedadesProvider`). Mostra nome (editável), tipo, local, tamanho ou
+conteúdo, datas de criação, modificação e abertura, e os atributos. Item tem
+ainda a aba Organização: pasta, etiquetas, status e cor. Pasta e categoria
+mostram o que contêm e o tamanho da subárvore (`/api/folders/<id>/properties/`
+e `/api/categories/<id>/properties/`).
+
+**Somente leitura** (`Document.is_read_only`) protege o conteúdo, como o
+atributo do Windows: o editor abre sem barra e sem nada editável, com a faixa
+"Permitir edição", e o servidor recusa com 423 qualquer mudança em `data`,
+`content` ou no arquivo (inclusive esvaziar e a IA gravar por cima). Nome,
+pasta, etiquetas e estrela continuam mudando, e a cópia de um item somente
+leitura nasce editável.
 
 ## Fontes
 

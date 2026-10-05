@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import api from '@/lib/api'
 import { useMutation } from '@/hooks/useFetch'
-import { useWorkspace, flattenFolders } from '@/context/WorkspaceContext'
+import { useWorkspace, flattenFolders, OpcoesDePasta } from '@/context/WorkspaceContext'
 import { Tag } from 'lucide-react'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
@@ -152,12 +152,7 @@ export default function FolderFormModal({
         <Field label={t('Dentro de')} hint={t('Escolha uma pasta para criar subpasta, ou raiz.')}>
           <Select name="parent" value={parentVal} onChange={(e) => setParentVal(e.target.value)}>
             <option value="">{t('Raiz da categoria')}</option>
-            {parentOptions.map((node) => (
-              <option key={node.id} value={node.id}>
-                {'  '.repeat(node._depth)}
-                {node.name} ({node._category.name})
-              </option>
-            ))}
+            <OpcoesDePasta pastas={parentOptions} />
           </Select>
         </Field>
 

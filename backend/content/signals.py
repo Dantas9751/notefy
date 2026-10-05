@@ -42,3 +42,30 @@ def delete_file_from_storage(sender, instance, **kwargs):
     # Só depois do commit: se a transação voltar atrás, a linha continua
     # existindo e apontando para um arquivo que teríamos apagado.
     transaction.on_commit(_remove)
+
+
+def garantir_indice_de_busca(sender, using="default", **kwargs):
+    """Recria os gatilhos da busca (`0007_document_fts`) se o `migrate` os apagou.
+
+    No SQLite, `AddField` com default (o `is_read_only`, por exemplo) recria
+    a tabela `content_document`, e gatilho não sobrevive à troca de tabela:
+    a busca deixava de ver tudo que mudasse depois. Roda no fim de todo
+    `migrate`; faltando gatilho, recria e refaz o índice do zero.
+    """
+    import importlib
+
+    from django.db import connections
+
+    conexao = connections[using]
+    if conexao.vendor != "sqlite":
+        return
+    with conexao.cursor() as cursor:
+        cursor.execute("SELECT name FROM sqlite_master WHERE name LIKE 'content_document_fts%'")
+        nomes = {linha[0] for linha in cursor.fetchall()}
+        gatilhos = {"content_document_fts_ai", "content_document_fts_ad", "content_document_fts_au"}
+        if "content_document_fts" not in nomes or gatilhos <= nomes:
+            return
+        fts = importlib.import_module("content.migrations.0007_document_fts")
+        cursor.execute("DELETE FROM content_document_fts")
+        # O script da 0007 já recria os três gatilhos e recarrega o índice.
+        cursor.executescript(fts.CRIAR)
