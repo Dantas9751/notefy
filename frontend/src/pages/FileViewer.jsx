@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Download, Settings2, Star, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Download, Lock, Settings2, Star, Trash2 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import useEmEstudo from '@/hooks/useEmEstudo'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useTabState } from '@/context/TabsContext'
 import { Badge, Button, ErrorState, Modal, Spinner } from '@/components/ui'
-import DocumentMetaModal from '@/components/modals/DocumentMetaModal'
+import { usePropriedades } from '@/context/PropriedadesContext'
 import FilePreview, { baixarArquivoNoClique, ehArquivoDeOffice } from '@/components/FilePreview'
 import { ehArquivoDeTexto } from '@/components/TextFilePreview'
 import { kindMeta } from '@/lib/documents'
@@ -62,9 +62,8 @@ export default function FileViewer({ id: idProp }) {
   const { data: doc, loading, error, refetch, setData } = useFetch(`/documents/${id}/`, {
     deps: [id],
   })
-  const [showMeta, setShowMeta] = useState(false)
+  const propriedades = usePropriedades()
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [saving, setSaving] = useState(false)
   // Rascunho do nome enquanto se digita. O `doc` só é reescrito quando o
   // PATCH volta, senão cada tecla dispararia uma requisição.
   const [titulo, setTitulo] = useState('')
@@ -83,14 +82,9 @@ export default function FileViewer({ id: idProp }) {
   }, [doc?.title])
 
   const patch = async (changes) => {
-    setSaving(true)
-    try {
-      const { data } = await api.patch(`/documents/${id}/`, changes)
-      setData(data)
-      refreshTree()
-    } finally {
-      setSaving(false)
-    }
+    const { data } = await api.patch(`/documents/${id}/`, changes)
+    setData(data)
+    refreshTree()
   }
 
   /** Grava o nome ao sair do campo. Vazio volta ao anterior: um arquivo
@@ -164,6 +158,12 @@ export default function FileViewer({ id: idProp }) {
         )}
 
         <div className="ml-auto flex items-center gap-1.5">
+          {doc.is_read_only && (
+            <Badge className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+              <Lock size={11} />
+              {t('Somente leitura')}
+            </Badge>
+          )}
           <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
             {formatBytes(doc.size)}
           </Badge>
@@ -175,7 +175,7 @@ export default function FileViewer({ id: idProp }) {
             <Star size={15} className={doc.is_favorite ? 'fill-amber-400 text-amber-400' : ''} />
           </button>
           <button
-            onClick={() => setShowMeta(true)}
+            onClick={() => propriedades?.abrirPropriedades({ tipo: 'documento', id: doc.id }, { onSalvo: refetch })}
             aria-label={t('Propriedades')}
             className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
           >
@@ -242,22 +242,10 @@ export default function FileViewer({ id: idProp }) {
         {preview()}
       </div>
 
-      <DocumentMetaModal
-        open={showMeta}
-        document={doc}
-        saving={saving}
-        onClose={() => setShowMeta(false)}
-        onSave={async (changes) => {
-          setShowMeta(false)
-          await patch(changes)
-        }}
-      />
-
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         title={t('Excluir arquivo')}
-        description={t('Esta ação não pode ser desfeita.')}
         size="sm"
         footer={
           <>
@@ -278,7 +266,7 @@ export default function FileViewer({ id: idProp }) {
         }
       >
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          <strong>{doc.title}</strong> {t('será removido permanentemente.')}
+          <strong>{doc.title}</strong> {t('vai para a lixeira')}.
         </p>
       </Modal>
     </div>

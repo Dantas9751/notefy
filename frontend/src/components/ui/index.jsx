@@ -96,13 +96,16 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
+        // Nunca mais alto que a tela: o conteúdo rola por dentro, entre o
+        // título e os botões, que ficam sempre à vista. Sem isto, um modal
+        // longo (os atalhos) passava da tela e escondia o topo e o pé.
         className={cn(
-          'relative w-full animate-slide-up rounded-xl border border-ink-200 bg-white shadow-pop',
+          'relative flex max-h-[calc(100dvh-2rem)] w-full animate-slide-up flex-col rounded-xl border border-ink-200 bg-white shadow-pop',
           'focus:outline-none dark:border-ink-800 dark:bg-ink-900',
           widths[size],
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-ink-100 px-5 py-4 dark:border-ink-800">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-ink-100 px-5 py-4 dark:border-ink-800">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold tracking-tight text-ink-900 dark:text-ink-50">
               {title}
@@ -119,9 +122,9 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             <X size={17} />
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        <div className="min-h-0 overflow-y-auto px-5 py-4">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-2 border-t border-ink-100 px-5 py-3.5 dark:border-ink-800">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-ink-100 px-5 py-3.5 dark:border-ink-800">
             {footer}
           </div>
         )}

@@ -198,6 +198,11 @@ class Document(BaseModel):
     )
     is_favorite = models.BooleanField("favorito", default=False)
     is_archived = models.BooleanField("arquivado", default=False)
+    #: Como o atributo do Windows: protege o CONTEÚDO (`data`, `content`,
+    #: arquivo). Nome, pasta, etiquetas e estrela continuam mudando. Quem
+    #: confere é a view (`SomenteLeitura`), não o save(): o backup e as
+    #: migrações precisam gravar o item como ele é.
+    is_read_only = models.BooleanField("somente leitura", default=False)
     position = models.FloatField("posição", default=0)
 
     attached_to = models.ForeignKey(

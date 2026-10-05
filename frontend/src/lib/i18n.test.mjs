@@ -28,6 +28,7 @@ function arquivos(pasta) {
 function textosDoApp() {
   const achados = new Map()
   const chamada = /(?<![\w.])t\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g
+  const plural = /(?<![\w.])t\(\s*[\w.?]+\s*[=!<>]==?\s*\d+\s*\?\s*'([^']+)'\s*:\s*'([^']+)'/g
   for (const arquivo of arquivos(SRC)) {
     if (arquivo.includes('locales')) continue
     // Sem comentários: um `t('exemplo')` escrito num comentário não é uso.
@@ -38,6 +39,11 @@ function textosDoApp() {
       if (aspas === '`' && bruto.includes('${')) continue
       const texto = (aspas === '`' ? bruto : bruto.replace(/\\(['"\\])/g, '$1')).replace(/\\n/g, '\n')
       if (!achados.has(texto)) achados.set(texto, arquivo.slice(SRC.length))
+    }
+    // O plural do próprio i18n.js: `t(n === 1 ? '1 item' : '{n} itens', ...)`.
+    // As duas formas são chaves, e escapavam do padrão acima.
+    for (const [, um, outro] of codigo.matchAll(plural)) {
+      for (const texto of [um, outro]) if (!achados.has(texto)) achados.set(texto, arquivo.slice(SRC.length))
     }
   }
   return achados

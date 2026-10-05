@@ -1,7 +1,9 @@
 """Consulta ao índice de texto completo dos documentos.
 
 O índice e os gatilhos que o mantêm estão em
-`content/migrations/0007_document_fts.py`.
+`content/migrations/0007_document_fts.py`. Migração que recria a tabela de
+documentos (no SQLite, um `AddField` com default) apaga os gatilhos;
+`content.signals.garantir_indice_de_busca` os recria no fim de todo `migrate`.
 """
 
 import re

@@ -87,15 +87,19 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
       onClose={onClose}
       title={t('Agendar tarefa')}
       description={task?.title}
-      size="sm"
+      // "md" e não "sm": com "Tirar da agenda", os três botões não cabiam
+      // numa linha e o primeiro quebrava em duas.
+      size="md"
       footer={
         <>
           {task?.starts_at && (
+            // Ação de saída, não de confirmar: discreta, à esquerda, numa linha
+            // só (no modal estreito ela quebrava em duas ao lado dos botões).
             <Button
-              variant="secondary"
+              variant="ghost"
               icon={CalendarX2}
               onClick={() => submit(true)}
-              className="mr-auto"
+              className="mr-auto whitespace-nowrap"
             >
               {t('Tirar da agenda')}
             </Button>

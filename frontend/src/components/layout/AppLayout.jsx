@@ -16,6 +16,7 @@ import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import AtalhosModal from '@/components/modals/AtalhosModal'
+import { PropriedadesProvider } from '@/context/PropriedadesContext'
 import { kindMeta } from '@/lib/documents'
 import { NotificacoesProvider } from '@/context/NotificacoesContext'
 import { AvisosFlutuantes, CentralDeNotificacoes } from './Notificacoes'
@@ -218,6 +219,7 @@ export default function AppLayout() {
     // central de notificações vigia os prazos, e é aqui dentro que a aba
     // de Configurações a alcança.
     <NotificacoesProvider>
+    <PropriedadesProvider>
     <div 
       className="flex h-screen overflow-hidden bg-white dark:bg-ink-950"
       onContextMenu={(e) => {
@@ -368,6 +370,7 @@ export default function AppLayout() {
 
       <AvisosFlutuantes />
     </div>
+    </PropriedadesProvider>
     </NotificacoesProvider>
   )
 }

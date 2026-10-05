@@ -21,6 +21,7 @@ import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import DocumentCard from '@/components/DocumentCard'
 import FavoriteButton from '@/components/FavoriteButton'
 import CreateMenu from '@/components/layout/CreateMenu'
@@ -53,6 +54,7 @@ export default function FolderDetail({ id: idProp }) {
   const navigate = useNavigate()
   const { refresh } = useWorkspace()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  const fimDoMenu = usePropriedadesNoMenu()
 
   const { data, loading, error, refetch } = useFetch(
     `/folders/${id}/contents/`,
@@ -395,6 +397,7 @@ export default function FolderDetail({ id: idProp }) {
           })
         },
       },
+      ...fimDoMenu('pasta', sub.id),
     ]
   }
 
@@ -413,6 +416,8 @@ export default function FolderDetail({ id: idProp }) {
       icon: FolderPlus,
       onClick: () => setFolderModal({ parent: folder, categoryId: folder?.category }),
     },
+    // Botão direito no vazio da pasta: as Propriedades DELA, como no Explorer.
+    ...fimDoMenu('pasta', id),
   ]
 
   const documentMenu = (payload) => {

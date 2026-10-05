@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 import { useFetch, useMutation } from '@/hooks/useFetch'
-import { useWorkspace, flattenFolders } from '@/context/WorkspaceContext'
+import { useWorkspace, flattenFolders, OpcoesDePasta } from '@/context/WorkspaceContext'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
 import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
 import { OPCOES as RECORRENCIAS } from '@/lib/recorrencia'
@@ -240,12 +240,7 @@ export default function TaskFormModal({
         <Field label={t('Pasta')}>
           <Select value={form.folder} onChange={set('folder')}>
             <option value="">{t('Sem pasta')}</option>
-            {flattenFolders(categories).map((node) => (
-              <option key={node.id} value={node.id}>
-                {' '.repeat(node._depth * 3)}
-                {node.name} ({node._category.name})
-              </option>
-            ))}
+            <OpcoesDePasta pastas={flattenFolders(categories)} />
           </Select>
         </Field>
 

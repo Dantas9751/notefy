@@ -19,6 +19,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.exceptions import APIException
+
 from core.excecoes import JSONParserSeguro
 from core.idioma import texto
 from core.validators import e_uuid
@@ -44,6 +46,18 @@ from .serializers import (
     TemplateListSerializer,
     TemplateSerializer,
 )
+
+
+class SomenteLeitura(APIException):
+    """423: o conteúdo de um item somente leitura ia mudar."""
+
+    status_code = status.HTTP_423_LOCKED
+
+    def __init__(self):
+        super().__init__(texto(
+            "Este item está como somente leitura. Desmarque em Propriedades para editar.",
+            "This item is read-only. Turn it off in Properties to edit.",
+        ))
 
 
 class DocumentFilter(filters.FilterSet):
@@ -115,9 +129,27 @@ class DocumentViewSet(OwnedModelViewSet):
             qs = qs.prefetch_related("attachments")
         return qs
 
+    def update(self, request, *args, **kwargs):
+        documento = self.get_object()
+        # Desmarcar e editar no mesmo pedido vale: é o "permitir edição".
+        desliga = str(request.data.get("is_read_only", "")).lower() in ("false", "0")
+        if documento.is_read_only and not desliga:
+            # O editor manda o corpo inteiro a cada gravação (renomear
+            # inclusive); só conta como edição o que mudou de fato.
+            mexe = "file" in request.data or any(
+                campo in request.data and request.data[campo] != getattr(documento, campo)
+                for campo in ("data", "content")
+            )
+            if mexe:
+                raise SomenteLeitura()
+        return super().update(request, *args, **kwargs)
+
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        Document.objects.filter(pk=instance.pk).update(last_viewed_at=timezone.now())
+        # `?abrir=0`: as Propriedades leem o item sem abri-lo, e o "Aberto
+        # em" que elas mostram não pode virar "agora" só por olhar.
+        if request.query_params.get("abrir") != "0":
+            Document.objects.filter(pk=instance.pk).update(last_viewed_at=timezone.now())
         return Response(self.get_serializer(instance).data)
     def destroy(self, request, *args, **kwargs):
         document = self.get_object()
@@ -254,6 +286,8 @@ class DocumentViewSet(OwnedModelViewSet):
         # item, e herdá-la faria a duplicata disputar o topo da pasta com o
         # original sem ninguém ter pedido.
         original.is_favorite = False
+        # Nem somente leitura: duplicar é, quase sempre, para editar a cópia.
+        original.is_read_only = False
         try:
             with transaction.atomic():
                 original.save()
@@ -337,6 +371,8 @@ class DocumentViewSet(OwnedModelViewSet):
     def reset(self, request, pk=None):
         """Esvazia o payload de um editor visual, mantendo o documento."""
         document = self.get_object()
+        if document.is_read_only:
+            raise SomenteLeitura()
         if document.kind not in Document.RESETTABLE_KINDS:
             return Response(
                 {"detail": "Só planilhas, diagramas e canvas podem ser esvaziados."},

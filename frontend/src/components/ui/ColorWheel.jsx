@@ -25,12 +25,15 @@ export default function ColorWheel({
   selected = false,
   className = 'h-7 w-7',
   title = t('Escolher outra cor'),
+  //: Quadrado, para ficar na grade de quadradinhos da barra da nota.
+  quadrado = false,
 }) {
   return (
     <label
       title={title}
       className={cn(
-        'relative flex cursor-pointer items-center justify-center rounded-full border-2 transition',
+        'relative flex cursor-pointer items-center justify-center border-2 transition',
+        quadrado ? 'rounded' : 'rounded-full',
         className,
         selected ? 'border-ink-900 dark:border-white' : 'border-ink-200 dark:border-ink-700',
       )}

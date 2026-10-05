@@ -1,4 +1,4 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django_filters import rest_framework as filters
 from rest_framework import status
 from rest_framework.decorators import action
@@ -68,6 +68,22 @@ def _document_count(folders):
     from content.models import Document
 
     return Document.objects.alive().filter(folder__in=folders).count()
+
+
+def _resumo(folders):
+    """O "Contém" e o "Tamanho" das Propriedades: o que vive nestas pastas.
+
+    `itens` conta o que aparece na listagem (anexo não: ele mora dentro da
+    nota); `tamanho` soma todos os arquivos, anexos inclusive, como o
+    Explorer soma tudo que está dentro da pasta.
+    """
+    from content.models import Document
+
+    vivos = Document.objects.alive().filter(folder__in=folders)
+    return {
+        "itens": vivos.filter(attached_to__isnull=True).count(),
+        "tamanho": vivos.aggregate(total=Sum("size"))["total"] or 0,
+    }
 
 
 def _favoritos_em(folders):
@@ -162,6 +178,12 @@ class CategoryViewSet(OwnedModelViewSet):
                 f"A categoria “{category.name}” ainda contém conteúdo.", counts
             )
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["get"])
+    def properties(self, request, pk=None):
+        """Números da janela de Propriedades: pastas, itens e tamanho."""
+        pastas = Folder.objects.alive().filter(owner=request.user, category=self.get_object())
+        return Response({"pastas": pastas.count(), **_resumo(pastas)})
 
     @action(detail=True, methods=["get"])
     def contents(self, request, pk=None):
@@ -399,6 +421,12 @@ class FolderViewSet(OwnedModelViewSet):
             raise DRFValidationError(
                 exc.message_dict if hasattr(exc, "message_dict") else exc.messages
             ) from exc
+
+    @action(detail=True, methods=["get"])
+    def properties(self, request, pk=None):
+        """Números da janela de Propriedades, da subárvore inteira."""
+        subarvore = Folder.objects.alive().descendants_of(self.get_object(), include_self=True)
+        return Response({"pastas": subarvore.count() - 1, **_resumo(subarvore)})
 
     @action(detail=True, methods=["get"])
     def descendants(self, request, pk=None):

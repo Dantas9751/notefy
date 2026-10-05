@@ -30,6 +30,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from content.models import Document
+from content.views import SomenteLeitura
 from core.idioma import em_ingles, texto
 from content.schemas import extract_text
 from organization.models import Folder
@@ -293,6 +294,8 @@ class RunView(BaseIAView):
                 {"detail": f"O resultado é um {ROTULO_KIND.get(kind, kind)} e o destino não é."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if alvo.is_read_only:
+            raise SomenteLeitura()
         alvo.data = data
         try:
             alvo.save(update_fields=["data", "updated_at"])

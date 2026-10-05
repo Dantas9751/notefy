@@ -98,7 +98,7 @@ export default function CreateMenu({
           className={cn(
             'max-w-full whitespace-nowrap',
             // Recolhido: o quadrado do trilho, com o nome na dica ao lado.
-            collapsed && 'h-9 w-9 rounded-lg px-0'
+            collapsed && 'w-8 px-0'
           )}
           onClick={() => setOpen((v) => !v)}
           aria-label={t('Criar')}

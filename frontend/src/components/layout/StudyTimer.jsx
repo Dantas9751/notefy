@@ -120,13 +120,13 @@ export default function StudyTimer({ collapsed }) {
   if (collapsed) {
     return (
       <DicaLateral rotulo={t('Estudo hoje: {rotulo}{valor}', { rotulo, valor: pausado ? t(' (pausado)') : '' })}>
+        {/* Do tamanho dos outros botões do trilho; o tempo vai na dica. */}
         <button
           onClick={() => setPausado((p) => !p)}
           aria-label={t('Estudo hoje: {rotulo}', { rotulo })}
-          className="mx-auto flex w-11 flex-col items-center gap-0.5 rounded-lg py-1.5 text-ink-400 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
+          className="mx-auto flex h-8 w-8 items-center justify-center rounded-md text-ink-500 transition hover:bg-ink-200/60 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100"
         >
-          <Timer size={15} className={cn(!pausado && segundos > 0 && 'text-accent-500')} />
-          <span className="text-[9px] font-medium tabular-nums">{rotulo}</span>
+          <Timer size={14} className={cn(!pausado && segundos > 0 && 'text-accent-500')} />
         </button>
       </DicaLateral>
     )
@@ -153,7 +153,7 @@ export default function StudyTimer({ collapsed }) {
           onClick={() => setPausado((p) => !p)}
           aria-label={pausado ? t('Retomar contagem') : t('Pausar contagem')}
           title={pausado ? t('Retomar contagem') : t('Pausar contagem')}
-          className="shrink-0 rounded p-1 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800"
+          className="shrink-0 rounded p-1 transition hover:bg-ink-200/60 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-100"
         >
           {pausado ? <Play size={12} /> : <Pause size={12} />}
         </button>

@@ -36,7 +36,7 @@ const EXCECOES = [
   // Sinal de multiplicação, não texto.
   { arquivo: 'components/editors/TableSection.jsx', linha: /×/ },
   { arquivo: 'components/editors/GraphEditor.jsx', linha: /^×$/ },
-  { arquivo: 'components/modals/DocumentMetaModal.jsx', linha: /'×'/ },
+  { arquivo: 'components/modals/PropriedadesModal.jsx', linha: /'×'/ },
   { arquivo: 'components/modals/FolderFormModal.jsx', linha: /'×'/ },
 ]
 

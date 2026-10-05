@@ -5,6 +5,7 @@ import {
   Download,
   ExternalLink,
   FolderInput,
+  Lock,
   Paperclip,
   PenLine,
   Trash2,
@@ -131,6 +132,9 @@ export default function DocumentCard({
           <h3 className="titulo min-w-0 flex-1 truncate text-[15px] first-letter:uppercase group-hover:text-accent-700 dark:group-hover:text-accent-300">
             {doc.title}
           </h3>
+        )}
+        {doc.is_read_only && (
+          <Lock size={12} className="mt-1.5 shrink-0 text-ink-400" aria-label={t('Somente leitura')} />
         )}
         <FavoriteButton
           endpoint={`/documents/${doc.id}/`}

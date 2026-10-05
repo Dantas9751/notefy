@@ -18,7 +18,7 @@ import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 import DocumentCard from '@/components/DocumentCard'
 import { hasFilePayload } from '@/lib/dnd'
 import { documentPath } from '@/lib/documents'
-import { cn } from '@/lib/utils'
+import { agruparPorData, cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
@@ -326,66 +326,67 @@ export default function Files() {
           <ErrorState message={error} onRetry={refetch} />
         ) : files.length ? (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {files.map((doc) => {
-                const selectionKey = `document:${doc.id}`
-                const selecionado = isSelected(selectionKey)
-                return (
-                  // `contents`: o wrapper é só área de clique. Anel desenhado
-                  // aqui seguia o raio do wrapper (14px) contra os 10px do
-                  // cartão e sobrava nos cantos — e o `overflow-hidden`
-                  // ainda cortava o que sobrava. O realce vai no cartão.
-                  <div
-                    key={doc.id}
-                    onClickCapture={(e) =>
-                      handleClick(selectionKey, e, () => navigate(documentPath(doc)))
-                    }
-                    onContextMenu={(e) => abrirMenu(doc, e)}
-                    className="contents"
-                  >
-                    <DocumentCard
-                      document={doc}
-                      showFolder
-                      selecionado={selecionado}
-                      renomeando={renomear.estaEditando(doc.id)}
-                      onRename={() => renomear.abrir(doc.id)}
-                      erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
-                      camposDeRenomear={propsDoCampo({
-                        valorAtual: doc.title,
-                        endpoint: `/documents/${doc.id}/`,
-                        campo: 'title',
-                        gravar: renomear.gravar,
-                        fechar: renomear.fechar,
-                      })}
-                      className={cn(
-                        selecionado &&
-                          'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
-                      )}
-                    />
+            {/* Em grupos pela data em que o arquivo entrou (Hoje, Ontem, Esta
+                semana...), como os Recentes — a lista já vem por `-created_at`. */}
+            <div className="space-y-8">
+              {agruparPorData(files, 'created_at').map((grupo) => (
+                <section key={grupo.rotulo}>
+                  <h2 className="titulo mb-3 text-[17px]">{grupo.rotulo}</h2>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {grupo.itens.map((doc) => {
+                      const selectionKey = `document:${doc.id}`
+                      const selecionado = isSelected(selectionKey)
+                      return (
+                        // `contents`: o wrapper é só área de clique. Anel desenhado
+                        // aqui seguia o raio do wrapper (14px) contra os 10px do
+                        // cartão e sobrava nos cantos — e o `overflow-hidden`
+                        // ainda cortava o que sobrava. O realce vai no cartão.
+                        <div
+                          key={doc.id}
+                          onClickCapture={(e) =>
+                            handleClick(selectionKey, e, () => navigate(documentPath(doc)))
+                          }
+                          onContextMenu={(e) => abrirMenu(doc, e)}
+                          className="contents"
+                        >
+                          <DocumentCard
+                            document={doc}
+                            showFolder
+                            selecionado={selecionado}
+                            renomeando={renomear.estaEditando(doc.id)}
+                            onRename={() => renomear.abrir(doc.id)}
+                            erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
+                            camposDeRenomear={propsDoCampo({
+                              valorAtual: doc.title,
+                              endpoint: `/documents/${doc.id}/`,
+                              campo: 'title',
+                              gravar: renomear.gravar,
+                              fechar: renomear.fechar,
+                            })}
+                            className={cn(
+                              selecionado &&
+                                'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
+                            )}
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                </section>
+              ))}
             </div>
 
             {totalPages > 1 && (
               <div className="mt-6 flex items-center justify-center gap-3 text-xs text-ink-500">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                  className="rounded border border-ink-200 px-2.5 py-1 disabled:opacity-40 dark:border-ink-700"
-                >
+                <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   {t('Anterior')}
-                </button>
+                </Button>
                 <span>
                   {t('Página')} {page} {t('de')} {totalPages}
                 </span>
-                <button
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="rounded border border-ink-200 px-2.5 py-1 disabled:opacity-40 dark:border-ink-700"
-                >
+                <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                   {t('Próxima')}
-                </button>
+                </Button>
               </div>
             )}
           </>

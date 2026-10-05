@@ -26,7 +26,8 @@ export default function AtalhosModal({ open, onClose }) {
             <h3 className="secao mb-2">{grupo.titulo}</h3>
             <ul className="space-y-1.5">
               {grupo.itens.map(([teclas, descricao]) => (
-                <li key={descricao} className="flex items-center justify-between gap-3 text-sm">
+                // "Lista" e "Checklist" aparecem duas vezes (markdown e Ctrl+Shift): a chave leva as teclas.
+                <li key={`${descricao}:${teclas.join('+')}`} className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-ink-600 dark:text-ink-300">{descricao}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {teclas.map((t) => (
