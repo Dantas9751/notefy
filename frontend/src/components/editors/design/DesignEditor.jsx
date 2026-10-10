@@ -810,7 +810,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
     // Botão, link e item de menu com o foco: Espaço, Enter e Tab são DELES. Sem
     // isto a barra de ferramentas não ativava com o teclado, e o Tab nunca saía
     // das propriedades (virava "próxima camada").
-    const emControle = !!e.target.closest?.('button, a, summary, [role="menuitem"]')
+    const emControle = !!e.target.closest?.('button, a, summary, [role="menuitem"], [role="treeitem"]')
     if (e.key === ' ' && !emControle && !e.repeat) {
       e.preventDefault()
       setEspaco(true)
@@ -868,7 +868,8 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       e.preventDefault()
       return removerSelecao()
     }
-    if (e.key.startsWith('Arrow') && selecao.length) {
+    // Setas na lista de camadas andam pela lista (e não empurram a seleção no quadro).
+    if (e.key.startsWith('Arrow') && selecao.length && !e.target.closest?.('[role="tree"]')) {
       e.preventDefault()
       const passo = e.shiftKey ? 10 : 1
       const [dx, dy] = { ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo] }[e.key]

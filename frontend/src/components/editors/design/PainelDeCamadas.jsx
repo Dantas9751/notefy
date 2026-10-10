@@ -122,6 +122,8 @@ export default function PainelDeCamadas({
     }
   }
   montar(camadas, 0, false)
+  // A linha que entra no Tab: a selecionada, se estiver à vista (pai recolhido a esconde), senão a primeira.
+  const idDoFoco = linhas.some((l) => l.camada.id === selecao.at(-1)) ? selecao.at(-1) : linhas[0]?.camada.id
 
   const posicaoDoSoltar = (e, camada) => {
     const caixa = e.currentTarget.getBoundingClientRect()
@@ -193,7 +195,14 @@ export default function PainelDeCamadas({
 
       {/* Camadas */}
       <header className="flex h-9 shrink-0 items-center px-3 text-[11px] font-semibold text-ink-700 dark:text-ink-200">{t('Camadas')}</header>
-      <div ref={listaRef} className="min-h-0 flex-1 overflow-y-auto pb-6" onPointerLeave={() => onHover(null)}>
+      <div
+        ref={listaRef}
+        role="tree"
+        aria-label={t('Camadas')}
+        aria-multiselectable="true"
+        className="min-h-0 flex-1 overflow-y-auto pb-6"
+        onPointerLeave={() => onHover(null)}
+      >
         {!linhas.length && (
           <p className="px-3 py-2 leading-relaxed text-ink-400">{t('Use as ferramentas da barra de baixo para desenhar. Comece por um Frame (F): ele é a sua tela.')}</p>
         )}
@@ -205,6 +214,42 @@ export default function PainelDeCamadas({
             <div
               key={c.id}
               data-linha={c.id}
+              role="treeitem"
+              aria-selected={selecionada}
+              aria-level={profundidade + 1}
+              aria-expanded={c.children?.length ? aberta(c, profundidade) : undefined}
+              // Uma linha só entra no Tab (a selecionada, ou a primeira): as setas andam entre elas.
+              tabIndex={c.id === idDoFoco ? 0 : -1}
+              onKeyDown={(e) => {
+                if (renomeando === c.id || e.target !== e.currentTarget) return
+                const vai = (alvo) => {
+                  const linha = alvo && listaRef.current?.querySelector(`[data-linha="${CSS.escape(alvo.camada.id)}"]`)
+                  if (!linha) return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  linha.focus()
+                  onSelecionar(alvo.camada.id, { somar: e.shiftKey })
+                }
+                const i = linhas.findIndex((l) => l.camada.id === c.id)
+                if (e.key === 'ArrowDown') vai(linhas[i + 1])
+                else if (e.key === 'ArrowUp') vai(linhas[i - 1])
+                else if (e.key === 'Home') vai(linhas[0])
+                else if (e.key === 'End') vai(linhas.at(-1))
+                else if (e.key === 'ArrowRight' && c.children?.length && !aberta(c, profundidade)) {
+                  e.preventDefault()
+                  setAbertas((m) => new Map(m).set(c.id, true))
+                } else if (e.key === 'ArrowLeft' && c.children?.length && aberta(c, profundidade)) {
+                  e.preventDefault()
+                  setAbertas((m) => new Map(m).set(c.id, false))
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onSelecionar(c.id, { somar: e.ctrlKey || e.metaKey })
+                } else if (e.key === 'F2' && !somenteLeitura) {
+                  e.preventDefault()
+                  onRenomeando(c.id)
+                }
+              }}
               draggable={!somenteLeitura && renomeando !== c.id}
               onDragStart={(e) => {
                 const ids = selecionada ? selecao : [c.id]
@@ -227,7 +272,7 @@ export default function PainelDeCamadas({
               onDoubleClick={() => !somenteLeitura && onRenomeando(c.id)}
               onPointerEnter={() => onHover(c.id)}
               className={cn(
-                'group relative flex h-7 cursor-default items-center gap-1 pr-1.5 transition-colors [@media(pointer:coarse)]:h-10',
+                'group relative flex h-7 cursor-default items-center gap-1 pr-1.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 [@media(pointer:coarse)]:h-10',
                 selecionada
                   ? 'bg-accent-100 text-ink-900 dark:bg-accent-500/20 dark:text-ink-50'
                   : dentroDeSelecionada
