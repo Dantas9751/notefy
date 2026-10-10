@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react'
 import { X } from 'lucide-react'
 import { MAX_ITENS_SECAO } from '@/lib/limites'
-import { cn } from '@/lib/utils'
+import { cn, uid } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
 /**
@@ -20,9 +20,7 @@ import { t } from '@/lib/i18n'
  * tira a mão do teclado.
  */
 
-const uid = () => `i${Math.random().toString(36).slice(2, 9)}`
-
-export const novoItem = (text = '') => ({ id: uid(), text, done: false })
+export const novoItem = (text = '') => ({ id: uid('i'), text, done: false })
 
 const ChecklistSection = forwardRef(function ChecklistSection(
   {

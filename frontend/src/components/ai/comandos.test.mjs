@@ -5,7 +5,6 @@ import {
   COMANDOS,
   comandoDe,
   comandosPara,
-  expandirComando,
   instrucaoDoComando,
   sugestoesPara,
 } from './comandos.js'
@@ -73,22 +72,7 @@ test('prefixo sem correspondencia devolve lista vazia', () => {
   assert.deepEqual(sugestoesPara('/zzz', 'note'), [])
 })
 
-/* ------------------------------------------------------------------ */
-/* expandirComando: o texto do usuario aparece no chat como digitou   */
-/* ------------------------------------------------------------------ */
-
-test('comando mantem o texto original', () => {
-  assert.equal(expandirComando('/resumir', 'note'), '/resumir')
-  assert.equal(expandirComando('/formula soma', 'spreadsheet'), '/formula soma')
-})
-
-test('texto livre passa intacto', () => {
-  const livre = 'o que significa esta formula?'
-  assert.equal(expandirComando(livre, 'spreadsheet'), livre)
-})
-
 test('comando de outro tipo nao e reconhecido', () => {
-  assert.equal(expandirComando('/formula soma', 'note'), '/formula soma')
   assert.equal(comandoDe('/formula soma', 'note'), null)
   assert.ok(comandoDe('/formula soma', 'spreadsheet'))
 })

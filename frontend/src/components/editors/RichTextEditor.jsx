@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, us
 import api, { extractError } from '@/lib/api'
 import { escaparTexto, limparHtml } from '@/lib/sanitizar'
 import { urlDeMedia } from '@/lib/fileMedia'
-import { cortarNoCursor, posicionarCursor } from '@/lib/cursor'
+import { cortarNoCursor, MARCADOR, posicionarCursor, soltarMarcador } from '@/lib/cursor'
 import { htmlVazio } from '@/lib/nota'
 import { cn } from '@/lib/utils'
 import LinkPromptModal from '@/components/modals/LinkPromptModal'
@@ -123,7 +123,9 @@ const RichTextEditor = forwardRef(function RichTextEditor(
   }, [])
 
   const emitir = () => {
-    const html = editorRef.current?.innerHTML ?? ''
+    // O marcador do estilo escolhido sem seleção (`estiloNoCursor`) é do
+    // DOM: no conteúdo salvo ele seria um caractere invisível no meio do texto.
+    const html = (editorRef.current?.innerHTML ?? '').replaceAll(MARCADOR, '')
     lastValueRef.current = html
     marcarVazio()
     onChange(html)
@@ -178,6 +180,7 @@ const RichTextEditor = forwardRef(function RichTextEditor(
   }))
 
   const handleInput = (event) => {
+    soltarMarcador()
     emitir()
     onInput?.(event)
   }

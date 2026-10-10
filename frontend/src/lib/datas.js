@@ -60,3 +60,13 @@ export function erroDoPeriodo(inicio, fim) {
   }
   return null
 }
+
+/** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
+export function toLocalInput(iso) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`
+}

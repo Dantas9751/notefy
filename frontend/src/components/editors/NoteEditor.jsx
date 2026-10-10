@@ -12,6 +12,8 @@ import {
   cursorNaPrimeiraLinha,
   cursorNaUltimaLinha,
   cursorNoInicio,
+  estiloNoCursor,
+  pontoNoTexto,
   retanguloDoCursor,
   textoAntesDoCursor,
   textoDoBloco,
@@ -135,6 +137,7 @@ const NoteEditor = forwardRef(function NoteEditor({
   }
 
   const [foco, setFoco] = useState(null)
+  const corpoRef = useRef(null)
   const ultimoTextoRef = useRef(null)
   const [estadoDaBarra, setEstadoDaBarra] = useState({ marcas: {} })
   const [barra, setBarra] = useState(null)
@@ -308,6 +311,13 @@ const NoteEditor = forwardRef(function NoteEditor({
   }
   const editorAtivo = () => textoAtivo().editor ?? null
 
+  /**
+   * A barra relê o estado do cursor. O navegador só avisa quando a SELEÇÃO
+   * muda, e um comando com o cursor parado (Negrito, uma cor) não a muda: o
+   * botão ficava apagado com o negrito ligado.
+   */
+  const reler = () => document.dispatchEvent(new Event('selectionchange'))
+
   /** Comando de texto na seleção do trecho ativo (ou de volta nela). */
   const comando = (cmd, argumento = null) => {
     const editor = editorAtivo()
@@ -316,6 +326,7 @@ const NoteEditor = forwardRef(function NoteEditor({
     if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
     document.execCommand(cmd, false, argumento)
     editor.emitir()
+    reler()
   }
 
   /**
@@ -332,6 +343,7 @@ const NoteEditor = forwardRef(function NoteEditor({
     if (cor) {
       document.execCommand(cmd, false, cor)
       editor.emitir()
+      reler()
       return
     }
     const SENTINELA = '#010203'
@@ -361,6 +373,12 @@ const NoteEditor = forwardRef(function NoteEditor({
     if (!editor?.el) return
     const sel = window.getSelection()
     if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    if (window.getSelection().isCollapsed) {
+      estiloNoCursor({ fontFamily: nome || 'var(--fonte-nota)' })
+      editor.emitir()
+      reler()
+      return
+    }
     document.execCommand('fontName', false, 'notefy-sentinela')
     for (const el of [...editor.el.querySelectorAll('font[face="notefy-sentinela"]')]) {
       if (nome) el.setAttribute('face', nome)
@@ -370,13 +388,19 @@ const NoteEditor = forwardRef(function NoteEditor({
       }
     }
     editor.emitir()
-    document.dispatchEvent(new Event('selectionchange'))
+    reler()
   }
   const aplicarTamanho = (pt) => {
     const editor = editorAtivo()
     if (!editor?.el) return
     const sel = window.getSelection()
     if (document.activeElement !== editor.el || !editor.el.contains(sel?.anchorNode)) editor.restaurarSelecao()
+    if (window.getSelection().isCollapsed) {
+      estiloNoCursor({ fontSize: `${pt}pt` })
+      editor.emitir()
+      reler()
+      return
+    }
     document.execCommand('fontSize', false, '7')
     for (const el of [...editor.el.querySelectorAll('font[size="7"]')]) {
       // Fica o elemento: o navegador junta tamanho e fonte no MESMO
@@ -389,7 +413,7 @@ const NoteEditor = forwardRef(function NoteEditor({
     editor.emitir()
     // A seleção não mudou, então o navegador não avisa: a barra relê agora
     // e a caixa mostra o tamanho novo.
-    document.dispatchEvent(new Event('selectionchange'))
+    reler()
   }
 
   const inserir = (tipo) => {
@@ -454,8 +478,11 @@ const NoteEditor = forwardRef(function NoteEditor({
       if (!quadro) quadro = requestAnimationFrame(ler)
     }
     document.addEventListener('selectionchange', agendar)
+    // Ctrl+B, Ctrl+I... com o cursor parado também não mexem na seleção.
+    document.addEventListener('keyup', agendar)
     return () => {
       document.removeEventListener('selectionchange', agendar)
+      document.removeEventListener('keyup', agendar)
       cancelAnimationFrame(quadro)
     }
   }, [])
@@ -652,9 +679,44 @@ const NoteEditor = forwardRef(function NoteEditor({
 
   /** Clique no branco da folha, abaixo do texto: o cursor vai para o fim. */
   const focarFim = (e) => {
-    e.preventDefault()
     const ultimo = paginaAtual()[paginaAtual().length - 1]
-    if (ultimo) focar(ultimo.id, 'fim')
+    // Texto no fim: quem cuida é `selecionarDaMargem`, que também arrasta.
+    if (!ultimo || ehTexto(ultimo)) return
+    e.preventDefault()
+    focar(ultimo.id, 'fim')
+  }
+
+  /**
+   * Clicar e arrastar FORA do texto (a margem da folha, a mesa em volta, o
+   * vão embaixo) seleciona o texto, como no Word. O navegador fazia ali uma
+   * seleção morta, fora do campo editável: era preciso clicar no texto
+   * antes de conseguir arrastar.
+   */
+  const selecionarDaMargem = (e) => {
+    if (somenteLeitura || e.button !== 0 || e.defaultPrevented) return
+    if (e.target.closest('[contenteditable], input, textarea, select, button, a, label, [data-bloco]')) return
+    // Acima do texto é o cabeçalho (título, etiquetas): ali o clique é dele.
+    if (e.clientY < (corpoRef.current?.getBoundingClientRect().top ?? Infinity)) return
+    const editores = Object.values(alvosRef.current)
+      .map((alvo) => alvo?.el)
+      .filter((el) => el?.isContentEditable)
+    const inicio = pontoNoTexto(editores, e.clientX, e.clientY)
+    if (!inicio) return
+    e.preventDefault()
+    inicio.editor.focus({ preventScroll: true })
+    const selecao = window.getSelection()
+    selecao.collapse(inicio.no, inicio.offset)
+    // ponytail: sem rolagem automática ao arrastar até a borda da janela.
+    const mover = (ev) => {
+      const fim = pontoNoTexto(editores, ev.clientX, ev.clientY)
+      if (fim) selecao.setBaseAndExtent(inicio.no, inicio.offset, fim.no, fim.offset)
+    }
+    const soltar = () => {
+      window.removeEventListener('mousemove', mover)
+      window.removeEventListener('mouseup', soltar)
+    }
+    window.addEventListener('mousemove', mover)
+    window.addEventListener('mouseup', soltar)
   }
 
   // O título (no DocumentEditor) desce para o texto pelo Enter.
@@ -703,11 +765,11 @@ const NoteEditor = forwardRef(function NoteEditor({
       )}
 
       {/* A mesa e a folha: no celular a folha ocupa a tela, sem margem. */}
-      <div className="flex-1 bg-ink-50 pb-10 sm:px-6 sm:pt-6 dark:bg-black/25">
+      <div className="flex-1 bg-ink-50 pb-10 sm:px-6 sm:pt-6 dark:bg-black/25" onMouseDown={selecionarDaMargem}>
         <div className="folha mx-auto w-full max-w-[816px] bg-white px-5 pt-5 sm:rounded-md sm:border sm:border-ink-150 sm:px-12 sm:pt-10 sm:shadow-subtle dark:bg-ink-900 sm:dark:border-ink-800">
           {cabecalho}
 
-          <div className="mt-5 max-sm:pl-6" onKeyDownCapture={capturarHistorico}>
+          <div ref={corpoRef} className="mt-5 max-sm:pl-6" onKeyDownCapture={capturarHistorico}>
             {pagina.map((secao, indice) => {
               if (ehTexto(secao)) {
                 return (
@@ -755,6 +817,7 @@ const NoteEditor = forwardRef(function NoteEditor({
               return (
                 <div
                   key={secao.id}
+                  data-bloco=""
                   onFocus={() => setFoco({ id: secao.id, texto: false })}
                   onDragOver={(e) => {
                     if (arrastando === null) return

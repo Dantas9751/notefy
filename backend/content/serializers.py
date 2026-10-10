@@ -12,13 +12,37 @@ from organization.serializers import (
     BREADCRUMB_SCHEMA,
     CategoryMiniSerializer,
     OwnedPrimaryKeyRelatedField,
+    trilha_ate,
 )
 
+from .conversao import destinos
 from .models import Document, Template
 from .schemas import empty_data_for, validate_data
 
 
-class DocumentListSerializer(serializers.ModelSerializer):
+class CamposDeArquivo(serializers.Serializer):
+    """O que um arquivo importado mostra, igual na listagem e no detalhe."""
+
+    file_url = serializers.SerializerMethodField()
+    #: Formatos para os quais dá para converter. Vazio fora de arquivo
+    #: importado: nota, planilha e os outros itens do app não convertem.
+    conversoes = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_conversoes(self, obj):
+        if obj.kind != Document.Kind.FILE:
+            return []
+        return destinos(obj.original_name or obj.title)
+
+
+class DocumentListSerializer(CamposDeArquivo, serializers.ModelSerializer):
     """Payload de listagem — sem `content` nem `data`.
 
     Uma nota de estudo pode ter dezenas de KB e uma planilha, milhares de
@@ -34,7 +58,6 @@ class DocumentListSerializer(serializers.ModelSerializer):
         source="categories", many=True, read_only=True
     )
     folder_name = serializers.CharField(source="folder.name", read_only=True)
-    file_url = serializers.SerializerMethodField()
     attachment_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -44,19 +67,12 @@ class DocumentListSerializer(serializers.ModelSerializer):
             "folder", "folder_name", "category", "categories_detail",
             "is_favorite", "is_archived", "is_read_only", "position",
             "word_count", "attachment_count",
-            "file_url", "file_kind", "mime_type", "size", "original_name",
+            "file_url", "file_kind", "mime_type", "size", "original_name", "conversoes",
             "created_at", "updated_at",
         )
 
-    @extend_schema_field(serializers.URLField(allow_null=True))
-    def get_file_url(self, obj):
-        if not obj.file:
-            return None
-        request = self.context.get("request")
-        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
 
-
-class DocumentSerializer(serializers.ModelSerializer):
+class DocumentSerializer(CamposDeArquivo, serializers.ModelSerializer):
     """Documento completo. Serve os cinco tipos.
 
     Os campos de todos os tipos vêm sempre presentes (nulos/vazios quando
@@ -82,7 +98,6 @@ class DocumentSerializer(serializers.ModelSerializer):
         queryset=Document.objects.all(), required=False, allow_null=True
     )
     attachments = DocumentListSerializer(many=True, read_only=True)
-    file_url = serializers.SerializerMethodField()
     breadcrumb = serializers.SerializerMethodField()
     kind_label = serializers.CharField(source="get_kind_display", read_only=True)
 
@@ -93,7 +108,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "folder", "breadcrumb", "category", "categories", "categories_detail",
             "is_favorite", "is_archived", "is_read_only", "position",
             "content", "content_format", "data",
-            "file", "file_url", "file_kind", "mime_type", "size", "original_name",
+            "file", "file_url", "file_kind", "mime_type", "size", "original_name", "conversoes",
             "attached_to", "attachments",
             "excerpt", "word_count", "last_viewed_at", "created_at", "updated_at",
         )
@@ -102,13 +117,6 @@ class DocumentSerializer(serializers.ModelSerializer):
             "file_kind", "mime_type", "size", "original_name",
         )
         extra_kwargs = {"file": {"write_only": True, "required": False}}
-
-    @extend_schema_field(serializers.URLField(allow_null=True))
-    def get_file_url(self, obj):
-        if not obj.file:
-            return None
-        request = self.context.get("request")
-        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
 
     @extend_schema_field(BREADCRUMB_SCHEMA)
     def get_breadcrumb(self, obj):
@@ -120,16 +128,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not obj.folder_id:
             return []
         folder = obj.folder
-        crumbs = []
-        if folder.category_id:
-            crumbs.append(
-                {"id": str(folder.category_id), "name": folder.category.name, "type": "category"}
-            )
-        crumbs += [
-            {"id": str(a.id), "name": a.name, "type": "folder"} for a in folder.ancestors
-        ]
-        crumbs.append({"id": str(folder.id), "name": folder.name, "type": "folder"})
-        return crumbs
+        return [*trilha_ate(folder), {"id": str(folder.id), "name": folder.name, "type": "folder"}]
 
     # ------------------------------------------------------------------
     # Validação

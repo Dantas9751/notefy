@@ -3,20 +3,10 @@ import api from '@/lib/api'
 import { useFetch, useMutation } from '@/hooks/useFetch'
 import { useWorkspace, flattenFolders, OpcoesDePasta } from '@/context/WorkspaceContext'
 import { Button, ErrorState, Field, Input, Modal, Select, Textarea } from '@/components/ui'
-import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
+import { DATA_MAX, DATA_MIN, erroDoPeriodo, toLocalInput } from '@/lib/datas'
 import { OPCOES as RECORRENCIAS } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-
-/** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
-function toLocalInput(iso) {
-  if (!iso) return ''
-  const date = new Date(iso)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`
-}
 
 const EMPTY = {
   board: '',

@@ -12,6 +12,7 @@
  */
 
 import { idioma, t } from './i18n.js'
+import { escapeHtml } from './utils.js'
 
 export function htmlToMarkdown(html) {
   if (!html) return ''
@@ -37,13 +38,6 @@ export function htmlToMarkdown(html) {
     .replace(/&quot;/g, '"')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-}
-
-export function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
 }
 
 /** Largura da tabela: a da linha mais larga, que é a regra do editor. */

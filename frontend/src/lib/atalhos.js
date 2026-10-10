@@ -23,7 +23,7 @@ export const GRUPOS_DE_ATALHOS = [
     get itens() { return [
       [['Ctrl', 'K'], t('Buscar')],
       [['Ctrl', 'J'], t('Abrir o Laviel')],
-      [['Ctrl', '.'], t('Modo zen')],
+      [['Ctrl', '.'], t('Modo zen (tela cheia; no app, F11 também)')],
       [['Ctrl', '\\'], t('Fechar o painel ao lado')],
       [['Ctrl', '/'], t('Esta lista')],
     ] },
@@ -59,6 +59,7 @@ export const GRUPOS_DE_ATALHOS = [
       [['Ctrl', 'Shift', '7'], t('Lista numerada')],
       [['Ctrl', 'Alt', t('0 a 3')], t('Texto normal e títulos')],
       [['Ctrl', 'Enter'], t('Sair do bloco para o texto')],
+      [['Ctrl', 'Enter'], t('No código JavaScript ou Python, executa (Esc sai)')],
       [['Enter'], t('No item vazio, encerra o checklist')],
     ] },
   },
@@ -79,9 +80,17 @@ export const GRUPOS_DE_ATALHOS = [
   {
     get titulo() { return t('Planilha') },
     get itens() { return [
+      [['Enter'], t('Editar a célula; de novo, grava e desce')],
+      [['F2'], t('Editar a célula sem apagar o que tem')],
+      [['Tab'], t('Grava e vai para a direita')],
+      [['Ctrl', '↓'], t('Ir até a borda da planilha')],
+      [['Shift', '↓'], t('Estender a seleção')],
       [['Ctrl', 'A'], t('Selecionar tudo')],
       [['Ctrl', 'C'], t('Copiar células')],
       [['Delete'], t('Limpar células')],
+      [['Ctrl', 'B'], t('Negrito (também I e U)')],
+      [['Alt', '='], t('Soma automática')],
+      [['Ctrl', 'Shift', '$'], t('Formato de moeda (% para porcentagem)')],
     ] },
   },
   {

@@ -15,11 +15,11 @@ export const fundoDaCapa = (capa) =>
 export const textoDaCapa = (capa) =>
   capa?.tipo === 'imagem' ? 'claro' : (CAPAS.find((c) => c.id === capa?.id) ?? CAPAS[0]).texto
 
-/** Envia a foto da capa (do computador ou arrastada) e devolve o endereço. */
-export async function enviarCapa(arquivo) {
+/** Envia uma foto do Início (do computador ou arrastada) e devolve o endereço. `para`: capa, fundo ou foto. */
+export async function enviarCapa(arquivo, para = 'capa') {
   const corpo = new FormData()
   corpo.append('imagem', arquivo)
-  const { data } = await api.post('/me/cover/', corpo)
+  const { data } = await api.post('/me/cover/', corpo, { params: { para } })
   return data.url
 }
 

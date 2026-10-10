@@ -4,6 +4,7 @@ import { Field, Select } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import { ACCENT_PADRAO, CORES_PADRAO } from '@/lib/accent'
 import { FONTES_DA_NOTA, FONTES_DO_APP } from '@/lib/fontes'
+import { TEMAS } from '@/lib/temas'
 import { cn } from '@/lib/utils'
 import { Bloco, Chave } from './componentes'
 import { usePreferencias } from './index'
@@ -39,6 +40,48 @@ function EscolhaDeFonte({ rotulo, opcoes, valor, onEscolher, amostra }) {
   )
 }
 
+/** Fundo, texto e destaque de cada opção, para a amostra se parecer com o tema. */
+const AMOSTRAS_BASE = [
+  { id: 'system', get nome() { return t('Seguir o sistema') }, fundo: 'linear-gradient(135deg, #faf9f8 50%, #0f0e0d 50%)', texto: '#7c766e' },
+  { id: 'light', get nome() { return t('Claro') }, fundo: '#ffffff', texto: '#2a2724' },
+  { id: 'dark', get nome() { return t('Escuro') }, fundo: '#0f0e0d', texto: '#e9e6e2' },
+]
+
+/** Os temas como amostras: um quadradinho com o fundo, duas linhas de texto e o destaque. */
+function EscolhaDeTema({ valor, destaque, onEscolher }) {
+  const opcoes = [
+    ...AMOSTRAS_BASE.map((o) => ({ ...o, cor: destaque })),
+    ...TEMAS.map((tema) => ({ id: tema.id, nome: tema.nome, fundo: tema.ink[11], painel: tema.ink[10], texto: tema.ink[2], cor: tema.destaque, tema })),
+  ]
+  return (
+    <div role="radiogroup" aria-label={t('Tema')} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {opcoes.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="radio"
+          aria-checked={valor === o.id}
+          onClick={() => onEscolher(o)}
+          className={cn(
+            'overflow-hidden rounded-md border text-left transition',
+            valor === o.id ? 'border-accent-500 ring-1 ring-accent-500' : 'border-ink-200 hover:border-ink-300 dark:border-ink-700 dark:hover:border-ink-600',
+          )}
+        >
+          <span className="flex h-14 gap-1.5 p-2" style={{ background: o.fundo }} aria-hidden>
+            {o.painel && <span className="w-5 rounded-sm" style={{ background: o.painel }} />}
+            <span className="flex flex-1 flex-col justify-center gap-1">
+              <span className="h-1.5 w-3/4 rounded-full" style={{ background: o.texto }} />
+              <span className="h-1.5 w-1/2 rounded-full opacity-60" style={{ background: o.texto }} />
+              <span className="h-1.5 w-1/3 rounded-full" style={{ background: o.cor }} />
+            </span>
+          </span>
+          <span className="block truncate border-t border-ink-100 px-2 py-1.5 text-xs text-ink-700 dark:border-ink-800 dark:text-ink-200">{o.nome}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function AbaAparencia() {
   const { theme, setTheme, zen, setZen, accent, setAccent, fonteApp, setFonteApp, fonteNota, setFonteNota } = useUI()
   const { prefs, savePrefs } = usePreferencias()
@@ -59,14 +102,15 @@ export default function AbaAparencia() {
         </Field>
       </Bloco>
 
-      <Bloco title={t('Tema')} description={t('Claro, escuro ou o que o sistema estiver usando.')}>
-        <Field label={t('Tema')}>
-          <Select value={theme} onChange={(e) => setTheme(e.target.value)}>
-            <option value="system">{t('Seguir o sistema')}</option>
-            <option value="light">{t('Claro')}</option>
-            <option value="dark">{t('Escuro')}</option>
-          </Select>
-        </Field>
+      <Bloco title={t('Tema')} description={t('Claro, escuro, o do sistema, ou uma paleta escura no estilo dos editores de código. Uma paleta traz a cor de destaque dela, que dá para trocar logo abaixo.')}>
+        <EscolhaDeTema
+          valor={theme}
+          destaque={accent}
+          onEscolher={(opcao) => {
+            setTheme(opcao.id)
+            if (opcao.tema) setAccent(opcao.tema.destaque)
+          }}
+        />
 
         <div>
           <span className="label">{t('Cor de destaque')}</span>

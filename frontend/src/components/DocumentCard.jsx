@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Badge, ColorDot } from '@/components/ui'
 import FavoriteButton from '@/components/FavoriteButton'
+import { CampoDeRenomear } from '@/hooks/useRenomear'
 import { DOCUMENT_STATUS, documentPath, kindMeta } from '@/lib/documents'
 import { limparDragPayload, setDragPayload } from '@/lib/dnd'
 import { exportDocument, FORMATS } from '@/components/ExportMenu'
@@ -38,12 +39,9 @@ export default function DocumentCard({
   //: do wrapper, e não o do cartão — sobra nos cantos. Aqui o anel nasce
   //: na mesma caixa e no mesmo arredondamento da borda que ele acompanha.
   className,
-  //: Renomear no lugar. Vem do `useRenomear` da tela que lista — sem
-  //: estas duas props o cartão se comporta exatamente como antes.
-  renomeando = false,
-  onRename,
-  camposDeRenomear,
-  erroDeRenomear,
+  //: Renomear no lugar: o `useRenomear` da tela que lista. Sem ele o
+  //: cartão não renomeia.
+  renomear,
   //: Marcado pela seleção múltipla. Libera o duplo clique para renomear
   //: e dá ao F2 um alvo sem depender do foco do teclado.
   selecionado = false,
@@ -53,6 +51,7 @@ export default function DocumentCard({
   const status = DOCUMENT_STATUS[doc.status] ?? DOCUMENT_STATUS.draft
   const accent = doc.color || meta.accent
   const isFile = doc.kind === 'file'
+  const renomeando = !!renomear?.estaEditando(doc.id)
 
   return (
     <article
@@ -80,10 +79,10 @@ export default function DocumentCard({
       // nunca chega: o gesto só existe depois que algo (Ctrl+clique, o
       // botão direito) marcou o cartão sem abri-lo.
       onDoubleClick={(event) => {
-        if (!onRename || !selecionado) return
+        if (!renomear || !selecionado) return
         event.preventDefault()
         event.stopPropagation()
-        onRename()
+        renomear.abrir(doc.id)
       }}
       // F2 NÃO mora aqui: ele agiria só no cartão com foco de teclado, e
       // depois de um clique direito o foco está no menu, não no cartão.
@@ -106,26 +105,15 @@ export default function DocumentCard({
           style={{ backgroundColor: accent }}
         />
         {renomeando ? (
-          // Campo NO LUGAR do título, na mesma caixa e no mesmo tipo:
-          // um modal para trocar um nome é uma viagem de ida e volta
-          // para uma palavra.
-          <span className="min-w-0 flex-1">
-            <input
-              {...camposDeRenomear}
-              aria-invalid={!!erroDeRenomear}
-              className={cn(
-                'titulo w-full rounded-sm px-1 text-[15px] outline-none ring-1',
-                erroDeRenomear
-                  ? 'bg-red-50 ring-red-400 dark:bg-red-500/10'
-                  : 'bg-accent-50 ring-accent-400 dark:bg-accent-500/15',
-              )}
-            />
-            {/* O nome é único por pasta. Sem o motivo à vista, o campo só
-                voltava ao nome antigo e parecia que renomear não funciona. */}
-            {erroDeRenomear && (
-              <span className="mt-1 block text-[11px] text-red-500">{erroDeRenomear}</span>
-            )}
-          </span>
+          // Campo NO LUGAR do título, na mesma caixa e no mesmo tipo: um
+          // modal para trocar um nome é uma viagem de ida e volta.
+          <CampoDeRenomear
+            renomear={renomear}
+            valorAtual={doc.title}
+            endpoint={`/documents/${doc.id}/`}
+            campo="title"
+            className="titulo text-[15px]"
+          />
         ) : (
           // Primeira letra maiúscula só na TELA: o nome salvo continua como
           // a pessoa digitou ("a" vira "A" no cartão, não no banco).
@@ -234,12 +222,14 @@ export function documentMenuItems(
           submenu: FORMATS[doc.kind].map((f) => ({
             label: f.label,
             onClick: async () => {
+              let data
               try {
-                const { data } = await api.get(`/documents/${doc.id}/`)
-                await exportDocument(data, f.ext)
+                ;({ data } = await api.get(`/documents/${doc.id}/`))
               } catch (err) {
                 onError?.(extractError(err))
+                return
               }
+              exportDocument(data, f.ext)
             },
           })),
         }]

@@ -11,6 +11,8 @@
 //! usuário que não tem o que fazer a respeito.
 
 #[cfg(desktop)]
+mod midia;
+
 use std::net::TcpStream;
 #[cfg(desktop)]
 use std::time::{Duration, Instant};
@@ -166,6 +168,40 @@ async fn salvar_arquivo(app: AppHandle, request: tauri::ipc::Request<'_>) -> Res
     Ok(Some(caminho.display().to_string()))
 }
 
+/// Abre o explorador de arquivos com o arquivo recém-exportado selecionado:
+/// o aviso "Salvo em..." vira um atalho para onde ele foi parar.
+///
+/// Só caminho de ARQUIVO que existe: a SPA não abre pasta nem programa
+/// qualquer por aqui.
+#[cfg(desktop)]
+#[tauri::command]
+fn mostrar_na_pasta(caminho: String) -> Result<(), String> {
+    let arquivo = std::path::Path::new(&caminho);
+    if !arquivo.is_file() {
+        return Err("arquivo não encontrado".into());
+    }
+    #[cfg(windows)]
+    let resultado = {
+        use std::os::windows::process::CommandExt;
+        // `raw_arg`: o explorer quer `/select,"C:\caminho"` numa peça só, e o
+        // escape padrão do Rust envolveria a vírgula junto nas aspas.
+        std::process::Command::new("explorer").raw_arg(format!("/select,\"{}\"", caminho)).spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let resultado = std::process::Command::new("open").arg("-R").arg(arquivo).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let resultado = std::process::Command::new("xdg-open")
+        .arg(arquivo.parent().unwrap_or(arquivo))
+        .spawn();
+    resultado.map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+fn mostrar_na_pasta(_caminho: String) -> Result<(), String> {
+    Err("não disponível no Android".into())
+}
+
 /// No celular o "Salvar como" do sistema não é um diálogo que o Rust abre:
 /// exportar precisa do compartilhamento nativo do Android, que ainda não foi
 /// ligado. A SPA já trata o erro e mostra a mensagem em vez de fingir que
@@ -181,14 +217,23 @@ pub fn run() {
     let construtor = tauri::Builder::default();
 
     // O backend empacotado só existe no desktop.
+    // Precisa ser o PRIMEIRO plugin: a segunda instância encerra aqui, antes
+    // de subir outro backend, e só traz a janela que já está aberta.
     #[cfg(desktop)]
     let construtor = construtor
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(janela) = app.get_webview_window("main") {
+                let _ = janela.unminimize();
+                let _ = janela.show();
+                let _ = janela.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .manage(Backend(std::sync::Mutex::new(None)));
 
     construtor
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![salvar_arquivo])
+        .invoke_handler(tauri::generate_handler![salvar_arquivo, mostrar_na_pasta, midia::midia_atual, midia::midia_comando])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

@@ -2,6 +2,7 @@ import uuid
 import zipfile
 import io
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -11,8 +12,8 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django_filters import rest_framework as filters
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -26,8 +27,9 @@ from core.idioma import texto
 from core.validators import e_uuid
 from core.views import OwnedModelViewSet
 
+from .conversao import NaoConverte, converter, destinos, nome_convertido
 from .export_pdf import pdf_filename, render_pdf
-from .models import Document, Template, titulo_de_arquivo
+from .models import Document, Template, titulo_de_arquivo, titulo_livre
 from .schemas import (
     AGGREGATE_TYPES,
     CANVAS_EDGE_TYPES,
@@ -353,7 +355,7 @@ class DocumentViewSet(OwnedModelViewSet):
 
         saved = Document(
             kind=Document.Kind.FILE,
-            title=filename,
+            title=titulo_livre(request.user, document.folder, Document.Kind.FILE, filename),
             folder=document.folder,
             owner=request.user,
             # Não vira anexo da nota: o usuário pediu um PDF para usar por
@@ -366,6 +368,71 @@ class DocumentViewSet(OwnedModelViewSet):
             DocumentListSerializer(saved, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @extend_schema(
+        request=inline_serializer("ConverterArquivo", {"para": serializers.CharField()}),
+        responses={201: DocumentListSerializer},
+    )
+    @action(detail=True, methods=["post"], parser_classes=[JSONParserSeguro])
+    def convert(self, request, pk=None):
+        """Converte um arquivo importado para outro formato.
+
+        Body: { "para": "pdf" }. O resultado é um arquivo novo na mesma
+        pasta; o original fica como estava. Os pares possíveis estão em
+        `conversoes` no próprio item.
+        """
+        original = self.get_object()
+        nome = original.original_name or original.title
+        corpo = request.data if isinstance(request.data, dict) else {}
+        destino = str(corpo.get("para") or "").lower()
+        if original.kind != Document.Kind.FILE or destino not in destinos(nome):
+            return Response(
+                {"detail": texto(
+                    "Este item não pode ser convertido para esse formato.",
+                    "This item can't be converted to that format.",
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dados = converter(self._bytes_do_arquivo(original), nome, destino)
+        except NaoConverte as erro:
+            return Response({"detail": str(erro)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if len(dados) > settings.MAX_UPLOAD_SIZE:
+            return Response(
+                {"detail": texto(
+                    "O arquivo convertido passaria do limite de tamanho.",
+                    "The converted file would exceed the size limit.",
+                )},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        titulo = titulo_livre(
+            request.user, original.folder, Document.Kind.FILE,
+            titulo_de_arquivo(nome_convertido(original.title, destino)),
+        )
+        convertido = Document(
+            kind=Document.Kind.FILE,
+            title=titulo,
+            folder=original.folder,
+            owner=request.user,
+            file=ContentFile(dados, name=titulo),
+        )
+        convertido.save()
+        return Response(
+            DocumentListSerializer(convertido, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @staticmethod
+    def _bytes_do_arquivo(documento):
+        try:
+            with documento.file.open("rb") as arquivo:
+                return arquivo.read()
+        except OSError as erro:
+            raise NaoConverte(texto(
+                "O arquivo não foi encontrado no disco.",
+                "The file wasn't found on disk.",
+            )) from erro
 
     @action(detail=True, methods=["post"])
     def reset(self, request, pk=None):
@@ -458,35 +525,10 @@ class DocumentViewSet(OwnedModelViewSet):
                     continue
                 try:
                     conteudo_arquivo = zf.read(info.filename)
-                    # Detectar content-type básico pela extensão
-                    ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
-                    content_type_map = {
-                        "pdf": "application/pdf",
-                        "png": "image/png",
-                        "jpg": "image/jpeg",
-                        "jpeg": "image/jpeg",
-                        "gif": "image/gif",
-                        "svg": "image/svg+xml",
-                        "txt": "text/plain",
-                        "md": "text/markdown",
-                        "csv": "text/csv",
-                        "json": "application/json",
-                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    }
-                    # Desambiguar título duplicado (dois arquivos "readme.md"
-                    # em pastas diferentes do zip).
-                    titulo = basename
-                    n = 2
-                    while Document.objects.alive().filter(
-                        owner=request.user, folder=destino,
-                        kind=Document.Kind.FILE, title__iexact=titulo,
-                    ).exists():
-                        nome_base = basename.rsplit(".", 1)[0] if "." in basename else basename
-                        ext = basename.rsplit(".", 1)[1] if "." in basename else ""
-                        titulo = f"{nome_base} ({n}).{ext}" if ext else f"{nome_base} ({n})"
-                        n += 1
+                    # Dois "readme.md" em pastas diferentes do zip.
+                    titulo = titulo_livre(
+                        request.user, destino, Document.Kind.FILE, titulo_de_arquivo(basename)
+                    )
                     documento = Document(
                         kind=Document.Kind.FILE,
                         title=titulo,

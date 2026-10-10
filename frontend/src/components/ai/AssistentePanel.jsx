@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Send, Square, X, Sparkles, Settings, Plus, Eraser, Pin } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useAssistente } from '@/context/AssistenteContext'
 import { useSplit } from '@/context/SplitContext'
 import { useTabs } from '@/context/TabsContext'
-import { chatStream, runIA } from '@/lib/ai'
+import { chatStream, MARCA_EDITAR, runIA } from '@/lib/ai'
 import api from '@/lib/api'
 import { cn, limparMarkdown } from '@/lib/utils'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
@@ -379,28 +379,56 @@ export default function AssistentePanel() {
     setErro(null)
 
     abortRef.current = new AbortController()
-    let acumulado = ''
-    try {
-      await chatStream({
-        messages: historicoIA,
-        documentId: contextoDoc?.id,
-        signal: abortRef.current.signal,
-        onText: (pedaco) => {
-          acumulado += pedaco
-          setMensagens((m) => {
-            const copia = [...m]
-            copia[copia.length - 1] = { role: 'assistant', content: acumulado }
-            return copia
-          })
-        },
+    const escrever = (content) =>
+      setMensagens((m) => {
+        const copia = [...m]
+        copia[copia.length - 1] = { role: 'assistant', content }
+        return copia
       })
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
-      } else {
-        setErro(err.message || t('Falha na chamada de IA.'))
-        setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
+    let acumulado = ''
+    // O modelo responde a marca em vez do conteúdo quando o pedido é para
+    // MUDAR o item (`MARCA_EDITAR` no backend). O texto até ali não vai à
+    // tela: "<<" piscando na bolha antes de virar edição.
+    let editar = false
+    try {
+      try {
+        await chatStream({
+          messages: historicoIA,
+          documentId: contextoDoc?.id,
+          signal: abortRef.current.signal,
+          onText: (pedaco) => {
+            acumulado += pedaco
+            if (contextoDoc?.id && acumulado.includes(MARCA_EDITAR)) {
+              editar = true
+              abortRef.current?.abort()
+            } else if (!MARCA_EDITAR.startsWith(acumulado.trimStart())) {
+              escrever(acumulado)
+            }
+          },
+        })
+      } catch (err) {
+        // O corte do stream ao ver a marca não é o "Parar" da pessoa.
+        if (!(editar && err.name === 'AbortError')) throw err
       }
+      if (!editar) {
+        // Uma resposta inteira menor que a marca ("<<") nunca foi escrita.
+        if (acumulado) escrever(acumulado)
+        else setMensagens((m) => m.slice(0, -1))
+        return
+      }
+      abortRef.current = new AbortController()
+      await runIA({
+        task: 'editar',
+        documentId: contextoDoc.id,
+        input: instrucao,
+        messages: mensagens,
+        signal: abortRef.current.signal,
+      })
+      escrever(t('Pronto, mudei o item. Ctrl+Z no item desfaz.'))
+      window.dispatchEvent(new CustomEvent(`notefy:saved:${contextoDoc.id}`, { detail: { origem: 'chat' } }))
+    } catch (err) {
+      if (err.name !== 'AbortError') setErro(err.message || t('Falha na chamada de IA.'))
+      setMensagens((m) => (m[m.length - 1]?.content ? m : m.slice(0, -1)))
     } finally {
       setGerando(false)
       abortRef.current = null
@@ -474,6 +502,7 @@ export default function AssistentePanel() {
         <button
           onClick={fechar}
           className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
+          aria-label={t('Fechar')}
           title={t('Fechar (Esc)')}
         >
           <X size={16} />
@@ -535,6 +564,7 @@ export default function AssistentePanel() {
         ))}
         <button
           onClick={abrirConversa}
+          aria-label={t('Nova conversa')}
           className="flex shrink-0 items-center border-r border-ink-200 px-2.5 text-ink-400 transition hover:bg-ink-100/70 hover:text-accent-600 dark:border-ink-800 dark:hover:bg-ink-800/50"
           title={t('Nova conversa')}
         >
@@ -556,12 +586,15 @@ export default function AssistentePanel() {
           <p className="text-sm text-ink-500 dark:text-ink-400">
             {t('Configure sua chave de IA nas configurações para falar com o Laviel.')}
           </p>
-          <a
-            href="/settings"
+          {/* Direto na aba do Laviel, e pelo roteador: o `<a href="/settings">`
+              recarregava o app inteiro e caía em Aparência. */}
+          <Link
+            to="/settings/laviel"
+            onClick={fechar}
             className="flex items-center gap-2 rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent-700"
           >
             <Settings size={14} /> {t('Abrir configurações')}
-          </a>
+          </Link>
         </div>
       ) : (
         <>

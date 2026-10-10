@@ -56,16 +56,6 @@ export function cursorNoInicio(editor) {
   return !intervalo.toString().replace(/\u200b/g, '') && !temMidia(intervalo)
 }
 
-/** Nada depois do cursor? */
-export function cursorNoFim(editor) {
-  const sel = selecaoDentro(editor)
-  if (!sel || !sel.isCollapsed) return false
-  const intervalo = document.createRange()
-  intervalo.setStart(sel.anchorNode, sel.anchorOffset)
-  intervalo.setEnd(editor, editor.childNodes.length)
-  return !intervalo.toString().replace(/\u200b/g, '') && !temMidia(intervalo)
-}
-
 /** Retângulo do cursor na tela. Num bloco vazio o navegador devolve zero, e vale o do bloco. */
 export function retanguloDoCursor(editor) {
   const sel = selecaoDentro(editor)
@@ -255,4 +245,88 @@ export function contarNos(html) {
   const modelo = document.createElement('template')
   modelo.innerHTML = html
   return modelo.content.childNodes.length
+}
+
+/** O que segura o cursor dentro de um trecho ainda vazio (ver `estiloNoCursor`). */
+export const MARCADOR = '​'
+
+/**
+ * Fonte ou tamanho com o cursor parado (nada selecionado): valem para o que
+ * for digitado a seguir, como no Word.
+ *
+ * O `execCommand` com a seleção vazia guarda o valor como "estilo de
+ * digitação" e o aplica na próxima letra — e o valor era a sentinela que
+ * `aplicarFonte`/`aplicarTamanho` trocam pelo nome e pelo tamanho de
+ * verdade. Ela entrava literal no texto (`<font face="notefy-sentinela">`,
+ * `<font size="7">`, letra gigante), com a barra ainda dizendo "Padrão" e
+ * 11. Aqui o estilo vira um trecho vazio no cursor, com o cursor dentro: o
+ * que se digita nasce nele, e a barra já o lê antes da primeira letra.
+ */
+export function estiloNoCursor(estilo) {
+  const selecao = window.getSelection()
+  const faixa = selecao.getRangeAt(0)
+  const no = faixa.startContainer
+  const pai = no.nodeType === 3 ? no.parentElement : no
+  // Ainda sem letra nenhuma (só o marcador): muda o mesmo trecho em vez de
+  // aninhar outro — escolher a fonte e depois o tamanho vale para os dois.
+  let alvo = pai?.tagName === 'SPAN' && pai.textContent === MARCADOR ? pai : null
+  if (!alvo) {
+    alvo = document.createElement('span')
+    alvo.textContent = MARCADOR
+    faixa.insertNode(alvo)
+  }
+  Object.assign(alvo.style, estilo)
+  faixa.setStart(alvo.firstChild, 1)
+  faixa.collapse(true)
+  selecao.removeAllRanges()
+  selecao.addRange(faixa)
+}
+
+/**
+ * Tira o marcador do texto em que a pessoa já digitou, mantendo o cursor
+ * no lugar. Sem isto ele ficava: a seta esbarrava num caractere invisível.
+ */
+export function soltarMarcador() {
+  const selecao = window.getSelection()
+  const no = selecao?.anchorNode
+  if (no?.nodeType !== 3 || no.data.length < 2 || !no.data.includes(MARCADOR)) return
+  const antes = no.data.slice(0, selecao.anchorOffset).split(MARCADOR).length - 1
+  const posicao = selecao.anchorOffset - antes
+  no.data = no.data.replaceAll(MARCADOR, '')
+  selecao.collapse(no, posicao)
+}
+
+/** A posição de texto sob um ponto da tela (`caretPositionFromPoint` é o padrão; o WebView2 ainda usa o outro). */
+function cursorNoPonto(x, y) {
+  if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(x, y)
+    return p && { no: p.offsetNode, offset: p.offset }
+  }
+  const faixa = document.caretRangeFromPoint?.(x, y)
+  return faixa && { no: faixa.startContainer, offset: faixa.startOffset }
+}
+
+/**
+ * O ponto de texto mais perto de um ponto da tela, entre os `editores`.
+ *
+ * Para quem começa a arrastar FORA do texto (a margem da folha, a mesa
+ * cinza, o vão embaixo): o trecho é o que está na altura do ponteiro (ou o
+ * mais próximo, acima ou abaixo de todos), e o ponto é trazido para dentro
+ * dele — na margem esquerda vira o começo da linha; na direita, o fim.
+ */
+export function pontoNoTexto(editores, x, y) {
+  let editor = null
+  let menor = Infinity
+  for (const el of editores) {
+    const r = el.getBoundingClientRect()
+    const distancia = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0
+    if (distancia < menor) {
+      menor = distancia
+      editor = el
+    }
+  }
+  if (!editor) return null
+  const r = editor.getBoundingClientRect()
+  const ponto = cursorNoPonto(Math.min(Math.max(x, r.left + 1), r.right - 1), Math.min(Math.max(y, r.top + 1), r.bottom - 1))
+  return ponto && editor.contains(ponto.no) ? { editor, ...ponto } : null
 }

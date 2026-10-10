@@ -15,6 +15,8 @@ import uuid
 
 from django.core.exceptions import ValidationError
 
+from core.idioma import texto
+
 # --------------------------------------------------------------------------
 # Nota — dividida em seções
 #
@@ -218,7 +220,10 @@ def _validate_checklist_section(section, sid):
     _require(isinstance(items, list), f"`items` da seção {sid!r} deve ser uma lista.")
     _require(
         len(items) <= MAX_ITENS_SECAO,
-        f"A seção {sid!r} tem mais de {MAX_ITENS_SECAO} itens.",
+        texto(
+            f"Um checklist passou do limite de {MAX_ITENS_SECAO} itens.",
+            f"A checklist is over the limit of {MAX_ITENS_SECAO} items.",
+        ),
     )
     for posicao, item in enumerate(items):
         _require(
@@ -253,7 +258,10 @@ def _validate_table_section(section, sid):
     _require(isinstance(rows, list), f"`rows` da seção {sid!r} deve ser uma lista.")
     _require(
         len(rows) <= MAX_ITENS_SECAO,
-        f"A seção {sid!r} tem mais de {MAX_ITENS_SECAO} linhas.",
+        texto(
+            f"Uma tabela passou do limite de {MAX_ITENS_SECAO} linhas.",
+            f"A table is over the limit of {MAX_ITENS_SECAO} rows.",
+        ),
     )
     for posicao, row in enumerate(rows):
         _require(
@@ -262,7 +270,10 @@ def _validate_table_section(section, sid):
         )
         _require(
             len(row) <= MAX_COLUNAS_TABELA,
-            f"Linha {posicao} da seção {sid!r} passa de {MAX_COLUNAS_TABELA} colunas.",
+            texto(
+                f"Uma tabela passou do limite de {MAX_COLUNAS_TABELA} colunas.",
+                f"A table is over the limit of {MAX_COLUNAS_TABELA} columns.",
+            ),
         )
         for coluna, celula in enumerate(row):
             _require(
@@ -543,7 +554,11 @@ def extract_text(kind, data, content=""):
             for value in (row.get("cells") or {}).values():
                 if isinstance(value, bool):
                     continue
-                if isinstance(value, (str, int, float)):
+                # 8.0 gravado como float aparecia "8.0" no cartão, e a
+                # planilha mostra "8": número inteiro sai sem o ".0".
+                if isinstance(value, float) and value.is_integer():
+                    parts.append(str(int(value)))
+                elif isinstance(value, (str, int, float)):
                     parts.append(str(value))
                 elif isinstance(value, list):
                     parts.extend(str(v) for v in value if isinstance(v, str))

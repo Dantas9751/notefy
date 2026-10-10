@@ -271,6 +271,25 @@ TAREFAS = {
         "formato": DOCUMENTO,
         "kind": "canvas",
     },
+    # ---------------------------------------------------------------- edição
+    # O pedido livre sobre o item aberto ("muda o título", "deixa mais
+    # formal", "adiciona uma coluna idade"). O modelo recebe o JSON do item
+    # e devolve o JSON inteiro editado, que é validado contra o schema e
+    # gravado sem passar pelos normalizadores de criação — eles descartam
+    # checklist, tabela, cores e traços, e numa edição isso é perder dado.
+    "editar": {
+        "sistema": _com_persona(
+            "Você edita o item aberto do usuário. Recebe o JSON atual do item e o pedido. "
+            "Responda APENAS com o JSON COMPLETO do item já editado, no MESMO formato que "
+            "recebeu, sem cercas de código, sem comentários e sem texto antes ou depois. "
+            "Mude só o que foi pedido: todo o resto (as outras partes, ids, cores, posições, "
+            "tamanhos, campos que você não reconhece) volta exatamente igual. Parte nova "
+            "ganha um id novo e único. Texto de nota é HTML simples (p, h1, h2, h3, ul, ol, "
+            "li, strong, em, u, s, blockquote, a). Nos textos do item, as regras de saída sobre "
+            "markdown continuam valendo."
+        ),
+        "formato": DOCUMENTO,
+    },
     # --------------------------------------------------------------- outros
     "busca.responder": {
         "sistema": _com_persona(
@@ -298,3 +317,17 @@ CRIAR_POR_KIND = {
     "diagram": "criar.diagrama",
     "canvas": "criar.canvas",
 }
+
+#: O que o chat responde, no lugar do conteúdo, quando o pedido é para MUDAR
+#: o item aberto: o painel troca a conversa pela tarefa `editar`. A decisão é
+#: do modelo, e não de uma lista de frases: a lista nunca cobria o jeito
+#: como as pessoas pedem ("deixa mais formal", "tira o terceiro tópico").
+MARCA_EDITAR = "<<EDITAR>>"
+
+INSTRUCAO_DE_EDICAO = (
+    "\n\nHá um item aberto no app. Se a mensagem pede para MUDAR esse item (escrever "
+    "nele, acrescentar, apagar, reorganizar, traduzir, corrigir, resumir no lugar, formatar, "
+    "preencher, mudar cor, tipo ou ordem), NÃO escreva o conteúdo no chat: responda "
+    f"exatamente {MARCA_EDITAR} e nada mais, e o app faz a edição. Perguntas, explicações "
+    "e conversa sobre o item você responde normalmente, sem a marca."
+)

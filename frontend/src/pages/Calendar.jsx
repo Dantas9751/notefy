@@ -26,6 +26,7 @@ import TaskScheduler from '@/components/TaskScheduler'
 import { TASK_PRIORITY, TASK_STATUS, cn } from '@/lib/utils'
 import { localeDatas, t } from '@/lib/i18n'
 import { semMouse } from '@/lib/desktop'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 const weekDays = () => [t('dom'), t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sáb')]
 const MAX_VISIBLE_PER_DAY = 3
@@ -86,10 +87,7 @@ export default function Calendar() {
   // anunciar o que mudou e ouvir o que mudou fora — arrastar para um dia
   // no calendário deixava o Quadro mostrando a tarefa ainda sem data, e
   // concluir no Quadro deixava o evento aqui.
-  useEffect(() => {
-    window.addEventListener('notefy:task-changed', reload)
-    return () => window.removeEventListener('notefy:task-changed', reload)
-  })
+  useListenerDeJanela('notefy:task-changed', reload)
 
   const { menu, openMenu, closeMenu } = useContextMenu()
   const { buildMenu, dialogs } = useTaskActions({

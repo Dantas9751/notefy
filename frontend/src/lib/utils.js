@@ -12,6 +12,17 @@ import {
 } from 'date-fns'
 import { localeDatas, t } from './i18n.js'
 
+/** Id curto para itens dentro do `data` de um documento: `uid('r')` → "r4f9k2qa". */
+export const uid = (prefix = '') => `${prefix}${Math.random().toString(36).slice(2, 9)}`
+
+/** Texto pronto para entrar em HTML montado à mão. */
+export function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
 /** Junta classes condicionais. Substitui clsx para não adicionar dependência. */
 export function cn(...parts) {
   return parts.flat(Infinity).filter(Boolean).join(' ')

@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Download, Lock, Settings2, Star, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Download, FileOutput, Lock, Settings2, Star, Trash2 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import useEmEstudo from '@/hooks/useEmEstudo'
 import { useWorkspace } from '@/context/WorkspaceContext'
-import { useTabState } from '@/context/TabsContext'
+import { useTabState, useTabs } from '@/context/TabsContext'
+import { useSplit } from '@/context/SplitContext'
+import ItemNaLixeira from '@/components/ItemNaLixeira'
 import { Badge, Button, ErrorState, Modal, Spinner } from '@/components/ui'
 import { usePropriedades } from '@/context/PropriedadesContext'
+import { ContextMenu } from '@/components/ui/ContextMenu'
+import { formatosDeConversao } from '@/hooks/useDocumentActions'
 import FilePreview, { baixarArquivoNoClique, ehArquivoDeOffice } from '@/components/FilePreview'
 import { ehArquivoDeTexto } from '@/components/TextFilePreview'
-import { kindMeta } from '@/lib/documents'
+import { documentPath, kindMeta } from '@/lib/documents'
 import { cn, formatBytes, formatDate } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -59,17 +63,23 @@ export default function FileViewer({ id: idProp }) {
   const navigate = useNavigate()
   const { refresh: refreshTree } = useWorkspace()
 
-  const { data: doc, loading, error, refetch, setData } = useFetch(`/documents/${id}/`, {
+  const { data: doc, loading, error, errorStatus, refetch, setData } = useFetch(`/documents/${id}/`, {
     deps: [id],
   })
+  const { closeTab, activeKey } = useTabs()
+  const { fecharPainel } = useSplit()
+  const naLixeira = errorStatus === 404 || errorStatus === 410
   const propriedades = usePropriedades()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  //: Onde abrir os formatos de "Converter para" (embaixo do botão).
+  const [menuConverter, setMenuConverter] = useState(null)
   // Rascunho do nome enquanto se digita. O `doc` só é reescrito quando o
   // PATCH volta, senão cada tecla dispararia uma requisição.
   const [titulo, setTitulo] = useState('')
   const [erroNome, setErroNome] = useState(null)
 
-  useTabState({ title: doc?.title, enabled: !emPainel })
+  // Só o título DESTE arquivo: o `useFetch` segura o anterior enquanto o novo carrega.
+  useTabState({ title: naLixeira ? t('Item na lixeira') : doc?.id === id ? doc.title : undefined, enabled: !emPainel })
 
   // Ler um PDF importado é estudar tanto quanto escrever uma nota.
   useEmEstudo(doc, !emPainel)
@@ -80,6 +90,13 @@ export default function FileViewer({ id: idProp }) {
   useEffect(() => {
     if (doc?.title != null) setTitulo(doc.title)
   }, [doc?.title])
+
+  // O convertido nasce na pasta: a árvore e as listas abertas (pasta ao
+  // lado, Recentes) precisam saber, como no "Converter para" do menu.
+  const arquivoNovo = () => {
+    refreshTree()
+    window.dispatchEvent(new Event('notefy:moved'))
+  }
 
   const patch = async (changes) => {
     const { data } = await api.patch(`/documents/${id}/`, changes)
@@ -111,6 +128,9 @@ export default function FileViewer({ id: idProp }) {
       </div>
     )
   }
+
+  // Excluído de outro lugar: a mesma tela do editor de documentos.
+  if (naLixeira) return <ItemNaLixeira emPainel={emPainel} />
 
   if (error) {
     return (
@@ -174,6 +194,21 @@ export default function FileViewer({ id: idProp }) {
           >
             <Star size={15} className={doc.is_favorite ? 'fill-amber-400 text-amber-400' : ''} />
           </button>
+          {/* O mesmo "Converter para" do botão direito, para quem já abriu o arquivo. */}
+          {doc.conversoes?.length > 0 && (
+            <button
+              onClick={(e) => {
+                const { left, bottom } = e.currentTarget.getBoundingClientRect()
+                setMenuConverter({ x: left, y: bottom + 4 })
+              }}
+              aria-label={t('Converter para')}
+              title={t('Converter para')}
+              aria-haspopup="menu"
+              className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+            >
+              <FileOutput size={15} />
+            </button>
+          )}
           <button
             onClick={() => propriedades?.abrirPropriedades({ tipo: 'documento', id: doc.id }, { onSalvo: refetch })}
             aria-label={t('Propriedades')}
@@ -194,6 +229,14 @@ export default function FileViewer({ id: idProp }) {
           </Button>
         </div>
       </div>
+
+      <ContextMenu
+        open={!!menuConverter}
+        x={menuConverter?.x ?? 0}
+        y={menuConverter?.y ?? 0}
+        onClose={() => setMenuConverter(null)}
+        items={menuConverter ? formatosDeConversao(doc, (novo) => navigate(documentPath(novo)), arquivoNovo) : []}
+      />
 
       <div className="shrink-0 px-4 pt-4">
         {/* Renomear é digitar no título, como em toda nota e planilha.
@@ -217,13 +260,16 @@ export default function FileViewer({ id: idProp }) {
           }}
           aria-label={t('Nome do arquivo')}
           spellCheck={false}
-          className="w-full truncate rounded-md bg-transparent text-xl font-semibold tracking-tight text-ink-900 outline-none transition hover:bg-ink-100/60 focus:bg-ink-100/60 dark:text-ink-50 dark:hover:bg-ink-800/60 dark:focus:bg-ink-800/60"
+          className="w-full truncate rounded-md bg-transparent text-2xl font-semibold tracking-tight text-ink-900 outline-none transition hover:bg-ink-100/60 focus:bg-ink-100/60 dark:text-ink-50 dark:hover:bg-ink-800/60 dark:focus:bg-ink-800/60"
         />
         {erroNome && <p className="mt-0.5 text-[11px] text-red-500">{erroNome}</p>}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {doc.category && <Badge color={doc.category.color}>{doc.category.name}</Badge>}
           <span className="text-[11px] text-ink-400">
-            {doc.mime_type} {t('· enviado em')} {formatDate(doc.created_at)}
+            {/* O formato pela extensão (XLSX, PDF): o tipo MIME cru
+                ("application/vnd.openxmlformats-...") não diz nada a ninguém. */}
+            {/\.([a-z0-9]{1,8})$/i.exec(doc.original_name || doc.title)?.[1].toUpperCase() ?? kindMeta('file').label} {t('· enviado em')}{' '}
+            {formatDate(doc.created_at)}
           </span>
         </div>
       </div>
@@ -257,7 +303,12 @@ export default function FileViewer({ id: idProp }) {
               onClick={async () => {
                 await api.delete(`/documents/${id}/`)
                 refreshTree()
-                navigate('/files', { replace: true })
+                setConfirmDelete(false)
+                // Como no editor de documentos: no painel, fecha o painel; na
+                // aba, fecha a aba e volta para a pasta do arquivo.
+                if (emPainel) return fecharPainel()
+                if (activeKey) closeTab(activeKey)
+                navigate(doc.folder ? `/folders/${doc.folder}` : '/files', { replace: true })
               }}
             >
               {t('Excluir')}

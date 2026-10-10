@@ -1,22 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
 
-/**
- * Menu de botão direito.
- *
- * Renderizado em portal e reposicionado após medir, para nunca vazar da
- * janela quando aberto perto da borda direita ou inferior.
- *
- * Um item com `submenu` (lista no mesmo formato) abre um menu aninhado ao
- * passar o mouse — suporta qualquer profundidade ("Exportar > formatos",
- * "IA > Traduzir para > idioma"). Cada nível é um `Menu` próprio que lembra
- * qual filho está aberto, então submenus dentro de submenus funcionam sem
- * conflito de índice (a versão anterior olhava `items[submenuFor]` sempre
- * no array de topo e quebrava no segundo nível).
- */
 /** Respiro mínimo entre o menu e a borda da janela. */
 const MARGEM = 8
 
@@ -37,7 +24,18 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
   const [pos, setPos] = useState({ x, y })
   const [openChild, setOpenChild] = useState(null)
   const [childAnchor, setChildAnchor] = useState(null)
+  //: Submenus abertos NO LUGAR do menu, em tela estreita (ver `estreita`).
+  const [pilha, setPilha] = useState([])
   const timerRef = useRef(null)
+
+  /**
+   * Sem espaço para dois menus lado a lado (celular), o submenu abria por
+   * cima do menu pai e escondia o próprio item que o abriu. Ali ele
+   * substitui o conteúdo do menu, com uma linha para voltar.
+   */
+  const estreita = () => window.innerWidth < ref.current.getBoundingClientRect().width * 2 + MARGEM * 2
+  const dentro = pilha.at(-1)
+  const visiveis = dentro ? [{ voltar: true, label: dentro.label }, { separator: true }, ...dentro.submenu] : items
 
   useLayoutEffect(() => {
     if (!ref.current) return
@@ -67,7 +65,9 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
     if (py + box.height > limiteY) py = limiteY - box.height
 
     setPos({ x: Math.max(MARGEM, px), y: Math.max(MARGEM, py) })
-  }, [x, y, anchor])
+    // `pilha`: trocar o conteúdo no lugar muda a altura, e o menu precisa
+    // caber de novo.
+  }, [x, y, anchor, pilha])
 
   const cancelarFechamento = useCallback(() => clearTimeout(timerRef.current), [])
 
@@ -95,12 +95,22 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
         style={{ left: pos.x, top: pos.y }}
         className="fixed z-[61] min-w-[190px] animate-fade-in rounded-md border border-ink-200 bg-white p-1 shadow-pop dark:border-ink-700 dark:bg-ink-900"
       >
-        {items.map((item, index) =>
+        {visiveis.map((item, index) =>
           item.separator ? (
             <div
               key={`sep-${index}`}
               className="my-1 border-t border-ink-100 dark:border-ink-800"
             />
+          ) : item.voltar ? (
+            <button
+              key="voltar"
+              role="menuitem"
+              onClick={() => setPilha((atual) => atual.slice(0, -1))}
+              className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-sm font-medium text-ink-500 transition hover:bg-ink-100 dark:text-ink-400 dark:hover:bg-ink-800"
+            >
+              <ChevronLeft size={ICONE.md} className="shrink-0" />
+              <span className="flex-1 truncate">{item.label}</span>
+            </button>
           ) : (
             <button
               key={item.label}
@@ -115,6 +125,10 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
                   agendarFechamento()
                   return
                 }
+                // Na tela estreita o submenu abre no clique. O toque dispara
+                // `mouseenter` antes do `click`: abrir aqui trocaria os itens
+                // e o clique cairia no formato que ficou embaixo do dedo.
+                if (estreita()) return
                 cancelarFechamento()
                 // Nomes distintos de `item`: uma const com esse nome aqui
                 // sombreia o `item` do map e joga o `item.submenu` acima
@@ -136,7 +150,10 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
                 })
               }}
               onClick={() => {
-                if (item.submenu) return
+                if (item.submenu) {
+                  if (estreita()) setPilha((atual) => [...atual, item])
+                  return
+                }
                 onClose()
                 item.onClick?.()
               }}
@@ -187,7 +204,19 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
   )
 }
 
-/** Estado e handler de `onContextMenu` para quem usa o menu. */
+/**
+ * Menu de botão direito.
+ *
+ * Renderizado em portal e reposicionado após medir, para nunca vazar da
+ * janela quando aberto perto da borda direita ou inferior.
+ *
+ * Um item com `submenu` (lista no mesmo formato) abre um menu aninhado ao
+ * passar o mouse — suporta qualquer profundidade ("Exportar > formatos",
+ * "IA > Traduzir para > idioma"). Cada nível é um `Menu` próprio que lembra
+ * qual filho está aberto, então submenus dentro de submenus funcionam sem
+ * conflito de índice (a versão anterior olhava `items[submenuFor]` sempre
+ * no array de topo e quebrava no segundo nível).
+ */
 export function ContextMenu({ open, x, y, onClose, items }) {
   useEffect(() => {
     if (!open) return undefined

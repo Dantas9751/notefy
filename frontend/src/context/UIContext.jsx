@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { ACCENT_PADRAO, ACCENT_PADRAO_ANTIGO, aplicarAccent, corValida } from '@/lib/accent'
 import { idioma } from '@/lib/i18n'
+import { telaCheia } from '@/lib/desktop'
+import { aplicarTema } from '@/lib/temas'
 import { FONTES_DA_NOTA, FONTES_DO_APP, pilha } from '@/lib/fontes'
 
 const UIContext = createContext(null)
@@ -49,8 +51,11 @@ export function UIProvider({ children }) {
     localStorage.setItem(THEME_KEY, theme)
     const media = window.matchMedia('(prefers-color-scheme: dark)')
 
+    // Tema de cor (Midnight, Dracula...): troca a escala de cinzas e é
+    // sempre escuro. Claro, escuro e sistema limpam a escala.
+    const colorido = aplicarTema(theme)
     const apply = () => {
-      const dark = theme === 'dark' || (theme === 'system' && media.matches)
+      const dark = colorido || theme === 'dark' || (theme === 'system' && media.matches)
       document.documentElement.classList.toggle('dark', dark)
     }
     apply()
@@ -70,7 +75,17 @@ export function UIProvider({ children }) {
   useEffect(() => {
     localStorage.setItem(ZEN_KEY, String(zen))
     document.documentElement.classList.toggle('zen', zen)
+    telaCheia(zen).catch(() => {})
   }, [zen])
+
+  // Sair da tela cheia pelo navegador (Esc, F11) sai do zen junto: zen sem
+  // tela cheia era o app com a moldura do navegador de volta e o cabeçalho
+  // ainda escondido.
+  useEffect(() => {
+    const aoMudar = () => !document.fullscreenElement && setZen(false)
+    document.addEventListener('fullscreenchange', aoMudar)
+    return () => document.removeEventListener('fullscreenchange', aoMudar)
+  }, [])
 
   // `-u-hc-h23` obriga o relógio de 24 horas nos campos nativos de data
   // e hora. Sem a extensão, o navegador segue o formato do SISTEMA

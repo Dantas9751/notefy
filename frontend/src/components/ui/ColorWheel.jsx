@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Pipette } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -27,7 +28,21 @@ export default function ColorWheel({
   title = t('Escolher outra cor'),
   //: Quadrado, para ficar na grade de quadradinhos da barra da nota.
   quadrado = false,
+  //: Quando a pessoa FECHA o seletor com uma cor (o `change` nativo). O
+  //: `onChange` dispara a cada movimento dentro dele: quem aplica a cor em
+  //: algo que não se desfaz de graça (o trecho selecionado de uma nota)
+  //: aplica aqui, e usa o `onChange` só para pré-visualizar.
+  onConfirmar,
 }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !onConfirmar) return undefined
+    const confirmar = () => onConfirmar(el.value)
+    el.addEventListener('change', confirmar)
+    return () => el.removeEventListener('change', confirmar)
+  }, [onConfirmar])
+
   return (
     <label
       title={title}
@@ -40,6 +55,7 @@ export default function ColorWheel({
       style={{ background: selected && value ? value : WHEEL }}
     >
       <input
+        ref={ref}
         type="color"
         // Sem valor ainda: o seletor do sistema precisa de um ponto de
         // partida válido, senão abre em preto.

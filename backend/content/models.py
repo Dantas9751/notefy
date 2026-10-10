@@ -14,6 +14,7 @@ a coesão que se ganha na API e na interface é o objetivo do produto.
 
 import hashlib
 import mimetypes
+import os
 import re
 import uuid
 
@@ -80,6 +81,32 @@ def titulo_de_arquivo(nome):
     if not ponto or len(extensao) > 12:
         return nome[:TITULO_MAX]
     return f"{base[: TITULO_MAX - len(extensao) - 1]}.{extensao}"
+
+
+def titulo_livre(dono, pasta, kind, desejado):
+    """Título ainda livre nesta pasta: "Resumo (2)", "foto (2).png"...
+
+    Gerar, extrair ou converter duas vezes a partir do mesmo item é
+    normal, e o título é único por pasta e tipo sem diferenciar
+    maiúsculas (ver `Document.clean`). Em arquivo o número entra antes da
+    extensão, que é o que diz o tipo.
+    """
+    base, extensao = (
+        os.path.splitext(desejado) if kind == Document.Kind.FILE else (desejado, "")
+    )
+    # Todo candidato começa com `base`: filtrar por ele evita trazer a pasta
+    # inteira a cada chamada (a extração de um .zip chama uma por arquivo).
+    ocupados = {
+        titulo.lower()
+        for titulo in Document.objects.alive()
+        .filter(owner=dono, folder=pasta, kind=kind, attached_to__isnull=True, title__istartswith=base)
+        .values_list("title", flat=True)
+    }
+    titulo, n = desejado, 1
+    while titulo.lower() in ocupados:
+        n += 1
+        titulo = f"{base} ({n}){extensao}"
+    return titulo
 
 
 def document_upload_path(instance, filename):

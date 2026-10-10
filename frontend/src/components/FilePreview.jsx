@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Download, FileWarning, Moon, Sun } from 'lucide-react'
 import { buscarArquivo } from '@/lib/fileMedia'
-import { salvarArquivo } from '@/lib/desktop'
+import { baixar } from '@/lib/desktop'
 import { Button, Spinner } from '@/components/ui'
-import TextFilePreview, { ehArquivoDeTexto } from '@/components/TextFilePreview'
-import { limparHtml, limparNoLugar } from '@/lib/sanitizar'
+import TextFilePreview, { ehArquivoDeTexto, extensaoDe } from '@/components/TextFilePreview'
+import { limparNoLugar } from '@/lib/sanitizar'
 import { cn, formatBytes } from '@/lib/utils'
+import { columnLetter } from '@/lib/formula'
 import { t } from '@/lib/i18n'
 
 /**
@@ -24,45 +25,27 @@ import { t } from '@/lib/i18n'
 /** Acima disto o Office não pré-visualiza — o parse trava a interface. */
 const TETO_OFFICE = 25 * 1024 * 1024
 
-const extensaoDe = (nome) => (nome || '').split('.').pop()?.toLowerCase() ?? ''
+/** Formatos Office com preview. */
+const EXTENSOES_DE_OFFICE = ['docx', 'xlsx', 'xlsm', 'pptx']
 
 /**
- * Formatos Office com preview.
- *
- * `.xls` e `.xlsm` entram junto do `.xlsx`: quem lê os três é a mesma
- * biblioteca, e sem eles uma planilha salva no formato antigo do Excel
- * caía no "este formato não tem pré-visualização" sem motivo.
+ * Planilhas, lidas pelo `lerXlsx` (um zip de XMLs). O `.xls` antigo é
+ * binário e fica sem prévia: lê-lo pedia a `xlsx` do npm, que tem falha
+ * de segurança sem correção justamente ao abrir arquivo de terceiros.
  */
-const EXTENSOES_DE_OFFICE = ['docx', 'xlsx', 'xls', 'xlsm', 'pptx']
-
-/** Os que a mesma leitura de planilha resolve. */
-const EXTENSOES_DE_PLANILHA = ['xlsx', 'xls', 'xlsm']
+const EXTENSOES_DE_PLANILHA = ['xlsx', 'xlsm']
 
 export function ehArquivoDeOffice(doc) {
   return EXTENSOES_DE_OFFICE.includes(extensaoDe(doc.original_name || doc.title))
 }
 
 /**
- * Baixa o arquivo pela sessão do app e dispara o download do navegador.
- * O `href` direto do `file_url` sofre do mesmo problema do preview, então
- * o download também passa pelo blob.
- */
-export async function baixarArquivo(doc) {
-  const { data } = await buscarArquivo(doc.file_url, 'blob')
-  return salvarArquivo(data, doc.original_name || doc.title)
-}
-
-/**
- * Versão para `onClick`, que não tem como esperar uma promessa.
- *
- * Sem este catch a falha vira rejeição não tratada: o botão não faz nada
- * e nada explica por quê — foi assim que o download quebrado passou
- * despercebido.
+ * Baixa o arquivo pela sessão do app, com o aviso de andamento e de onde
+ * foi salvo. O `href` direto do `file_url` sofre do mesmo problema do
+ * preview, então o download também passa pelo blob. Não lança.
  */
 export function baixarArquivoNoClique(doc) {
-  baixarArquivo(doc).catch((erro) => {
-    console.error('Notefy: falha ao baixar o arquivo', erro)
-  })
+  return baixar(doc.original_name || doc.title, async () => (await buscarArquivo(doc.file_url, 'blob')).data)
 }
 
 /** Estado comum do blob: baixa, devolve a URL e revoga ao trocar/desmontar. */
@@ -188,20 +171,6 @@ function OfficePreview({ doc }) {
             experimental: true,
           })
           limparNoLugar(el)
-        } else if (EXTENSOES_DE_PLANILHA.includes(extensao)) {
-          const XLSX = await import('xlsx')
-          const livro = XLSX.read(data, { type: 'array' })
-          // A primeira planilha, como tabela — o sheet_to_html pinta as
-          // células com estilos inline, então o tema não interfere.
-          const primeira = XLSX.utils.sheet_to_html(
-            livro.Sheets[livro.SheetNames[0]],
-            { header: '', footer: '' },
-          )
-          // O SheetJS já converte célula em texto (um HTML disfarçado de
-          // .xls não passou script nem `javascript:` no teste), mas a
-          // saída vai para `innerHTML`: a limpeza é a garantia de que uma
-          // versão futura da biblioteca não mude isso em silêncio.
-          el.innerHTML = limparHtml(primeira)
         } else {
           const { init } = await import('pptx-preview')
           const caixa = el.getBoundingClientRect()
@@ -277,11 +246,101 @@ function OfficePreview({ doc }) {
 }
 
 /**
+ * A primeira aba de um .xlsx como a grade do Notefy: letras em cima,
+ * números ao lado, número à direita. Desenhada pelo React (e não por
+ * `innerHTML`), na cor do tema: não há cor embutida do arquivo para
+ * brigar com o fundo escuro.
+ */
+function PlanilhaPreview({ doc }) {
+  const [estado, setEstado] = useState({ carregando: true })
+
+  useEffect(() => {
+    if (doc.size > TETO_OFFICE) {
+      setEstado({ grande: true })
+      return undefined
+    }
+    let ativo = true
+    setEstado({ carregando: true })
+    buscarArquivo(doc.file_url, 'arraybuffer')
+      .then(async ({ data }) => (await import('@/lib/lerXlsx')).lerXlsx(data))
+      .then((planilha) => ativo && setEstado({ planilha }))
+      .catch(() => ativo && setEstado({ erro: true }))
+    return () => {
+      ativo = false
+    }
+  }, [doc.file_url, doc.size])
+
+  if (estado.grande) {
+    return (
+      <p className="text-sm text-ink-500 dark:text-ink-400">
+        {t('Arquivo de')} {formatBytes(doc.size)}{t(', grande demais para pré-visualizar. Baixe para abrir no seu editor.')}
+      </p>
+    )
+  }
+  if (estado.erro) return <FalhaAoCarregar doc={doc} />
+  if (estado.carregando) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Spinner size={20} />
+      </div>
+    )
+  }
+
+  const { linhas, truncado } = estado.planilha
+  if (!linhas.length) return <p className="text-sm text-ink-500 dark:text-ink-400">{t('A planilha está vazia.')}</p>
+  const largura = linhas[0].length
+  const borda = 'border-b border-r border-ink-200 dark:border-ink-700'
+
+  return (
+    <div className="flex h-full w-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 select-text overflow-auto rounded-lg border border-ink-200 dark:border-ink-800">
+        <table className="border-collapse text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th className={cn('sticky left-0 z-20 w-11 bg-ink-50 px-1 py-1.5 text-[11px] font-medium text-ink-400 dark:bg-ink-900', borda)} />
+              {Array.from({ length: largura }, (_, c) => (
+                <th key={c} className={cn('min-w-[80px] bg-ink-50 px-2 py-1.5 text-center font-mono text-[10px] font-normal text-ink-400 dark:bg-ink-900', borda)}>
+                  {columnLetter(c)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((linha, l) => (
+              <tr key={l}>
+                <td className={cn('sticky left-0 bg-white px-1 text-center text-[11px] tabular-nums text-ink-400 dark:bg-ink-950', borda)}>{l + 1}</td>
+                {linha.map((celula, c) => (
+                  <td
+                    key={c}
+                    title={celula?.texto}
+                    className={cn(
+                      'h-8 max-w-[320px] truncate bg-white px-2 text-ink-800 dark:bg-ink-950 dark:text-ink-100',
+                      borda,
+                      celula?.numero && 'text-right tabular-nums',
+                    )}
+                  >
+                    {celula?.texto}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {truncado && (
+        <p className="mt-2 text-xs text-ink-400">{t('Mostrando só o começo da planilha. Baixe para ver tudo.')}</p>
+      )}
+    </div>
+  )
+}
+
+/**
  * Escolhe o preview certo para o documento. Devolve `null` quando o
  * formato não tem preview — o chamador mostra o convite de download.
  */
 export default function FilePreview({ doc }) {
   if (ehArquivoDeTexto(doc)) return <TextFilePreview doc={doc} />
+  if (EXTENSOES_DE_PLANILHA.includes(extensaoDe(doc.original_name || doc.title))) return <PlanilhaPreview doc={doc} />
   if (ehArquivoDeOffice(doc)) return <OfficePreview doc={doc} />
   if (['image', 'pdf', 'audio', 'video'].includes(doc.file_kind)) {
     return <MediaPreview doc={doc} />

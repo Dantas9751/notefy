@@ -232,6 +232,13 @@ class SpreadsheetSchemaTests(SimpleTestCase):
         self.assertIn("urgente", text)
         self.assertIn("revisar", text)
 
+    def test_whole_numbers_read_like_the_sheet_shows_them(self):
+        text = extract_text("spreadsheet", {
+            "columns": [{"id": "c1", "name": "Nota", "type": "number"}],
+            "rows": [{"id": "r1", "cells": {"c1": 8.0}}, {"id": "r2", "cells": {"c1": 7.5}}],
+        })
+        self.assertEqual(text, "Nota 8 7.5")
+
     def test_starter_payload_has_columns_and_a_summary(self):
         data = empty_data_for("spreadsheet")
         self.assertTrue(data["columns"])

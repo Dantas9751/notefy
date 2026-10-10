@@ -1,20 +1,10 @@
 import { useState } from 'react'
 import { CalendarClock, CalendarX2 } from 'lucide-react'
 import api from '@/lib/api'
-import { Button, Field, Input, Modal, Select } from '@/components/ui'
-import { DATA_MAX, DATA_MIN, erroDoPeriodo } from '@/lib/datas'
+import { Button, ErrorState, Field, Input, Modal, Select } from '@/components/ui'
+import { DATA_MAX, DATA_MIN, erroDoPeriodo, toLocalInput } from '@/lib/datas'
 import { useFetch } from '@/hooks/useFetch'
 import { t } from '@/lib/i18n'
-
-/** ISO -> valor aceito por <input type="datetime-local"> (sem timezone). */
-export function toLocalInput(iso) {
-  if (!iso) return ''
-  const date = new Date(iso)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`
-}
 
 
 
@@ -119,11 +109,7 @@ export default function TaskScheduler({ open, task, onClose, onSaved, defaultDat
       }
     >
       <div className="space-y-3">
-        {error && (
-          <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        {error && <ErrorState message={error} />}
 
         <Field label={t('Início')}>
           <Input

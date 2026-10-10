@@ -40,19 +40,21 @@ export default {
       colors: {
         // Cinzas levemente quentes — o cinza puro do Tailwind fica frio
         // demais numa tela de leitura predominantemente branca.
+        // Em variáveis CSS (index.css) para os temas de cor trocarem a
+        // escala inteira (lib/temas.js). Os valores de fábrica continuam lá.
         ink: {
-          50: '#faf9f8',
-          100: '#f4f2f0',
-          150: '#efedea',
-          200: '#e9e6e2',
-          300: '#d7d2cc',
-          400: '#a8a29b',
-          500: '#7c766e',
-          600: '#5c574f',
-          700: '#403c36',
-          800: '#2a2724',
-          900: '#1a1816',
-          950: '#0f0e0d',
+          50: 'rgb(var(--ink-50) / <alpha-value>)',
+          100: 'rgb(var(--ink-100) / <alpha-value>)',
+          150: 'rgb(var(--ink-150) / <alpha-value>)',
+          200: 'rgb(var(--ink-200) / <alpha-value>)',
+          300: 'rgb(var(--ink-300) / <alpha-value>)',
+          400: 'rgb(var(--ink-400) / <alpha-value>)',
+          500: 'rgb(var(--ink-500) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          950: 'rgb(var(--ink-950) / <alpha-value>)',
         },
         // A escala vem de variáveis CSS para que a "cor de destaque" das
         // Configurações troque a paleta inteira em tempo real. Os valores

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   FileText,
   FolderOpen,
@@ -8,14 +8,16 @@ import {
   Trash2,
   CheckSquare,
   Clock,
-  X,
 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { BarraDeSelecao, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { emLote } from '@/lib/lote'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { kindMeta } from '@/lib/documents'
 import { cn, formatRelative } from '@/lib/utils'
@@ -48,7 +50,6 @@ const ROTULOS = {
 export default function Trash() {
   const { data, loading, error, refetch } = useFetch('/trash/')
   const { refresh } = useWorkspace()
-  const [acaoErro, setAcaoErro] = useState(null)
   const [confirmarEsvaziar, setConfirmarEsvaziar] = useState(false)
   const [confirmarItem, setConfirmarItem] = useState(null)
   const [confirmarLote, setConfirmarLote] = useState(false)
@@ -65,49 +66,35 @@ export default function Trash() {
   const { selected, isSelected, clear, selectOnly, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
 
+  // Restaurar devolve o item para a pasta e para a busca; esvaziar tira de
+  // vez. Nos dois casos as outras telas estão desatualizadas, e o evento é o
+  // que as faz recarregar — esta inclusive, pelo listener logo abaixo.
   const atualizar = () => {
     clear()
-    refetch()
     refresh()
-    // Restaurar devolve o item para a pasta e para a busca; esvaziar tira
-    // de vez. Nos dois casos as outras telas estão desatualizadas, e o
-    // evento é o que as faz recarregar quando reaparecem.
     window.dispatchEvent(new Event('notefy:moved'))
   }
 
   // Excluir em outra tela enche a lixeira; sem ouvir o evento ela só
   // descobriria isso quando o usuário recarregasse a página.
-  useEffect(() => {
-    const onMoved = () => refetch()
-    window.addEventListener('notefy:moved', onMoved)
-    return () => window.removeEventListener('notefy:moved', onMoved)
-  }, [refetch])
+  useListenerDeJanela('notefy:moved', refetch)
 
-  /** Aplica a mesma operação a cada chave selecionada. */
-  const emLote = async (operacao) => {
-    setAcaoErro(null)
-    try {
-      for (const chave of selected) {
-        const { type, id } = parseKey(chave)
-        await operacao(type, id)
-      }
-      atualizar()
-    } catch (err) {
-      setAcaoErro(extractError(err))
-      // Recarrega mesmo em erro: parte do lote pode ter passado, e uma
-      // lista desatualizada faria a pessoa tentar restaurar o que já saiu.
-      refetch()
-      refresh()
-    }
+  /** Restaura ou apaga de vez a seleção inteira; `mensagem` monta o aviso do que ficou. */
+  const naSelecao = async (operacao, mensagem) => {
+    const recusa = await emLote(selected, (chave) => {
+      const { type, id } = parseKey(chave)
+      return operacao(type, id)
+    })
+    atualizar()
+    if (recusa) avisarErro(mensagem(recusa))
   }
 
   const restaurar = async (item) => {
-    setAcaoErro(null)
     try {
       await api.post(`/trash/${item.type}/${item.id}/`)
       atualizar()
     } catch (err) {
-      setAcaoErro(extractError(err))
+      avisarErro(extractError(err))
     }
   }
 
@@ -134,8 +121,6 @@ export default function Trash() {
       />
 
       <PageBody className="pb-24">
-        {acaoErro && <ErrorState message={acaoErro} />}
-
         {/* O prazo vem do servidor (`retention_days`) em vez de estar
             escrito aqui: é o mesmo número que o comando `cleanup_trash`
             aplica, então a tela não promete um prazo que a faxina não
@@ -238,37 +223,21 @@ export default function Trash() {
       {/* Mesma barra flutuante das outras telas — restaurar em lote é o
           motivo de existir seleção aqui: quem esvaziou uma pasta por engano
           quer o conteúdo todo de volta, não item por item. */}
-      {selected.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800">
-          <span className="text-xs font-medium">{selected.length} {t('selecionado(s)')}</span>
-
-          <div className="h-4 w-px bg-ink-700" />
-
-          <button
-            onClick={() => emLote((tipo, id) => api.post(`/trash/${tipo}/${id}/`))}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-ink-200 transition hover:bg-white/10"
-          >
-            <RotateCcw size={14} />
-            {t('Restaurar')}
-          </button>
-
-          <button
-            onClick={() => setConfirmarLote(true)}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
-          >
-            <Trash2 size={14} />
-            {t('Excluir')}
-          </button>
-
-          <button
-            onClick={clear}
-            className="rounded p-1 text-ink-400 transition hover:text-white"
-            title={t('Limpar seleção')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <BarraDeSelecao total={selected.length} onExcluir={() => setConfirmarLote(true)} onLimpar={clear}>
+        <button
+          type="button"
+          onClick={() =>
+            naSelecao(
+              (tipo, id) => api.post(`/trash/${tipo}/${id}/`),
+              (recusa) => t('{falhas} de {total} não foram restaurados. {motivo}', recusa),
+            )
+          }
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-ink-200 transition hover:bg-white/10"
+        >
+          <RotateCcw size={14} />
+          {t('Restaurar')}
+        </button>
+      </BarraDeSelecao>
 
       <ConfirmDialog
         open={confirmarEsvaziar}
@@ -287,12 +256,15 @@ export default function Trash() {
         title={t('Excluir definitivamente')}
         message={
           <>
-            <strong>{selected.length} {t('item(ns)')}</strong> {t('serão apagados para sempre, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
+            <strong>{t('{length} item(ns)', { length: selected.length })}</strong> {t('serão apagados para sempre, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
           </>
         }
         onClose={() => setConfirmarLote(false)}
         onConfirm={async () => {
-          await emLote((tipo, id) => api.delete(`/trash/${tipo}/${id}/`))
+          await naSelecao(
+            (tipo, id) => api.delete(`/trash/${tipo}/${id}/`),
+            (recusa) => t('{falhas} de {total} não foram excluídos. {motivo}', recusa),
+          )
           setConfirmarLote(false)
         }}
       />

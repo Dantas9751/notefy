@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlarmClock, Bell, Settings, X } from 'lucide-react'
+import { AlarmClock, AlertCircle, Bell, CheckCircle2, Loader2, Settings, X } from 'lucide-react'
 import { useNotificacoes } from '@/context/NotificacoesContext'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
+import { EVENTO_AVISO } from '@/lib/avisoFlutuante'
 import { cn, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -190,33 +192,48 @@ export function CentralDeNotificacoes() {
   )
 }
 
-function AvisoFlutuante({ item, dispensar, abrir }) {
+/**
+ * O cartão do canto, o mesmo para prazo e para resultado de ação.
+ * `duracao` nula fica até ser dispensado (o progresso da IA).
+ */
+function CartaoFlutuante({ chave, dispensar, icone, titulo, texto, onAbrir, duracao = DURACAO_FLUTUANTE_MS, alerta }) {
   const [pausado, setPausado] = useState(false)
 
   // Parado enquanto o mouse está em cima: quem foi ler não perde o aviso
   // no meio da frase.
   useEffect(() => {
-    if (pausado) return undefined
-    const timer = setTimeout(() => dispensar(item.chave), DURACAO_FLUTUANTE_MS)
+    if (pausado || !duracao) return undefined
+    const timer = setTimeout(() => dispensar(chave), duracao)
     return () => clearTimeout(timer)
-  }, [pausado, item.chave, dispensar])
+  }, [pausado, duracao, chave, dispensar])
+
+  const corpo = titulo ? (
+    <>
+      <span className="block truncate text-[13px] font-medium text-ink-800 dark:text-ink-100">{titulo}</span>
+      <span className="mt-0.5 block text-xs text-ink-500 dark:text-ink-400">{texto}</span>
+    </>
+  ) : (
+    <span className="block text-[13px] text-ink-700 dark:text-ink-200">{texto}</span>
+  )
 
   return (
     <div
+      role={alerta ? 'alert' : undefined}
       onMouseEnter={() => setPausado(true)}
       onMouseLeave={() => setPausado(false)}
       className="pointer-events-auto flex animate-fade-in items-start gap-2.5 rounded-lg border border-ink-200 bg-white p-3 shadow-pop dark:border-ink-700 dark:bg-ink-900"
     >
-      <IconeDaEtapa etapa={item.etapa} />
-      <button type="button" onClick={() => abrir(item)} className="min-w-0 flex-1 text-left">
-        <span className="block truncate text-[13px] font-medium text-ink-800 dark:text-ink-100">
-          {item.titulo}
-        </span>
-        <span className="mt-0.5 block text-xs text-ink-500 dark:text-ink-400">{item.texto}</span>
-      </button>
+      {icone}
+      {onAbrir ? (
+        <button type="button" onClick={onAbrir} className="min-w-0 flex-1 text-left">
+          {corpo}
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1">{corpo}</div>
+      )}
       <button
         type="button"
-        onClick={() => dispensar(item.chave)}
+        onClick={() => dispensar(chave)}
         aria-label={t('Dispensar aviso')}
         className="shrink-0 rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
       >
@@ -226,30 +243,82 @@ function AvisoFlutuante({ item, dispensar, abrir }) {
   )
 }
 
+const ICONE_DO_AVISO = {
+  erro: <AlertCircle size={15} className="mt-0.5 shrink-0 text-red-500" />,
+  sucesso: <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-500" />,
+  progresso: <Loader2 size={15} className="mt-0.5 shrink-0 animate-spin text-ink-400" />,
+}
+
+/** Os avisos de ação (`lib/avisoFlutuante.js`). O mesmo id troca no lugar: o "Resumindo..." vira o erro. */
+function useAvisosDeAcao() {
+  const [avisos, setAvisos] = useState([])
+  const dispensar = useCallback((id) => setAvisos((lista) => lista.filter((aviso) => aviso.id !== id)), [])
+
+  useListenerDeJanela(EVENTO_AVISO, ({ detail }) => {
+    if (detail.fechar) dispensar(detail.fechar)
+    else setAvisos((lista) => [...lista.filter((aviso) => aviso.id !== detail.id), detail].slice(-3))
+  })
+
+  return { avisos, dispensar }
+}
+
 /**
- * O aviso que aparece na hora, logo abaixo do sino.
+ * Os avisos que aparecem na hora: a chegada de um prazo (que continua
+ * guardado no sino) e o resultado de uma ação.
  *
- * Some sozinho em alguns segundos e continua guardado no sino: aqui é só
- * a chegada. `aria-live` para o leitor de tela anunciar sem roubar o foco
- * de quem está escrevendo.
+ * No canto de baixo: no de cima, logo abaixo do sino, o cartão cobria os
+ * botões do cabeçalho da página (Criar, Importar) enquanto estava na tela.
+ * No celular fica acima da barra de seleção, que mora no rodapé.
+ *
+ * `aria-live` para o leitor de tela anunciar sem roubar o foco de quem
+ * está escrevendo; o erro de uma ação é `alert`.
  */
 export function AvisosFlutuantes() {
   const { flutuantes, dispensarFlutuante, abrirTarefa } = useNotificacoes()
+  const { avisos, dispensar } = useAvisosDeAcao()
 
   return (
     <div
       role="status"
       aria-live="polite"
-      // `top-24` no celular: o cabeçalho (56px) mais a barra de abas.
-      // No desktop só a barra de abas fica acima.
-      className="pointer-events-none fixed right-3 top-24 z-[55] flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2 lg:top-10"
+      className="app-avisos pointer-events-none fixed bottom-20 right-3 z-[55] flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2 lg:bottom-6"
     >
+      {avisos.map((aviso) => {
+        const erro = aviso.tipo === 'erro'
+        return (
+          <CartaoFlutuante
+            key={aviso.id}
+            chave={aviso.id}
+            dispensar={dispensar}
+            alerta={erro}
+            texto={aviso.texto}
+            // Erro: o tempo do prazo, ou mais, para um texto longo.
+            // Progresso fica até virar outro aviso.
+            duracao={
+              erro
+                ? Math.max(DURACAO_FLUTUANTE_MS, aviso.texto.length * 60)
+                : aviso.tipo === 'sucesso' ? DURACAO_FLUTUANTE_MS : null
+            }
+            icone={ICONE_DO_AVISO[aviso.tipo]}
+            onAbrir={
+              aviso.aoAbrir &&
+              (() => {
+                aviso.aoAbrir()
+                dispensar(aviso.id)
+              })
+            }
+          />
+        )
+      })}
       {flutuantes.map((item) => (
-        <AvisoFlutuante
+        <CartaoFlutuante
           key={item.chave}
-          item={item}
+          chave={item.chave}
           dispensar={dispensarFlutuante}
-          abrir={abrirTarefa}
+          icone={<IconeDaEtapa etapa={item.etapa} />}
+          titulo={item.titulo}
+          texto={item.texto}
+          onAbrir={() => abrirTarefa(item)}
         />
       ))}
     </div>

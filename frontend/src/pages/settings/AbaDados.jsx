@@ -4,7 +4,7 @@ import api, { extractError } from '@/lib/api'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Button, ErrorState } from '@/components/ui'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
-import { salvarArquivo } from '@/lib/desktop'
+import { baixar } from '@/lib/desktop'
 import { Bloco, Chave } from './componentes'
 import { t } from '@/lib/i18n'
 
@@ -20,19 +20,13 @@ export default function AbaDados() {
   const arquivoRef = useRef(null)
 
   const exportar = async () => {
-    setErro(null)
     setExportando(true)
-    try {
+    await baixar('notefy-backup.zip', async () => {
       const resposta = await api.get('/me/backup/', { responseType: 'blob' })
-      const nome =
-        /filename="([^"]+)"/.exec(resposta.headers['content-disposition'] ?? '')?.[1] ??
-        'notefy-backup.zip'
-      await salvarArquivo(resposta.data, nome)
-    } catch (err) {
-      setErro(extractError(err))
-    } finally {
-      setExportando(false)
-    }
+      const nome = /filename="([^"]+)"/.exec(resposta.headers['content-disposition'] ?? '')?.[1]
+      return { blob: resposta.data, nome: nome ?? 'notefy-backup.zip' }
+    })
+    setExportando(false)
   }
 
   const enviar = async (file) => {
@@ -70,8 +64,7 @@ export default function AbaDados() {
         {resumo && (
           <p className="flex items-start gap-1.5 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
             <Check size={13} className="mt-0.5 shrink-0" />
-            {t('Importação concluída:')} {resumo.categorias} {t('categorias,')} {resumo.pastas} {t('pastas,')}{' '}
-            {resumo.documentos} {t('itens e')} {resumo.tarefas} {t('tarefas.')}
+            {t('Importação concluída: {categorias} categorias, {pastas} pastas, {documentos} itens e {tarefas} tarefas.', resumo)}
           </p>
         )}
 

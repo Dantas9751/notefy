@@ -1,18 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 /**
- * Seleção múltipla de lista: clique, Ctrl+clique e Shift+clique.
- *
- * Extraído de `FolderDetail`, onde o padrão nasceu e funcionava — as outras
- * telas tinham metade dele (guardavam a âncora do Shift e nunca a liam).
- *
- * As chaves são `"tipo:id"`: o id sozinho colide entre pasta e documento, e
- * a lixeira mistura cinco tipos na mesma lista.
- *
- * `keys` precisa chegar NA ORDEM EM QUE A TELA DESENHA os itens — é a ordem
- * do array que define o que está "entre" a âncora e o alvo do Shift.
- */
-/**
  * Apaga a seleção de TEXTO que o navegador faz sozinho.
  *
  * Shift+clique estende a seleção de texto da página, e o `::selection` do
@@ -40,6 +28,18 @@ function limparSelecaoDeTexto() {
   }
 }
 
+/**
+ * Seleção múltipla de lista: clique, Ctrl+clique e Shift+clique.
+ *
+ * Extraído de `FolderDetail`, onde o padrão nasceu e funcionava — as outras
+ * telas tinham metade dele (guardavam a âncora do Shift e nunca a liam).
+ *
+ * As chaves são `"tipo:id"`: o id sozinho colide entre pasta e documento, e
+ * a lixeira mistura cinco tipos na mesma lista.
+ *
+ * `keys` precisa chegar NA ORDEM EM QUE A TELA DESENHA os itens — é a ordem
+ * do array que define o que está "entre" a âncora e o alvo do Shift.
+ */
 export function useMultiSelect(keys) {
   const [selected, setSelected] = useState([])
   const anchor = useRef(null)
@@ -57,6 +57,16 @@ export function useMultiSelect(keys) {
     setSelected([])
     anchor.current = null
   }, [])
+
+  // Item que saiu da lista (excluído pelo menu, em outra aba, escondido por
+  // um filtro) sai da seleção junto: sem isto a barra seguia mostrando
+  // "1 selecionado" de um item que não estava mais lá.
+  useEffect(() => {
+    setSelected((atual) => {
+      const vivos = atual.filter((chave) => keys.includes(chave))
+      return vivos.length === atual.length ? atual : vivos
+    })
+  }, [keys])
 
   // Esc é o jeito universal de desfazer uma seleção. Sem ele a única saída
   // é clicar num item — e clicar num item abre alguma coisa.

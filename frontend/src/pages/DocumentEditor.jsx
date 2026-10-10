@@ -26,6 +26,7 @@ import {
   Spinner,
 } from '@/components/ui'
 import NoteEditor from '@/components/editors/NoteEditor'
+import ItemNaLixeira from '@/components/ItemNaLixeira'
 import SpreadsheetEditor from '@/components/editors/SpreadsheetEditor'
 import GraphEditor from '@/components/editors/GraphEditor'
 import { usePropriedades } from '@/context/PropriedadesContext'
@@ -34,12 +35,12 @@ import ModeloModal from '@/components/modals/ModeloModal'
 import ExportMenu from '@/components/ExportMenu'
 import { baixarArquivoNoClique } from '@/components/FilePreview'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
-import { useAcoesIA, AvisoIA } from '@/components/ai/useAcoesIA'
+import { useAcoesIA } from '@/components/ai/useAcoesIA'
 import { runIA } from '@/lib/ai'
 import { copiarTexto, idDeInstancia } from '@/lib/desktop'
 import { escaparTexto } from '@/lib/sanitizar'
 import { DOCUMENT_STATUS, kindMeta } from '@/lib/documents'
-import { MODELOS_PRONTOS, modeloPronto } from '@/lib/modelos'
+import { MODELOS_PRONTOS, modeloPronto, planilhaEmBranco } from '@/lib/modelos'
 import {
   criar,
   empilhar,
@@ -50,6 +51,7 @@ import {
 } from '@/lib/history'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { avisarErro } from '@/lib/avisoFlutuante'
 
 const AUTOSAVE_MS = 1500
 
@@ -218,15 +220,28 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   // No painel lateral fica desligado: a aba ativa pertence ao documento
   // da esquerda, e deixar os dois escrevendo nela faria o título piscar
   // entre um e outro a cada tecla digitada em qualquer um dos lados.
-  useTabState({ title: doc?.title, dirty, enabled: !emPainel })
+  //
+  // Só o título DESTE documento: trocando de um item para outro, o `doc`
+  // ainda é o anterior até o novo chegar.
+  // Item que foi para a lixeira não tem nome para mostrar: a aba diz onde ele está.
+  const naLixeira = !isCreate && (errorStatus === 404 || errorStatus === 410)
+  const tituloDaAba = naLixeira ? t('Item na lixeira') : doc && (isCreate || doc.id === id) ? doc.title : undefined
+  useTabState({ title: tituloDaAba, dirty, enabled: !emPainel })
 
   // O cronômetro de estudo credita os segundos a quem está aberto.
   useEmEstudo(doc, !emPainel)
+
+  //: O próximo `data` veio de fora (o Laviel, outra janela, Propriedades).
+  const deForaRef = useRef(false)
 
   useEffect(() => {
     if (data) {
       setDoc(data)
       setDirty(false)
+      // Entra na pilha do desfazer: o que o Laviel mudou o Ctrl+Z desfaz,
+      // e o desfazer seguinte não pula de volta para antes dele.
+      if (deForaRef.current && historyRef.current) historyRef.current = empilhar(historyRef.current, data)
+      deForaRef.current = false
     }
   }, [data])
 
@@ -241,6 +256,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       // Ignora o próprio salvamento: a resposta do PATCH já entrou pelo
       // `setData`, e recarregar remontaria este editor no meio do uso.
       if (evento.detail?.origem === instanciaRef.current) return
+      deForaRef.current = true
       refetch()
     }
     window.addEventListener(nome, aoSalvar)
@@ -257,7 +273,9 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       title: '',
       content: '',
       content_format: 'html',
-      data: null,
+      // Planilha nova já nasce com grade: abrir uma planilha de 0×0 deixava
+      // a pessoa sem célula nenhuma onde clicar.
+      data: routeKind === 'spreadsheet' ? planilhaEmBranco() : null,
       status: 'draft',
       folder: folderParaCriar,
       is_favorite: false,
@@ -460,7 +478,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       setData(atualizado)
       window.dispatchEvent(new Event('notefy:moved'))
     } catch (err) {
-      setSaveError(extractError(err))
+      avisarErro(extractError(err))
     }
   }
 
@@ -522,7 +540,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
     [doc, commitHistory],
   )
 
-  const { itemIA, rodando: rodandoIA, erro: erroIA, limparErro, modalIA } = useAcoesIA({
+  const { itemIA, modalIA } = useAcoesIA({
     kind,
     documentId: isCreate ? null : id,
     onTexto: aplicarTexto,
@@ -573,7 +591,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       // Desfaz o otimismo: deixar a estrela acesa sobre um PATCH que
       // falhou é pior do que não tê-la ligado.
       setDoc((atual) => ({ ...atual, is_favorite: !novo }))
-      setSaveError(extractError(err))
+      avisarErro(extractError(err))
     }
   }
 
@@ -620,32 +638,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
     navigate(doc.folder ? `/folders/${doc.folder}` : '/', { replace: true })
   }
 
-  /* O item saiu debaixo da aba.
-     Acontece quando a exclusão veio de outro lugar — da sidebar, de outra
-     janela, de outra aba com o mesmo documento. Vem ANTES do spinner de
-     propósito: sem `doc` e sem `loading`, a checagem antiga (`!doc`)
-     ganhava e a aba girava para sempre. `onRetry` também não serve aqui,
-     porque tentar de novo só traz o mesmo 404. */
-  if (!isCreate && (errorStatus === 404 || errorStatus === 410)) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <Trash2 size={28} className="text-ink-300 dark:text-ink-600" />
-        <p className="text-sm text-ink-600 dark:text-ink-300">
-          {t('Este item foi movido para a lixeira.')}
-        </p>
-        <div className="flex gap-2">
-          {!emPainel && (
-            <Button variant="secondary" onClick={() => navigate('/trash')}>
-              {t('Ver lixeira')}
-            </Button>
-          )}
-          <Button onClick={() => (emPainel ? fecharPainel() : activeKey && closeTab(activeKey))}>
-            {emPainel ? t('Fechar painel') : t('Fechar aba')}
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  // O item saiu debaixo da aba: foi excluído de outro lugar.
+  if (naLixeira) return <ItemNaLixeira emPainel={emPainel} />
 
   if (loading || !doc) {
     return (
@@ -882,7 +876,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
               >
                 <Star size={15} className={cn(doc.is_favorite && 'fill-amber-400 text-amber-400')} />
               </button>
-              <ExportMenu document={doc} disabled={dirty} onError={setSaveError} />
+              <ExportMenu document={doc} disabled={dirty} />
               <button
                 onClick={async () => {
                   // O modelo copia o que está GRAVADO: a edição dos últimos
@@ -950,7 +944,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         </div>
       )}
 
-      {kind !== 'note' && blocoDoTitulo}
+      {kind !== 'note' && kind !== 'spreadsheet' && blocoDoTitulo}
 
       {/* Editor conforme o tipo.
           O botão direito em qualquer ponto do editor traz o item "IA" com
@@ -970,10 +964,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             documentId={doc.id}
             data={doc.data}
             onChange={(next) => patch({ data: next })}
-            // Mesmo canal que o `ExportMenu` já usa: colar uma imagem que
-            // falha no upload não pode terminar em silêncio, com a pessoa
-            // olhando para a nota sem entender por que nada apareceu.
-            onError={setSaveError}
+            // Colar uma imagem que falha no upload não pode terminar em
+            // silêncio, com a pessoa olhando para a nota sem entender por que
+            // nada apareceu: vai para o aviso flutuante, como toda ação.
+            onError={avisarErro}
             cabecalho={blocoDoTitulo}
             rodape={blocoDosAnexos}
             aoComecar={sugestoesDeModelo}
@@ -985,7 +979,37 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         </div>
       )}
 
-      {kind !== 'note' && (
+      {/* A planilha desenha o título e os anexos ela mesma, como a nota: a
+          barra de funções vem no topo, acima do título. */}
+      {kind === 'spreadsheet' && (
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          onContextMenu={(e) => {
+            if (isCreate || somenteLeitura) return
+            abrirMenuIA(e, { items: [itemIA] })
+          }}
+        >
+          {/* Somente leitura: o `fieldset` desliga os campos e botões de
+              dentro, e a rolagem e a seleção continuam. */}
+          <fieldset disabled={somenteLeitura} className="contents">
+            <SpreadsheetEditor
+              data={doc.data}
+              onChange={(next) => patch({ data: next })}
+              onCommit={commitHistory}
+              onUndo={somenteLeitura ? nada : undo}
+              onRedo={somenteLeitura ? nada : redo}
+              somenteLeitura={somenteLeitura}
+              cabecalho={blocoDoTitulo}
+              rodape={blocoDosAnexos}
+              // O botão direito numa célula abre o menu da planilha;
+              // o Laviel continua lá dentro, no fim.
+              itensDoMenu={isCreate || somenteLeitura ? [] : [itemIA]}
+            />
+          </fieldset>
+        </div>
+      )}
+
+      {kind !== 'note' && kind !== 'spreadsheet' && (
       <div
         className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-4"
         onContextMenu={(e) => {
@@ -993,23 +1017,12 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
           abrirMenuIA(e, { items: [itemIA] })
         }}
       >
-
-        {kind === 'spreadsheet' && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-ink-200 dark:border-ink-800">
-            {/* Somente leitura: o `fieldset` desliga os campos e botões de
-                dentro, e a rolagem e a seleção continuam. */}
-            <fieldset disabled={somenteLeitura} className="contents">
-              <SpreadsheetEditor data={doc.data} onChange={(next) => patch({ data: next })} />
-            </fieldset>
-          </div>
-        )}
-
         {(kind === 'diagram' || kind === 'canvas') && (
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-ink-200 dark:border-ink-800">
             <GraphEditor
               kind={kind}
               documentId={doc.id}
-              onError={setSaveError}
+              onError={avisarErro}
               onAbrirDocumento={(alvoId, alvoKind) =>
                 navigate(`${kindMeta(alvoKind || 'note').route}/${alvoId}`)
               }
@@ -1034,8 +1047,6 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         onClose={fecharMenuIA}
         items={menuIA?.payload?.items ?? []}
       />
-
-      <AvisoIA rodando={rodandoIA} erro={erroIA} onFechar={limparErro} />
 
       {modalIA}
 

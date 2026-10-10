@@ -1,46 +1,50 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   CheckSquare,
+  Clock,
   Crop,
+  Download,
   FolderOpen,
-  FolderPlus,
   Layers,
-  LayoutGrid,
-  List,
   Plus,
-  Rows3,
   SlidersHorizontal,
   Tag,
   Trash2,
-  X,
 } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
+import { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
-import { useCascadeDelete } from '@/hooks/useCascadeDelete'
+import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import { exportarSelecao } from '@/components/ExportMenu'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { usePreferencias } from '@/hooks/usePreferencias'
-import { useRenomear } from '@/hooks/useRenomear'
+import { CampoDeRenomear, useF2, useRenomear } from '@/hooks/useRenomear'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { BarraDeSelecao, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
+import { itensDaCategoria } from '@/components/layout/menusDaArvore'
 import FolderFormModal from '@/components/modals/FolderFormModal'
-import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import Bloco, { Abas } from '@/components/inicio/Bloco'
-import Capa, { BotaoDaCapa, enviarCapa } from '@/components/inicio/Capa'
+import Capa, { BotaoDaCapa, enviarCapa, fundoDaCapa } from '@/components/inicio/Capa'
+import BlocoRelogio from '@/components/inicio/BlocoRelogio'
+import { urlDeMedia } from '@/lib/fileMedia'
 import ItensDoInicio from '@/components/inicio/ItensDoInicio'
 import BlocoTarefas from '@/components/inicio/BlocoTarefas'
 import BlocoAgenda from '@/components/inicio/BlocoAgenda'
 import BlocoRascunho from '@/components/inicio/BlocoRascunho'
 import BlocoArquivos from '@/components/inicio/BlocoArquivos'
 import PersonalizarInicio from '@/components/inicio/PersonalizarInicio'
+import GradeDoInicio from '@/components/inicio/GradeDoInicio'
 import { DOCUMENT_KINDS } from '@/lib/documents'
-import { LAYOUTS_DE_ITENS, layoutDoInicio } from '@/lib/inicio'
+import { blocosParaSalvar, layoutDoInicio } from '@/lib/inicio'
 import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
 import { idioma, t } from '@/lib/i18n'
@@ -84,17 +88,27 @@ function Numero({ icon: Icon, label, value, to, onClick }) {
 }
 
 /** Cartão de categoria com suporte a seleção e clique direito. */
-function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, indice = 0 }) {
+function CategoryCard({ category, isSelected, renomear, onClickCapture, onContextMenu, indice = 0 }) {
   const folders = category.folders ?? []
   const preview = folders.slice(0, 4)
+  const renomeando = renomear.estaEditando(category.id)
+  // Renomeando, o cartão deixa de ser link: clicar no campo para mexer no
+  // cursor seguiria o link e abriria a categoria.
+  const Raiz = renomeando ? 'div' : Link
 
   return (
-    <Link
-      to={`/categories/${category.id}`}
+    <Raiz
+      to={renomeando ? undefined : `/categories/${category.id}`}
       // Captura: o handler precisa barrar Shift/Ctrl ANTES do router e do
       // browser resolverem o clique, senão a categoria abre em outra aba.
       onClickCapture={onClickCapture}
       onContextMenu={onContextMenu}
+      // Duplo clique renomeia o que já está selecionado, como nos cartões.
+      onDoubleClick={(event) => {
+        if (!isSelected) return
+        event.preventDefault()
+        renomear.abrir(category.id)
+      }}
       style={{ '--i': indice }}
       className={cn(
         'entra group block px-2 py-3 transition',
@@ -103,7 +117,16 @@ function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, ind
     >
       <div className="flex items-baseline gap-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
-        <h3 className="titulo min-w-0 flex-1 truncate text-[15px]">{category.name}</h3>
+        {renomeando ? (
+          <CampoDeRenomear
+            renomear={renomear}
+            valorAtual={category.name}
+            endpoint={`/categories/${category.id}/`}
+            className="titulo text-[15px]"
+          />
+        ) : (
+          <h3 className="titulo min-w-0 flex-1 truncate text-[15px]">{category.name}</h3>
+        )}
         <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{category.document_count}</span>
       </div>
       <p className="mt-1 truncate pl-[18px] text-[12px] text-ink-500 dark:text-ink-400">
@@ -116,12 +139,10 @@ function CategoryCard({ category, isSelected, onClickCapture, onContextMenu, ind
           </>
         )}
       </p>
-    </Link>
+    </Raiz>
   )
 }
 
-const ICONES_DE_LAYOUT = { cartoes: LayoutGrid, pilha: Rows3, lista: List }
-const QUANTOS = { cartoes: 6, pilha: 5, lista: 8 }
 
 /**
  * Início — painel e porta de entrada da hierarquia.
@@ -130,8 +151,9 @@ const QUANTOS = { cartoes: 6, pilha: 5, lista: 8 }
  * e, embaixo, o que a pessoa escolher ver — itens recentes ou com estrela
  * (em cartões, pilha ou lista), tarefas para marcar, a agenda do dia, um
  * bloco de rascunho, os arquivos que chegaram por último e as categorias.
- * "Personalizar" decide quais, em que ordem e com que largura; fica salvo
- * na conta (`home_layout`).
+ * Os blocos se arrumam DIRETO na página: arrastar pelo título muda a
+ * ordem, o canto muda o tamanho (`GradeDoInicio`); "Personalizar" fica com
+ * a capa e o desenho dos itens. Tudo vai para a conta (`home_layout`).
  */
 export default function Home() {
   const { user } = useAuth()
@@ -142,16 +164,10 @@ export default function Home() {
   const { prefs, salvar } = usePreferencias()
   const layout = layoutDoInicio(prefs.home_layout)
 
-  const [categoryModal, setCategoryModal] = useState(false)
+  const [categoryModal, setCategoryModal] = useState(null)
   const [folderModal, setFolderModal] = useState(null)
   const [personalizando, setPersonalizando] = useState(false)
   const [recortando, setRecortando] = useState(false)
-
-  const [selectedIds, setSelectedIds] = useState([])
-  const [actionError, setActionError] = useState(null)
-  const lastSelectedId = useRef(null)
-
-  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
 
   const stats = useFetch('/documents/stats/')
   const recent = useFetch('/documents/recent/')
@@ -163,7 +179,16 @@ export default function Home() {
 
   const itens = layout.aba_notas === 'favoritos' ? favoritos.data?.results ?? [] : recent.data ?? []
   const fonteDosItens = layout.aba_notas === 'favoritos' ? favoritos : recent
-  const itensVisiveis = itens.slice(0, QUANTOS[layout.itens])
+  const itensVisiveis = itens.slice(0, 12)
+
+  // A mesma seleção das outras listas: categorias e itens na ordem em que a
+  // tela os desenha, que é o que dá sentido ao intervalo do Shift.
+  const {
+    selected: selectedIds,
+    clear: limparSelecao,
+    handleClick,
+    handleContextMenu: selecionarParaMenu,
+  } = useMultiSelect([...categories.map((c) => `category:${c.id}`), ...itensVisiveis.map((d) => `document:${d.id}`)])
 
   const recarregarItens = () => {
     recent.refetch()
@@ -171,165 +196,46 @@ export default function Home() {
   }
 
   const renomear = useRenomear({ onRenamed: recarregarItens })
+  useF2(renomear, selectedIds, ['document', 'category'])
   const { buildMenu, dialogs: docActionDialogs } = useDocumentActions({
     onChanged: recarregarItens,
     onRename: (doc) => renomear.abrir(doc.id),
   })
 
-  const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
-    onDeleted: () => {
-      setSelectedIds([])
-      stats.refetch()
-      recarregarItens()
-      refresh()
-    },
-    onError: setActionError,
+  // Números e lista recarregam pelo `notefy:moved` que a exclusão anuncia.
+  const { pedirExclusao, dialogs: deleteDialogs } = useExcluirSelecao({
+    selecionados: selectedIds,
+    itemDe: (chave) =>
+      categories.find((c) => `category:${c.id}` === chave) ?? itens.find((d) => `document:${d.id}` === chave),
+    onExcluido: limparSelecao,
   })
 
   /** Muda o layout na hora e grava na conta. */
   const mudarLayout = (patch) => {
-    salvar({ home_layout: { ...layout, ...patch } }).catch((err) => setActionError(extractError(err)))
+    const proximo = { ...layout, ...patch }
+    salvar({ home_layout: { ...proximo, blocos: blocosParaSalvar(proximo.blocos) } }).catch((err) =>
+      avisarErro(extractError(err)),
+    )
   }
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') setSelectedIds([])
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  useEffect(() => {
-    const onChanged = () => {
-      stats.refetch()
-      recent.refetch()
-      tarefasAbertas.refetch()
-      refresh()
-    }
-    // `task-changed` junto: o painel mostra "Tarefas abertas". Concluir uma
-    // tarefa no Quadro (ou no bloco de tarefas) muda o número.
-    const eventos = ['notefy:moved', 'notefy:task-changed']
-    eventos.forEach((e) => window.addEventListener(e, onChanged))
-    return () => eventos.forEach((e) => window.removeEventListener(e, onChanged))
-  }, [stats.refetch, recent.refetch, tarefasAbertas.refetch, refresh])
-
-  /* ------------------------------------------------------------------ */
-  /* Cliques e multi-seleção                                            */
-  /* ------------------------------------------------------------------ */
-  const handleItemClick = (itemType, itemId, event) => {
-    const uniqueKey = `${itemType}:${itemId}`
-
-    // No toque, com a seleção aberta, o toque soma ou tira (ver useMultiSelect).
-    const tocandoNaSelecao = event.nativeEvent?.pointerType === 'touch' && selectedIds.length > 0
-
-    if (event.ctrlKey || event.metaKey || tocandoNaSelecao) {
-      event.preventDefault()
-      event.stopPropagation()
-      setSelectedIds((prev) => (prev.includes(uniqueKey) ? prev.filter((i) => i !== uniqueKey) : [...prev, uniqueKey]))
-      lastSelectedId.current = uniqueKey
-      return
-    }
-
-    // Shift marca o intervalo, dentro da mesma lista.
-    if (event.shiftKey) {
-      event.preventDefault()
-      event.stopPropagation()
-      const lista =
-        itemType === 'category'
-          ? (categories ?? []).map((c) => `category:${c.id}`)
-          : itensVisiveis.map((d) => `document:${d.id}`)
-      const de = lista.indexOf(lastSelectedId.current)
-      const ate = lista.indexOf(uniqueKey)
-      if (de === -1 || ate === -1) {
-        setSelectedIds([uniqueKey])
-      } else {
-        const faixa = lista.slice(Math.min(de, ate), Math.max(de, ate) + 1)
-        setSelectedIds((prev) => Array.from(new Set([...prev, ...faixa])))
-      }
-      lastSelectedId.current = uniqueKey
-      return
-    }
-
-    setSelectedIds([uniqueKey])
-    lastSelectedId.current = uniqueKey
+  // `recarregarItens`, e não só os recentes: com a aba Favoritos à mostra,
+  // excluir ou mover em outra tela deixava o cartão ali até recarregar.
+  // `task-changed` junto: o painel mostra "Tarefas abertas", e concluir uma
+  // tarefa no Quadro (ou no bloco de tarefas) muda o número.
+  const aoMudarAlgo = () => {
+    stats.refetch()
+    recarregarItens()
+    tarefasAbertas.refetch()
+    refresh()
   }
+  useListenerDeJanela('notefy:moved', aoMudarAlgo)
+  useListenerDeJanela('notefy:task-changed', aoMudarAlgo)
 
-  const handleContextMenu = (itemType, item, event) => {
+  const abrirMenu = (tipo, item, event) => {
     event.preventDefault()
-    const uniqueKey = `${itemType}:${item.id}`
-
-    let currentSelected = selectedIds
-    if (!selectedIds.includes(uniqueKey)) {
-      currentSelected = [uniqueKey]
-      setSelectedIds([uniqueKey])
-      lastSelectedId.current = uniqueKey
-    }
-
-    const payload = itemType === 'category' ? { type: 'category', category: item } : { type: 'document', document: item }
-    openMenu(event, { ...payload, isMultiple: currentSelected.length > 1 })
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Exclusão                                                            */
-  /* ------------------------------------------------------------------ */
-  const deleteOne = async (selectionKey) => {
-    const [itemType, itemId] = selectionKey.split(':')
-    const endpoint = itemType === 'category' ? `/categories/${itemId}/` : `/documents/${itemId}/`
-
-    try {
-      await api.delete(endpoint)
-    } catch (err) {
-      if (err.response?.status === 404) return
-      try {
-        await api.delete(`${endpoint}?force=true`)
-      } catch (forceErr) {
-        if (forceErr.response?.status === 404) return
-        throw forceErr
-      }
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-    const idsToDelete = [...selectedIds]
-    setActionError(null)
-    try {
-      for (const selectionKey of idsToDelete) {
-        await deleteOne(selectionKey)
-      }
-    } catch (err) {
-      setActionError(extractError(err))
-    } finally {
-      setSelectedIds([])
-      lastSelectedId.current = null
-      setBulkDeleteModalOpen(false)
-      stats.refetch()
-      recarregarItens()
-      refresh()
-    }
-  }
-
-  const handleBulkDeleteWithDialog = () => {
-    if (selectedIds.length === 0) return
-    if (selectedIds.length === 1) {
-      const [itemType, itemId] = selectedIds[0].split(':')
-      if (itemType === 'category') {
-        const cat = categories.find((c) => String(c.id) === String(itemId))
-        if (cat) {
-          setActionError(null)
-          requestDelete({ kind: 'category', id: cat.id, name: cat.name })
-          return
-        }
-      } else if (itemType === 'document') {
-        const doc = itens.find((d) => String(d.id) === String(itemId))
-        if (doc) {
-          setActionError(null)
-          requestDelete({ kind: 'document', id: doc.id, name: doc.title })
-          return
-        }
-      }
-    }
-    setBulkDeleteModalOpen(true)
+    const quantos = selecionarParaMenu(`${tipo}:${item.id}`)
+    const payload = tipo === 'category' ? { type: 'category', category: item } : { type: 'document', document: item }
+    openMenu(event, { ...payload, isMultiple: quantos > 1 })
   }
 
   const firstName = (user?.full_name || user?.username || '').split(' ')[0]
@@ -340,7 +246,6 @@ export default function Home() {
   /* ------------------------------------------------------------------ */
   /* Blocos                                                              */
   /* ------------------------------------------------------------------ */
-  const largura = (b) => (b.largura === 'inteira' ? 'lg:col-span-2' : '')
   // As categorias (e as pastas delas) moram no bloco de categorias do próprio
   // Início; escondido o bloco, os números ficam só números.
   const categoriasVisiveis = layout.blocos.some((b) => b.id === 'categorias' && b.visivel)
@@ -350,7 +255,7 @@ export default function Home() {
 
   const blocos = {
     resumo: (b) => (
-      <Bloco key={b.id} titulo={t('Resumo')} icon={BarChart3} className={largura(b)}>
+      <Bloco key={b.id} titulo={t('Resumo')} icon={BarChart3}>
         <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
           <Numero icon={Layers} label={t('Itens no total')} value={stats.data?.total} to="/recent" />
           <Numero icon={Tag} label={t('Categorias')} value={categories.length} onClick={irParaCategorias} />
@@ -392,7 +297,6 @@ export default function Home() {
         key={b.id}
         titulo={layout.aba_notas === 'favoritos' ? t('Com estrela') : t('Mexidos recentemente')}
         icon={Layers}
-        className={largura(b)}
         acoes={
           <>
             <Abas
@@ -404,31 +308,6 @@ export default function Home() {
                 { id: 'favoritos', nome: t('Favoritos') },
               ]}
             />
-            {/* O desenho dos itens, direto no bloco: mudar e ver na hora. */}
-            <div className="ml-1 flex" role="radiogroup" aria-label={t('Desenho dos itens')}>
-              {LAYOUTS_DE_ITENS.map((l) => {
-                const Icone = ICONES_DE_LAYOUT[l.id]
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={layout.itens === l.id}
-                    title={l.nome}
-                    aria-label={l.nome}
-                    onClick={() => mudarLayout({ itens: l.id })}
-                    className={cn(
-                      'rounded p-1 transition [@media(pointer:coarse)]:p-2',
-                      layout.itens === l.id
-                        ? 'bg-ink-100 text-ink-800 dark:bg-ink-800 dark:text-ink-50'
-                        : 'text-ink-400 hover:text-ink-700 dark:hover:text-ink-200',
-                    )}
-                  >
-                    <Icone size={14} />
-                  </button>
-                )
-              })}
-            </div>
           </>
         }
       >
@@ -446,11 +325,10 @@ export default function Home() {
           <>
             <ItensDoInicio
               itens={itensVisiveis}
-              layout={layout.itens}
               selecionados={selectedIds}
               renomear={renomear}
-              onClickCapture={(doc, e) => handleItemClick('document', doc.id, e)}
-              onContextMenu={(doc, e) => handleContextMenu('document', doc, e)}
+              onClickCapture={(doc, e) => handleClick(`document:${doc.id}`, e)}
+              onContextMenu={(doc, e) => abrirMenu('document', doc, e)}
             />
             {layout.aba_notas === 'recentes' && (
               <div className="mt-3 text-right">
@@ -464,13 +342,17 @@ export default function Home() {
       </Bloco>
     ),
 
-    tarefas: (b) => <BlocoTarefas key={b.id} className={largura(b)} />,
-    agenda: (b) => <BlocoAgenda key={b.id} className={largura(b)} />,
-    rascunho: (b) => <BlocoRascunho key={b.id} className={largura(b)} />,
+    tarefas: (b) => <BlocoTarefas key={b.id} />,
+    agenda: (b) => <BlocoAgenda key={b.id} />,
+    rascunho: (b) => <BlocoRascunho key={b.id} />,
+    relogio: (b) => (
+      <Bloco key={b.id} titulo={t('Relógio')} icon={Clock} corpoClassName="relative p-0">
+        <BlocoRelogio foto={layout.foto} />
+      </Bloco>
+    ),
     arquivos: (b) => (
       <BlocoArquivos
         key={b.id}
-        className={largura(b)}
         aba={layout.aba_arquivos}
         onTrocarAba={(aba) => mudarLayout({ aba_arquivos: aba })}
       />
@@ -482,11 +364,11 @@ export default function Home() {
         id="bloco-categorias"
         titulo={t('Categorias')}
         icon={Tag}
-        className={cn('scroll-mt-4', largura(b))}
+        className="scroll-mt-4"
         acoes={
           <button
             type="button"
-            onClick={() => setCategoryModal(true)}
+            onClick={() => setCategoryModal({})}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-ink-100 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100"
           >
             <Plus size={12} />
@@ -504,8 +386,9 @@ export default function Home() {
                 indice={i}
                 category={category}
                 isSelected={selectedIds.includes(`category:${category.id}`)}
-                onClickCapture={(e) => handleItemClick('category', category.id, e)}
-                onContextMenu={(e) => handleContextMenu('category', category, e)}
+                renomear={renomear}
+                onClickCapture={(e) => handleClick(`category:${category.id}`, e)}
+                onContextMenu={(e) => abrirMenu('category', category, e)}
               />
             ))}
           </div>
@@ -515,7 +398,7 @@ export default function Home() {
             title={t('Comece criando uma categoria')}
             description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas e canvas.')}
             action={
-              <Button icon={Plus} onClick={() => setCategoryModal(true)}>
+              <Button icon={Plus} onClick={() => setCategoryModal({})}>
                 {t('Criar categoria')}
               </Button>
             }
@@ -525,20 +408,25 @@ export default function Home() {
     ),
   }
 
-  /** Foto nova na capa (dos arquivos, do computador ou arrastada): vale na hora e já abre o recorte. */
-  const usarFoto = (url) => {
-    mudarLayout({ capa: { tipo: 'imagem', url } })
+  /**
+   * Foto nova (dos arquivos, do computador ou arrastada) na capa, no papel de
+   * parede (`fundo`) ou no relógio (`foto`). Vale na hora; a da capa já abre
+   * o recorte, que é feito na própria capa.
+   */
+  const usarFoto = (url, para = 'capa') => {
+    mudarLayout({ [para]: { tipo: 'imagem', url } })
+    if (para !== 'capa') return
     setPersonalizando(false)
     setRecortando(true)
   }
-  const usarFotoNaCapa = async (arquivo) => {
-    setActionError(null)
+  const enviarFoto = async (arquivo, para = 'capa') => {
     try {
-      usarFoto(await enviarCapa(arquivo))
+      usarFoto(await enviarCapa(arquivo, para), para)
     } catch (err) {
-      setActionError(extractError(err))
+      avisarErro(extractError(err))
     }
   }
+  const usarFotoNaCapa = (arquivo) => enviarFoto(arquivo, 'capa')
 
   const acoesDoTopo = (naCapa, escuro = false) =>
     naCapa ? (
@@ -551,7 +439,7 @@ export default function Home() {
         <BotaoDaCapa icon={SlidersHorizontal} escuro={escuro} onClick={() => setPersonalizando(true)} aria-label={t('Personalizar')}>
           <span className="max-sm:hidden">{t('Personalizar')}</span>
         </BotaoDaCapa>
-        <BotaoDaCapa icon={Plus} escuro={escuro} onClick={() => setCategoryModal(true)} aria-label={t('Nova categoria')}>
+        <BotaoDaCapa icon={Plus} escuro={escuro} onClick={() => setCategoryModal({})} aria-label={t('Nova categoria')}>
           <span className="max-sm:hidden">{t('Nova categoria')}</span>
         </BotaoDaCapa>
       </>
@@ -560,14 +448,27 @@ export default function Home() {
         <Button variant="secondary" size="sm" icon={SlidersHorizontal} onClick={() => setPersonalizando(true)}>
           {t('Personalizar')}
         </Button>
-        <Button size="sm" icon={Plus} onClick={() => setCategoryModal(true)}>
+        <Button size="sm" icon={Plus} onClick={() => setCategoryModal({})}>
           {t('Nova categoria')}
         </Button>
       </>
     )
 
+  // O papel de parede fica parado enquanto a página rola (`fixed`): é o fundo
+  // da janela, e não uma imagem esticada até a altura de todos os blocos.
+  const fundo = layout.fundo
+  const papelDeParede =
+    fundo.tipo === 'imagem'
+      ? { backgroundImage: `url("${urlDeMedia(fundo.url)}")`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }
+      : fundo.tipo === 'gradiente'
+        ? { background: fundoDaCapa(fundo), backgroundAttachment: 'fixed' }
+        : undefined
+
   return (
-    <div className="pb-24">
+    <div className="relative min-h-full pb-24" style={papelDeParede}>
+      {/* Véu da cor da página sobre o papel de parede: o que fica entre os
+          blocos (títulos soltos, vãos) continua legível em claro e escuro. */}
+      {papelDeParede && <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/35 dark:bg-ink-950/45" />}
       {layout.capa.tipo === 'nenhuma' ? (
         <PageHeader title={saudacao} actions={acoesDoTopo(false)} />
       ) : (
@@ -586,48 +487,15 @@ export default function Home() {
         />
       )}
 
-      <PageBody>
-        {actionError && (
-          <div className="mb-4">
-            <ErrorState message={actionError} />
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {layout.blocos.filter((b) => b.visivel).map((b) => blocos[b.id]?.(b))}
-        </div>
-
-        {layout.blocos.every((b) => !b.visivel) && (
-          <p className="py-16 text-center text-sm text-ink-400">
-            {t('Todos os blocos estão escondidos.')}{' '}
-            <button type="button" onClick={() => setPersonalizando(true)} className="underline underline-offset-2">
-              {t('Personalizar')}
-            </button>
-          </p>
-        )}
+      <PageBody className="relative">
+        <GradeDoInicio
+          blocos={layout.blocos}
+          renderizar={(b) => blocos[b.id]?.(b)}
+          onMudar={(novos) => mudarLayout({ blocos: novos })}
+        />
       </PageBody>
 
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 animate-slide-up items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800">
-          <span className="text-xs font-medium">
-            {selectedIds.length} {t('selecionado(s)')}
-          </span>
-          <div className="h-4 w-px bg-ink-700" />
-          <button
-            onClick={handleBulkDeleteWithDialog}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
-          >
-            <Trash2 size={14} /> {t('Excluir')}
-          </button>
-          <button
-            onClick={() => setSelectedIds([])}
-            className="rounded p-1 text-ink-400 transition hover:text-white"
-            title={t('Limpar seleção')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <BarraDeSelecao total={selectedIds.length} onExcluir={pedirExclusao} onLimpar={limparSelecao} />
 
       <ContextMenu
         open={!!menu}
@@ -638,31 +506,28 @@ export default function Home() {
           menu?.payload?.isMultiple
             ? [
                 {
+                  label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
+                  icon: Download,
+                  onClick: () => exportarSelecao(selectedIds),
+                },
+                { separator: true },
+                {
                   label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
-                  onClick: handleBulkDeleteWithDialog,
+                  onClick: pedirExclusao,
                 },
               ]
             : menu?.payload?.type === 'category'
-              ? [
-                  {
-                    label: t('Nova pasta'),
-                    icon: FolderPlus,
-                    onClick: () => setFolderModal({ categoryId: menu.payload.category.id }),
-                  },
-                  { separator: true },
-                  {
-                    label: t('Excluir'),
-                    icon: Trash2,
-                    danger: true,
-                    onClick: () => {
-                      setActionError(null)
-                      requestDelete({ kind: 'category', id: menu.payload.category.id, name: menu.payload.category.name })
-                    },
-                  },
-                  ...fimDoMenu('categoria', menu.payload.category.id),
-                ]
+              ? itensDaCategoria(menu.payload.category, {
+                  navigate,
+                  novaPasta: () => setFolderModal({ categoryId: menu.payload.category.id }),
+                  renomear: () => renomear.abrir(menu.payload.category.id),
+                  editar: () => setCategoryModal({ category: menu.payload.category }),
+                  // O menu já marcou a categoria: é o mesmo Excluir da seleção.
+                  excluir: pedirExclusao,
+                  fimDoMenu,
+                })
               : menu?.payload?.document
                 ? buildMenu(menu.payload.document)
                 : []
@@ -677,29 +542,21 @@ export default function Home() {
         onClose={() => setPersonalizando(false)}
         layout={layout}
         onMudar={mudarLayout}
-        onEnviarFoto={usarFotoNaCapa}
+        onEnviarFoto={enviarFoto}
         onEscolherFoto={usarFoto}
         onRecortar={() => {
           setPersonalizando(false)
           setRecortando(true)
         }}
-        onRestaurar={() => salvar({ home_layout: {} }).catch((err) => setActionError(extractError(err)))}
-      />
-
-      <ConfirmDialog
-        open={bulkDeleteModalOpen}
-        onClose={() => setBulkDeleteModalOpen(false)}
-        title={t('Excluir itens selecionados')}
-        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
-        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
-        onConfirm={handleBulkDelete}
+        onRestaurar={() => salvar({ home_layout: {} }).catch((err) => avisarErro(extractError(err)))}
       />
 
       <CategoryFormModal
-        open={categoryModal}
-        onClose={() => setCategoryModal(false)}
+        open={!!categoryModal}
+        category={categoryModal?.category}
+        onClose={() => setCategoryModal(null)}
         onSaved={(category) => {
-          setCategoryModal(false)
+          setCategoryModal(null)
           refresh()
           if (category?.id) navigate(`/categories/${category.id}`)
         }}

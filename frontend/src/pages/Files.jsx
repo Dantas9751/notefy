@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, FileUp, Paperclip, Trash2, X, Folder as FolderIcon } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
-import { exportBatchAsZip } from '@/components/ExportMenu'
+import { Download, FileUp, Paperclip, Trash2, Folder as FolderIcon } from 'lucide-react'
+import { exportarSelecao } from '@/components/ExportMenu'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
-import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
-import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
+import { useF2, useRenomear } from '@/hooks/useRenomear'
+import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Button, EmptyState, ErrorState, ListSkeleton, Select } from '@/components/ui'
+import { BarraDeSelecao, Button, EmptyState, ErrorState, ListSkeleton, Select } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FilterBar from '@/components/filters/FilterBar'
 import DestinationModal from '@/components/modals/DestinationModal'
@@ -20,7 +21,6 @@ import { hasFilePayload } from '@/lib/dnd'
 import { documentPath } from '@/lib/documents'
 import { agruparPorData, cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const FILE_KINDS = [
   { value: 'image', get label() { return t('Imagens') } },
@@ -42,10 +42,6 @@ export default function Files() {
   const debouncedQuery = useDebounced(query, 350)
   const { menu, openMenu, closeMenu } = useContextMenu()
 
-  const [actionError, setActionError] = useState(null)
-
-  // Estado para o Modal de Exclusão em Massa
-  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
 
   const { data, loading, error, refetch } = useFetch('/documents/', {
     params: {
@@ -78,28 +74,21 @@ export default function Files() {
 
   useF2(renomear, selectedIds)
 
-  // Hook de exclusão em cascata (Usado para exclusão ÚNICA)
-  const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
-    onDeleted: () => {
+  const { pedirExclusao, dialogs: deleteDialogs } = useExcluirSelecao({
+    selecionados: selectedIds,
+    itemDe: (chave) => arquivos.find((doc) => `document:${doc.id}` === chave),
+    onExcluido: () => {
       clear()
-      refetch()
       refresh()
-      window.dispatchEvent(new Event('notefy:moved'))
     },
-    onError: setActionError,
   })
 
-  useEffect(() => {
-    const onMoved = () => refetch()
-    window.addEventListener('notefy:moved', onMoved)
-    return () => window.removeEventListener('notefy:moved', onMoved)
-  }, [refetch])
+  useListenerDeJanela('notefy:moved', refetch)
 
   /* ------------------------------------------------------------------ */
   /* Envio de arquivos                                                  */
   /* ------------------------------------------------------------------ */
   const [pending, setPending] = useState(null)
-  const [uploadError, setUploadError] = useState(null)
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef(null)
 
@@ -108,12 +97,11 @@ export default function Files() {
       refetch()
       refresh()
     },
-    onErro: setUploadError,
+    onErro: avisarErro,
   })
 
   const chooseDestination = (chosen) => {
     if (!chosen.length) return
-    setUploadError(null)
     setPending(chosen)
   }
 
@@ -121,7 +109,6 @@ export default function Files() {
     const chosen = pending ?? []
     setPending(null)
     if (!chosen.length) return
-    setUploadError(null)
     // A lista da pasta de destino não está carregada nesta tela — o
     // próprio hook busca `/folders/{id}/contents/` para decidir o
     // conflito de nomes.
@@ -132,99 +119,12 @@ export default function Files() {
   /* ------------------------------------------------------------------ */
   /* Lógica de Multi-Seleção e Exclusão                                 */
   /* ------------------------------------------------------------------ */
-  const files = arquivos
   const totalPages = data?.total_pages ?? 1
   const hasFilters = query || category || fileKind
 
   const abrirMenu = (doc, event) => {
     const total = handleContextMenu(`document:${doc.id}`)
     openMenu(event, { document: doc, isMultiple: total > 1 })
-  }
-
-  // Função interna para apagar um item individual sem erros de 404
-  const deleteOne = async (selectionKey) => {
-    const { id: itemId } = parseKey(selectionKey)
-    const endpoint = `/documents/${itemId}/`
-
-    try {
-      await api.delete(endpoint)
-    } catch (err) {
-      if (err.response?.status === 404) return;
-      try {
-        await api.delete(`${endpoint}?force=true`)
-      } catch (forceErr) {
-        if (forceErr.response?.status === 404) return;
-        throw forceErr;
-      }
-    }
-  }
-
-  // Executa exclusão em massa através do Modal Customizado
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-
-    const idsToDelete = [...selectedIds]
-    setActionError(null)
-
-    try {
-      for (const selectionKey of idsToDelete) {
-        await deleteOne(selectionKey)
-      }
-    } catch (err) {
-      setActionError(extractError(err))
-    } finally {
-      clear()
-      setBulkDeleteModalOpen(false)
-      
-      await refetch()
-      refresh()
-      window.dispatchEvent(new Event('notefy:moved'))
-    }
-  }
-
-  // Avalia se abre o Hook nativo (para 1 item) ou o Modal de Massa (para vários)
-  const handleBulkDeleteWithDialog = () => {
-    if (selectedIds.length === 0) return
-
-    if (selectedIds.length === 1) {
-      const { id: itemId } = parseKey(selectedIds[0])
-
-      const targetItem = files.find((item) => String(item.id) === String(itemId))
-
-      if (targetItem) {
-        setActionError(null)
-        requestDelete({
-          kind: 'document',
-          id: targetItem.id,
-          name: targetItem.title,
-        })
-        return
-      }
-    }
-
-    setBulkDeleteModalOpen(true)
-  }
-
-  /** Baixa os selecionados como ZIP, cada um no próprio formato. */
-  const handleBulkExport = async () => {
-    if (selectedIds.length === 0) return
-
-    // Arquivos já trazem `file_url` na lista — diferente de notas e
-    // planilhas, o payload da lista basta para baixar o binário.
-    const selecionados = files.filter((doc) => isSelected(`document:${doc.id}`))
-
-    if (!selecionados.length) {
-      setActionError(t('Nada para exportar na seleção.'))
-      return
-    }
-
-    setActionError(null)
-
-    try {
-      await exportBatchAsZip(selecionados)
-    } catch (err) {
-      setActionError(extractError(err))
-    }
   }
 
   return (
@@ -317,19 +217,17 @@ export default function Files() {
       </PageHeader>
 
       <PageBody>
-        {uploadError && <div className="mb-4"><ErrorState message={uploadError} /></div>}
-        {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
 
         {loading ? (
           <ListSkeleton rows={5} />
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : files.length ? (
+        ) : arquivos.length ? (
           <>
             {/* Em grupos pela data em que o arquivo entrou (Hoje, Ontem, Esta
                 semana...), como os Recentes — a lista já vem por `-created_at`. */}
             <div className="space-y-8">
-              {agruparPorData(files, 'created_at').map((grupo) => (
+              {agruparPorData(arquivos, 'created_at').map((grupo) => (
                 <section key={grupo.rotulo}>
                   <h2 className="titulo mb-3 text-[17px]">{grupo.rotulo}</h2>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -353,16 +251,7 @@ export default function Files() {
                             document={doc}
                             showFolder
                             selecionado={selecionado}
-                            renomeando={renomear.estaEditando(doc.id)}
-                            onRename={() => renomear.abrir(doc.id)}
-                            erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
-                            camposDeRenomear={propsDoCampo({
-                              valorAtual: doc.title,
-                              endpoint: `/documents/${doc.id}/`,
-                              campo: 'title',
-                              gravar: renomear.gravar,
-                              fechar: renomear.fechar,
-                            })}
+                            renomear={renomear}
                             className={cn(
                               selecionado &&
                                 'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
@@ -381,9 +270,7 @@ export default function Files() {
                 <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   {t('Anterior')}
                 </Button>
-                <span>
-                  {t('Página')} {page} {t('de')} {totalPages}
-                </span>
+                <span>{t('Página {page} de {total}', { page, total: totalPages })}</span>
                 <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                   {t('Próxima')}
                 </Button>
@@ -410,28 +297,7 @@ export default function Files() {
         )}
       </PageBody>
 
-      {/* Barra Flutuante de Ações em Massa */}
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
-          <span className="text-xs font-medium">
-            {selectedIds.length} {t('selecionado(s)')}
-          </span>
-          <div className="h-4 w-px bg-ink-700" />
-          <button
-            onClick={handleBulkDeleteWithDialog}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
-          >
-            <Trash2 size={14} /> {t('Excluir')}
-          </button>
-          <button
-            onClick={clear}
-            className="rounded p-1 text-ink-400 transition hover:text-white"
-            title={t('Limpar seleção')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <BarraDeSelecao total={selectedIds.length} onExcluir={pedirExclusao} onLimpar={clear} />
 
       <DestinationModal
         open={!!pending}
@@ -458,14 +324,14 @@ export default function Files() {
                 {
                   label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
                   icon: Download,
-                  onClick: handleBulkExport,
+                  onClick: () => exportarSelecao(selectedIds),
                 },
                 { separator: true },
                 {
                   label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
-                  onClick: handleBulkDeleteWithDialog,
+                  onClick: pedirExclusao,
                 },
               ]
             : menu?.payload?.document
@@ -489,15 +355,6 @@ export default function Files() {
       {/* Modais de Exclusão e Ações */}
       {deleteDialogs}
       {docActionDialogs}
-
-      <ConfirmDialog
-        open={bulkDeleteModalOpen}
-        onClose={() => setBulkDeleteModalOpen(false)}
-        title={t('Excluir itens selecionados')}
-        message={t('{n} arquivos vão para a lixeira.', { n: selectedIds.length })}
-        confirmLabel={t('Excluir {n} arquivos', { n: selectedIds.length })}
-        onConfirm={handleBulkDelete}
-      />
     </div>
   )
 }

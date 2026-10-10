@@ -15,6 +15,15 @@ BREADCRUMB_SCHEMA = {
 }
 
 
+def trilha_ate(pasta):
+    """Categoria → ancestrais da pasta. O topo da trilha é sempre a categoria."""
+    crumbs = []
+    if pasta.category_id:
+        crumbs.append({"id": str(pasta.category_id), "name": pasta.category.name, "type": "category"})
+    crumbs += [{"id": str(a.id), "name": a.name, "type": "folder"} for a in pasta.ancestors]
+    return crumbs
+
+
 class CategorySerializer(serializers.ModelSerializer):
     document_count = serializers.IntegerField(read_only=True)
     folder_count = serializers.IntegerField(read_only=True)
@@ -115,14 +124,7 @@ class FolderSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(BREADCRUMB_SCHEMA)
     def get_breadcrumb(self, obj):
-        """Categoria → ancestrais. O topo da trilha é sempre a categoria."""
-        crumbs = []
-        if obj.category_id:
-            crumbs.append(
-                {"id": str(obj.category_id), "name": obj.category.name, "type": "category"}
-            )
-        crumbs += [{"id": str(a.id), "name": a.name, "type": "folder"} for a in obj.ancestors]
-        return crumbs
+        return trilha_ate(obj)
 
     def validate_name(self, value):
         return normalizar_nome(value)

@@ -93,7 +93,7 @@ class TrashItemView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(request=None, responses={200: OpenApiTypes.OBJECT})
     def post(self, request, tipo, item_id):
         if tipo not in TIPOS:
             return Response({"detail": "Tipo desconhecido."}, status=400)
@@ -112,7 +112,7 @@ class TrashItemView(APIView):
         obj.restore()
         return Response(_serialize(tipo, obj, campo))
 
-    @extend_schema(responses={204: None})
+    @extend_schema(responses={204: None}, operation_id="trash_item_destroy")
     def delete(self, request, tipo, item_id):
         if tipo not in TIPOS:
             return Response({"detail": "Tipo desconhecido."}, status=400)

@@ -3,14 +3,15 @@ import { Languages, Sparkles } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { executarNoDocumento } from './executar'
 import { Modal, Button } from '@/components/ui'
+import { avisarErro, avisarProgresso, fecharAviso } from '@/lib/avisoFlutuante'
 import { t } from '../../lib/i18n.js'
 
 /**
  * As ações de IA de dentro de um editor.
  *
  * Devolve o item "IA" pronto para entrar em qualquer menu de contexto
- * (com submenu das mecânicas daquele tipo) e o estado de execução, que a
- * página usa para mostrar "gerando..." e o erro.
+ * (com submenu das mecânicas daquele tipo). O "Resumindo..." e o erro saem
+ * no aviso flutuante, como o resultado de toda ação.
  *
  * As tarefas de texto NÃO gravam sozinhas: devolvem o resultado para o
  * editor decidir onde encaixar (substituir a seleção, anexar ao fim). As
@@ -20,7 +21,6 @@ import { t } from '../../lib/i18n.js'
 export function useAcoesIA({ kind, documentId, onTexto, onDocumento }) {
   const { user } = useAuth()
   const [rodando, setRodando] = useState(null)
-  const [erro, setErro] = useState(null)
   // Modal de "descreva o que gerar": guarda a tarefa pendente até o
   // usuário confirmar. Sem `window.prompt` — ele trava o app e some em
   // alguns navegadores.
@@ -32,11 +32,11 @@ export function useAcoesIA({ kind, documentId, onTexto, onDocumento }) {
   const executar = useCallback(
     async (task, { input, substituir = false, rotulo } = {}) => {
       if (!documentId) {
-        setErro(t('Salve o item antes de usar a IA.'))
+        avisarErro(t('Salve o item antes de usar a IA.'), 'ia')
         return
       }
       setRodando(rotulo || 'IA')
-      setErro(null)
+      avisarProgresso('ia', `${rotulo || 'IA'}...`)
       try {
         // Mesmo caminho do chat: gera, MESCLA e grava. "Gerar a partir do
         // conteúdo" acrescenta ao desenho existente em vez de apagá-lo.
@@ -51,8 +51,9 @@ export function useAcoesIA({ kind, documentId, onTexto, onDocumento }) {
         // rascunho `<think>` do modelo já saíram no helper.
         if (resultado.text !== undefined) onTexto?.(resultado.text, task)
         else onDocumento?.(resultado.data, task)
+        fecharAviso('ia')
       } catch (e) {
-        setErro(e.message)
+        avisarErro(e.message, 'ia')
       } finally {
         setRodando(null)
       }
@@ -191,27 +192,7 @@ export function useAcoesIA({ kind, documentId, onTexto, onDocumento }) {
   return {
     itemIA: item,
     rodando,
-    erro,
-    limparErro: () => setErro(null),
     executar,
     modalIA,
   }
-}
-
-/** Aviso flutuante de progresso/erro das ações de IA. */
-export function AvisoIA({ rodando, erro, onFechar }) {
-  if (!rodando && !erro) return null
-  return (
-    <div
-      className={`fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-md px-3 py-2 text-sm shadow-pop ${
-        erro
-          ? 'bg-red-600 text-white'
-          : 'bg-ink-900 text-white dark:bg-ink-100 dark:text-ink-900'
-      }`}
-      onClick={onFechar}
-      role="status"
-    >
-      {erro || `${rodando}...`}
-    </div>
-  )
 }

@@ -1,15 +1,16 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderDown, LayoutTemplate, Sparkles } from 'lucide-react'
+import { FileOutput, FolderDown, LayoutTemplate, Sparkles } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useSplit } from '@/context/SplitContext'
 import { useAuth } from '@/context/AuthContext'
 import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import { documentMenuItems } from '@/components/DocumentCard'
-import { AvisoIA } from '@/components/ai/useAcoesIA'
+import { MensagemDeExclusao } from '@/hooks/useCascadeDelete'
+import { avisarErro, avisarProgresso, avisarSucesso, fecharAviso } from '@/lib/avisoFlutuante'
 import { runIA } from '@/lib/ai'
-import { kindMeta } from '@/lib/documents'
+import { documentPath, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import ModeloModal from '@/components/modals/ModeloModal'
@@ -30,6 +31,32 @@ const TAREFA_POR_KIND = {
 }
 
 /**
+ * Converte um arquivo importado (imagens entre si, imagem e texto para
+ * PDF). O resultado nasce na mesma pasta; o aviso diz o nome e abre o
+ * arquivo no clique, porque vindo de Recentes ele não está na tela.
+ */
+async function converterArquivo(doc, formato, abrir) {
+  // Por formato: PDF e JPG do mesmo arquivo ao mesmo tempo são dois avisos.
+  const id = `converter-${doc.id}-${formato}`
+  avisarProgresso(id, t('Convertendo "{nome}" para {formato}...', { nome: doc.title, formato: formato.toUpperCase() }))
+  try {
+    const { data } = await api.post(`/documents/${doc.id}/convert/`, { para: formato })
+    avisarSucesso(t('"{nome}" foi criado na mesma pasta.', { nome: data.title }), id, () => abrir(data))
+    return data
+  } catch (err) {
+    avisarErro(extractError(err), id)
+    return null
+  }
+}
+
+/** Os formatos de `doc.conversoes` como itens de menu: o botão direito e a tela do arquivo. */
+export const formatosDeConversao = (doc, abrir, aoCriar) =>
+  doc.conversoes.map((formato) => ({
+    label: formato.toUpperCase(),
+    onClick: async () => (await converterArquivo(doc, formato, abrir)) && aoCriar?.(),
+  }))
+
+/**
  * Ações de item (mover, duplicar, excluir) com os diálogos que elas pedem.
  *
  * Concentradas aqui porque aparecem em quatro telas — pasta, categoria,
@@ -46,14 +73,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const [moving, setMoving] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [gerando, setGerando] = useState(null)
-  const [erroIA, setErroIA] = useState(null)
   const [extrair, setExtrair] = useState(null)
-  const [erroExtract, setErroExtract] = useState(null)
-  //: Falha de uma ação do menu de contexto — duplicar, exportar. Elas
-  //: rodam sem tela própria (o menu já fechou quando o pedido volta),
-  //: então não havia onde mostrar o motivo: duplicar sem `catch` virava
-  //: promessa rejeitada e sumia, e exportar tinha um `catch` vazio.
-  const [erroAcao, setErroAcao] = useState(null)
   const [salvandoModelo, setSalvandoModelo] = useState(null)
 
   const done = useCallback(() => {
@@ -92,8 +112,8 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
    */
   const criarAPartirDe = useCallback(
     async (doc, kind) => {
-      setErroIA(null)
       setGerando(kindMeta(kind).label)
+      avisarProgresso('ia-criar', t('Gerando {tipo}', { tipo: kindMeta(kind).label }) + '...')
       try {
         const resultado = await runIA({
           task: TAREFA_POR_KIND[kind],
@@ -103,10 +123,11 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           kind,
           title: `${doc.title || t('Sem título')} (${kindMeta(kind).label})`,
         })
+        fecharAviso('ia-criar')
         done()
         navigate(`${kindMeta(kind).route}/${resultado.document_id}`)
       } catch (e) {
-        setErroIA(e.message)
+        avisarErro(e.message, 'ia-criar')
       } finally {
         setGerando(null)
       }
@@ -129,11 +150,13 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
             await api.post(`/documents/${doc.id}/duplicate/`)
             done()
           } catch (err) {
-            setErroAcao(extractError(err))
+            avisarErro(extractError(err))
           }
         },
         onDelete: () => setDeleting(doc),
-        onError: setErroAcao,
+        // Duplicar e exportar rodam com o menu já fechado: o motivo de uma
+        // falha só tem onde aparecer no aviso flutuante.
+        onError: avisarErro,
       })
 
       // Salvar como modelo, logo depois de Duplicar: é a mesma ideia (uma
@@ -144,6 +167,16 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           label: t('Salvar como modelo'),
           icon: LayoutTemplate,
           onClick: () => setSalvandoModelo(doc),
+        })
+      }
+
+      // Só arquivo importado traz `conversoes`; itens do app vêm com [].
+      if (doc.conversoes?.length) {
+        const depoisDeDuplicar = itens.findIndex((i) => i.label === t('Duplicar')) + 1
+        itens.splice(depoisDeDuplicar, 0, {
+          label: t('Converter para'),
+          icon: FileOutput,
+          submenu: formatosDeConversao(doc, (novo) => navigate(documentPath(novo)), done),
         })
       }
 
@@ -160,10 +193,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           {
             label: t('Extrair "{valor}"', { valor: doc.title || t('Sem título') }),
             icon: FolderDown,
-            onClick: () => {
-              setErroExtract(null)
-              setExtrair(doc)
-            },
+            onClick: () => setExtrair(doc),
           },
         ]
       }
@@ -211,7 +241,6 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const extrairZip = useCallback(
     async (folderId) => {
       if (!extrair) return
-      setErroExtract(null)
       try {
         const { data } = await api.post(`/documents/${extrair.id}/extract/`, {
           folder: folderId || undefined,
@@ -222,7 +251,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
       } catch (e) {
         // `extractError` e nao a mao: aqui `e.message` era a frase em
         // inglês do axios quando o corpo não trazia `detail`.
-        setErroExtract(extractError(e, t('Falha ao extrair.')))
+        avisarErro(extractError(e, t('Falha ao extrair.')))
       }
     },
     [extrair, done, navigate],
@@ -230,15 +259,6 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
 
   const dialogs = (
     <>
-      <AvisoIA
-        rodando={gerando && t('Gerando {tipo}', { tipo: gerando })}
-        erro={erroIA}
-        onFechar={() => setErroIA(null)}
-      />
-      {/* Mesmo aviso flutuante, para o que não é IA. O componente só
-          desenha um recado no topo — de IA ele tem o nome. */}
-      <AvisoIA rodando={null} erro={erroAcao} onFechar={() => setErroAcao(null)} />
-
       <ModeloModal open={!!salvandoModelo} documento={salvandoModelo} onClose={() => setSalvandoModelo(null)} />
 
       <DestinationModal
@@ -250,23 +270,19 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
         onPick={async (folderId) => {
           const doc = moving
           setMoving(null)
-          await api.post(`/documents/${doc.id}/move/`, { folder: folderId })
-          done()
+          try {
+            await api.post(`/documents/${doc.id}/move/`, { folder: folderId })
+            done()
+          } catch (err) {
+            avisarErro(extractError(err))
+          }
         }}
       />
 
       <ConfirmDialog
         open={!!deleting}
         title={t('Excluir item')}
-        message={
-          <>
-            {/* Vai para a lixeira, como toda exclusão do app. */}
-            <strong>{deleting?.title}</strong> {t('vai para a lixeira')}
-            {deleting?.attachment_count > 0 &&
-              t(', junto com {attachment_count} anexo(s)', { attachment_count: deleting.attachment_count })}
-            .
-          </>
-        }
+        message={<MensagemDeExclusao nome={deleting?.title} anexos={deleting?.attachment_count} />}
         onClose={() => setDeleting(null)}
         onConfirm={async () => {
           await api.delete(`/documents/${deleting.id}/`)
@@ -282,13 +298,9 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
         // Extrair na pasta em que o .zip já está é o caso comum: o
         // backend cria uma subpasta com o nome do arquivo.
         permitirPastaAtual
-        onClose={() => { setExtrair(null); setErroExtract(null) }}
+        onClose={() => setExtrair(null)}
         onPick={extrairZip}
       />
-
-      {erroExtract && extrair && (
-        <AvisoIA rodando={null} erro={erroExtract} onFechar={() => setErroExtract(null)} />
-      )}
     </>
   )
 

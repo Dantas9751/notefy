@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { CheckSquare, Folder as FolderIcon, SearchX, Trash2, X, ExternalLink, Sparkles } from 'lucide-react'
+import { CheckSquare, Download, Folder as FolderIcon, SearchX, Trash2, X, ExternalLink, Sparkles } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
-import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
+import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
-import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
+import { CampoDeRenomear, useF2, useRenomear } from '@/hooks/useRenomear'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { BarraDeSelecao, Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import { runIA } from '@/lib/ai'
 import FilterBar from '@/components/filters/FilterBar'
+import { exportarSelecao } from '@/components/ExportMenu'
 import { DOCUMENT_KINDS } from '@/lib/documents'
 import { cn, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { semMouse } from '@/lib/desktop'
-import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const TYPE_META = {
   ...Object.fromEntries(
@@ -46,10 +48,6 @@ export default function SearchPage() {
   const { menu, openMenu, closeMenu } = useContextMenu()
   const fimDoMenu = usePropriedadesNoMenu()
 
-  const [actionError, setActionError] = useState(null)
-
-  // Estado para o Modal de Exclusão em Massa
-  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
 
   const debouncedQuery = useDebounced(query, 350)
 
@@ -67,7 +65,7 @@ export default function SearchPage() {
   useEffect(() => {
     const next = new URLSearchParams()
     if (debouncedQuery) next.set('q', debouncedQuery)
-    types.forEach((t) => next.append('type', t))
+    types.forEach((tipo) => next.append('type', tipo))
     if (category) next.set('category', category)
     if (dateFrom) next.set('date_from', dateFrom)
     if (dateTo) next.set('date_to', dateTo)
@@ -97,7 +95,7 @@ export default function SearchPage() {
   }, [debouncedQuery, types, category, dateFrom, dateTo])
 
   const toggleType = (type) =>
-    setTypes((prev) => (prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]))
+    setTypes((prev) => (prev.includes(type) ? prev.filter((tipo) => tipo !== type) : [...prev, type]))
 
   const results = data?.results ?? []
   const hasCriteria = debouncedQuery || types.length || category || dateFrom || dateTo
@@ -117,15 +115,13 @@ export default function SearchPage() {
 
   useF2(renomear, selectedIds, ['note', 'file', 'spreadsheet', 'diagram', 'canvas'])
 
-  // Hook de exclusão em cascata (Usado apenas para exclusão ÚNICA)
-  const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
-    onDeleted: () => {
+  const { pedirExclusao, dialogs: deleteDialogs } = useExcluirSelecao({
+    selecionados: selectedIds,
+    itemDe: (chave) => results.find((item) => `${item.type}:${item.id}` === chave),
+    onExcluido: () => {
       clear()
-      refetch()
       refresh()
-      window.dispatchEvent(new Event('notefy:moved'))
     },
-    onError: setActionError,
   })
 
   // Menu completo de documentos (Duplicar, Mover, Exportar, Criar a
@@ -138,11 +134,7 @@ export default function SearchPage() {
 
   // A busca também precisa ouvir: excluir numa pasta com esta tela montada
   // deixava um resultado fantasma na lista até recarregar a página.
-  useEffect(() => {
-    const onMoved = () => refetch()
-    window.addEventListener('notefy:moved', onMoved)
-    return () => window.removeEventListener('notefy:moved', onMoved)
-  }, [refetch])
+  useListenerDeJanela('notefy:moved', refetch)
 
   /**
    * Pergunta à IA usando os resultados como fonte.
@@ -195,102 +187,20 @@ export default function SearchPage() {
   }
 
   /**
-   * Apaga um item. Devolve o resultado em vez de lançar.
-   *
-   * Lançar aqui abortava o `for` do lote: os itens ANTES do bloqueado eram
-   * apagados e os DEPOIS nem eram tentados. Uma pasta com favorito dentro
-   * deve ser pulada, não virar parede no meio da fila.
+   * Abre a pasta de um resultado. O documento inteiro (já buscado para o
+   * menu) traz `folder`; tarefa e o resto são buscados agora. Aviso e erro
+   * vão para o aviso flutuante: um `alert` abria a caixa cinza do sistema, e
+   * só logar no console fechava o menu sem nada acontecer.
    */
-  const deleteOne = async (selectionKey) => {
-    const { type: itemType, id: itemId } = parseKey(selectionKey)
-
-    let endpoint = `/documents/${itemId}/`
-    if (itemType === 'folder') {
-      endpoint = `/folders/${itemId}/`
-    } else if (itemType === 'task') {
-      endpoint = `/tasks/${itemId}/`
-    }
-
+  const irParaPasta = async (item, doc) => {
     try {
-      await api.delete(endpoint)
-      return { ok: true }
-    } catch (err) {
-      const status = err.response?.status
-      if (status === 404) return { ok: true }
-      // 423 é o bloqueio por favorito, e `?force=true` não derruba —
-      // repetir só gastaria outra requisição para receber o mesmo não.
-      if (status === 423) return { ok: false, motivo: extractError(err) }
-
-      try {
-        await api.delete(`${endpoint}?force=true`)
-        return { ok: true }
-      } catch (forceErr) {
-        if (forceErr.response?.status === 404) return { ok: true }
-        return { ok: false, motivo: extractError(forceErr) }
-      }
+      const endpoint = item.type === 'task' ? `/tasks/${item.id}/` : `/documents/${item.id}/`
+      const folderId = doc ? doc.folder : (await api.get(endpoint)).data.folder
+      if (folderId) navigate(`/folders/${folderId}`)
+      else avisarErro(t('Este item não pertence a nenhuma pasta.'))
+    } catch (error) {
+      avisarErro(extractError(error))
     }
-  }
-
-  // Executa exclusão em massa através do Modal Customizado
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-
-    const idsToDelete = [...selectedIds]
-    setActionError(null)
-
-    // A fila vai até o fim: cada item é independente, e um recusado não é
-    // motivo para os seguintes nem serem tentados.
-    const bloqueados = []
-
-    try {
-      for (const selectionKey of idsToDelete) {
-        const resultado = await deleteOne(selectionKey)
-        if (!resultado.ok) bloqueados.push(resultado.motivo)
-      }
-    } finally {
-      clear()
-      setBulkDeleteModalOpen(false)
-
-      if (bloqueados.length) {
-        setActionError(
-          t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total: idsToDelete.length, motivo: bloqueados[0] }),
-        )
-      }
-
-      await refetch()
-      refresh()
-      window.dispatchEvent(new Event('notefy:moved'))
-    }
-  }
-
-  // Avalia se abre o Hook nativo (para 1 item) ou o Modal de Massa (para vários)
-  const handleBulkDeleteWithDialog = () => {
-    if (selectedIds.length === 0) return
-
-    if (selectedIds.length === 1) {
-      const { type: itemType, id: itemId } = parseKey(selectedIds[0])
-
-      const targetItem = results.find(
-        (item) => String(item.type) === String(itemType) && String(item.id) === String(itemId)
-      )
-
-      if (targetItem) {
-        setActionError(null)
-
-        let deleteKind = 'document'
-        if (targetItem.type === 'folder') deleteKind = 'folder'
-        else if (targetItem.type === 'task') deleteKind = 'task'
-
-        requestDelete({
-          kind: deleteKind,
-          id: targetItem.id,
-          name: targetItem.title,
-        })
-        return
-      }
-    }
-
-    setBulkDeleteModalOpen(true)
   }
 
   return (
@@ -379,7 +289,6 @@ export default function SearchPage() {
       </PageHeader>
 
       <PageBody className="pb-24">
-        {actionError && <div className="mb-4"><ErrorState message={actionError} /></div>}
 
         {/* Resposta da IA sobre os resultados (Ctrl+Enter na busca). */}
         {respostaIA && (
@@ -476,15 +385,12 @@ export default function SearchPage() {
                             // Mesmo campo da grade de cartões, no mesmo
                             // lugar do texto: a busca é justamente onde
                             // se acha o item com nome ruim.
-                            <input
-                              {...propsDoCampo({
-                                valorAtual: item.title,
-                                endpoint: `/documents/${item.id}/`,
-                                campo: 'title',
-                                gravar: renomear.gravar,
-                                fechar: renomear.fechar,
-                              })}
-                              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm font-medium outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+                            <CampoDeRenomear
+                              renomear={renomear}
+                              valorAtual={item.title}
+                              endpoint={`/documents/${item.id}/`}
+                              campo="title"
+                              className="titulo text-[15px]"
                             />
                           ) : (
                             <p className="titulo truncate text-[15px]">
@@ -520,7 +426,7 @@ export default function SearchPage() {
                   loading={loading}
                   onClick={() => setLimite((n) => n + 40)}
                 >
-                  {t('Carregar mais (')}{results.length} {t('de')} {data.total})
+                  {t('Carregar mais ({n} de {total})', { n: results.length, total: data.total })}
                 </Button>
               </div>
             )}
@@ -538,28 +444,7 @@ export default function SearchPage() {
         )}
       </PageBody>
 
-      {/* Barra Flutuante de Ações em Massa */}
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
-          <span className="text-xs font-medium">
-            {selectedIds.length} {t('selecionado(s)')}
-          </span>
-          <div className="h-4 w-px bg-ink-700" />
-          <button
-            onClick={handleBulkDeleteWithDialog}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
-          >
-            <Trash2 size={14} /> {t('Excluir')}
-          </button>
-          <button
-            onClick={clear}
-            className="rounded p-1 text-ink-400 transition hover:text-white"
-            title={t('Limpar seleção')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <BarraDeSelecao total={selectedIds.length} onExcluir={pedirExclusao} onLimpar={clear} />
 
       {/* Menu de Contexto global para a página de busca */}
       <ContextMenu
@@ -571,67 +456,30 @@ export default function SearchPage() {
           menu?.payload?.isMultiple
             ? [
                 {
+                  label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
+                  icon: Download,
+                  onClick: () => exportarSelecao(selectedIds),
+                },
+                { separator: true },
+                {
                   label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
                   icon: Trash2,
                   danger: true,
-                  onClick: handleBulkDeleteWithDialog,
+                  onClick: pedirExclusao,
                 },
               ]
             : menu?.payload?.doc
-              ? (() => {
-                  const item = menu.payload.item;
-                  // Mesmo menu das outras telas (buildMenu) + o atalho de
-                  // buscar a pasta do item, que é específico da busca.
-                  return [
-                    {
-                      label: t('Ir para pasta'),
-                      icon: FolderIcon,
-                      onClick: async () => {
-                        try {
-                          const response = await api.get(`/documents/${item.id}/`);
-                          if (response.data.folder) navigate(`/folders/${response.data.folder}`);
-                        } catch (error) {
-                          console.error('Erro ao buscar a pasta:', error);
-                        }
-                      },
-                    },
-                    { separator: true },
-                    ...buildMenu(menu.payload.doc),
-                  ];
-                })()
+              ? [
+                  // Mesmo menu das outras telas (buildMenu) + o atalho para a
+                  // pasta do item, que é específico da busca.
+                  { label: t('Ir para pasta'), icon: FolderIcon, onClick: () => irParaPasta(menu.payload.item, menu.payload.doc) },
+                  { separator: true },
+                  ...buildMenu(menu.payload.doc),
+                ]
               : [
-                  // Ir para pasta (acima de Abrir, se não for pasta)
                   ...(menu?.payload?.item?.type !== 'folder'
                     ? [
-                        {
-                          label: t('Ir para pasta'),
-                          icon: FolderIcon,
-                          onClick: async () => {
-                            const item = menu.payload.item;
-                            // Aviso e erro vão para o `actionError` desta
-                            // tela, que já é desenhado no topo da lista.
-                            // O `alert` daqui abria a caixa cinza do
-                            // sistema — no aplicativo ela aparece fora do
-                            // tema, com o título do executável. E o erro
-                            // só ia para o console: para quem clicou, o
-                            // menu fechava e nada acontecia.
-                            setActionError(null);
-                            try {
-                              const endpoint = item.type === 'task'
-                                ? `/tasks/${item.id}/`
-                                : `/documents/${item.id}/`;
-                              const response = await api.get(endpoint);
-                              const folderId = response.data.folder;
-                              if (folderId) {
-                                navigate(`/folders/${folderId}`);
-                              } else {
-                                setActionError(t('Este item não pertence a nenhuma pasta.'));
-                              }
-                            } catch (error) {
-                              setActionError(extractError(error));
-                            }
-                          },
-                        },
+                        { label: t('Ir para pasta'), icon: FolderIcon, onClick: () => irParaPasta(menu.payload.item) },
                         { separator: true },
                       ]
                     : []),
@@ -645,7 +493,7 @@ export default function SearchPage() {
                     label: t('Excluir'),
                     icon: Trash2,
                     danger: true,
-                    onClick: handleBulkDeleteWithDialog,
+                    onClick: pedirExclusao,
                   },
                   ...(menu?.payload?.item?.type === 'folder' ? fimDoMenu('pasta', menu.payload.item.id) : []),
                 ]
@@ -657,15 +505,6 @@ export default function SearchPage() {
 
       {/* Diálogos das ações de documento (mover, excluir, IA...) */}
       {acoesDialogs}
-
-      <ConfirmDialog
-        open={bulkDeleteModalOpen}
-        onClose={() => setBulkDeleteModalOpen(false)}
-        title={t('Excluir itens selecionados')}
-        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
-        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
-        onConfirm={handleBulkDelete}
-      />
     </>
   )
 }

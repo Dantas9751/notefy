@@ -16,7 +16,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 #: Apps do projeto: as migrations não são importadas por ninguém, o Django
 #: as carrega pelo nome do módulo.
-LOCAL_APPS = ("core", "users", "organization", "content", "planner", "search", "setup")
+LOCAL_APPS = ("core", "users", "organization", "content", "planner", "search", "ai", "setup")
 
 hiddenimports = []
 for package in (

@@ -175,3 +175,32 @@ def montar(kind, bruto):
     except ValidationError as erro:
         raise ErroFormato(f"A IA gerou conteúdo inválido: {erro.messages[0]}") from erro
     return data
+
+
+#: Fica de fora do que o modelo vê, e volta igual: os traços de caneta são
+#: milhares de pontos que ele não edita, e o enquadramento é da tela.
+_SO_DO_APP = ("strokes", "viewport")
+
+
+def para_editar(data):
+    """O `data` que vai para o modelo na tarefa `editar`."""
+    return {k: v for k, v in (data or {}).items() if k not in _SO_DO_APP}
+
+
+def editado(kind, original, bruto):
+    """Resposta do `editar` -> `data` válido. Levanta ErroFormato.
+
+    Validada direto contra o schema, sem os normalizadores de `montar`:
+    eles reconstroem o item só com os campos que a criação conhece.
+    """
+    dados = _bruto_para_json(bruto)
+    if not isinstance(dados, dict):
+        raise ErroFormato("A IA devolveu um formato inesperado.")
+    for chave in _SO_DO_APP:
+        if chave in (original or {}):
+            dados[chave] = original[chave]
+    try:
+        validate_data(kind, dados)
+    except ValidationError as erro:
+        raise ErroFormato(f"A IA gerou conteúdo inválido: {erro.messages[0]}") from erro
+    return dados

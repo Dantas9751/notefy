@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Star } from 'lucide-react'
-import api from '@/lib/api'
+import api, { extractError } from '@/lib/api'
+import { avisarErro } from '@/lib/avisoFlutuante'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 /**
  * Estrela de favorito.
@@ -31,15 +33,9 @@ export default function FavoriteButton({ endpoint, value = false, onChanged, cla
   // próprio estado otimista, então desfavoritar numa delas deixava as
   // outras acesas até um F5. O evento carrega QUAL item mudou; quem tem o
   // mesmo endpoint se corrige, o resto ignora.
-  useEffect(() => {
-    const aoMudar = (event) => {
-      const detalhe = event.detail
-      if (!detalhe || detalhe.endpoint !== endpoint) return
-      setAtivo(detalhe.is_favorite)
-    }
-    window.addEventListener('notefy:favorites-changed', aoMudar)
-    return () => window.removeEventListener('notefy:favorites-changed', aoMudar)
-  }, [endpoint])
+  useListenerDeJanela('notefy:favorites-changed', ({ detail }) => {
+    if (detail?.endpoint === endpoint) setAtivo(detail.is_favorite)
+  })
 
   const alternar = async (event) => {
     // O cartão inteiro é clicável e arrastável: sem barrar aqui, favoritar
@@ -62,8 +58,9 @@ export default function FavoriteButton({ endpoint, value = false, onChanged, cla
         }),
       )
       onChanged?.(novo)
-    } catch {
+    } catch (err) {
       setAtivo(!novo)
+      avisarErro(extractError(err))
     } finally {
       setSalvando(false)
     }

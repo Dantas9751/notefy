@@ -7,6 +7,7 @@ import { ICONE } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 import FavoriteButton from '@/components/FavoriteButton'
 import { t } from '@/lib/i18n'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 /**
  * Quantos favoritos a barra mostra sem pedir licença.
@@ -45,10 +46,7 @@ export default function FavoritosSidebar({ aoAbrirMenu, noPainel = false }) {
 
   // Favoritar acontece longe daqui: no cartão da pasta, no cabeçalho do
   // editor, no menu de contexto. O evento é o mesmo que o botão dispara.
-  useEffect(() => {
-    window.addEventListener('notefy:favorites-changed', refetch)
-    return () => window.removeEventListener('notefy:favorites-changed', refetch)
-  }, [refetch])
+  useListenerDeJanela('notefy:favorites-changed', refetch)
 
   const itens = data?.results ?? []
   const visiveis = expandido ? itens : itens.slice(0, VISIVEIS)

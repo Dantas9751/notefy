@@ -22,19 +22,145 @@ import { idioma, t } from './i18n.js'
 
 const isBlank = (v) => v === null || v === undefined || v === ''
 
+/**
+ * Texto de número no formato que a pessoa digitou, pronto para `Number()`.
+ *
+ * O separador que aparece por ÚLTIMO é o decimal: "1.234,56" e "1,234.56"
+ * são o mesmo número. Só vírgula é decimal ("12,5"), como no Brasil.
+ */
+function normalizarNumero(texto) {
+  const s = String(texto).trim().replace(/\s/g, '')
+  const virgula = s.lastIndexOf(',')
+  const ponto = s.lastIndexOf('.')
+  if (virgula > ponto) return s.replace(/\./g, '').replace(',', '.')
+  if (virgula !== -1) return s.replace(/,/g, '')
+  return s
+}
+
 function toNumber(raw) {
   if (isBlank(raw)) return 0
   if (typeof raw === 'boolean') return raw ? 1 : 0
   if (typeof raw === 'number') return raw
-  // Aceita "1.234,56" e "1234.56": o usuário digita no formato que quiser.
-  const cleaned = String(raw).trim().replace(/\s/g, '')
-  const normalized =
-    cleaned.includes(',') && cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned
-  const value = Number(normalized)
-  return Number.isFinite(value) ? value : 0
+  return numeroOuNulo(raw) ?? serialDeData(raw) ?? 0
 }
+
+//: Símbolo de moeda na frente do número: "R$ 10", "US$ 5", "€ 3,20".
+const MOEDA_NA_FRENTE = /^(?:R\$|US\$|\$|€|£)\s*/i
+
+/**
+ * O número que o texto É, ou `null` quando não é número.
+ *
+ * `toNumber` devolve 0 para "abc", e é o certo dentro de uma conta. Para
+ * MOSTRAR não serve: uma coluna Número com "abc" exibia "0", e a pessoa
+ * não tinha como saber o que estava escrito ali.
+ *
+ * Reconhece o que se digita numa planilha sem escolher formato antes,
+ * como no Excel: "R$ 1.234,56" é 1234.56 e "15%" é 0.15.
+ */
+export function numeroOuNulo(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+  if (typeof raw !== 'string') return null
+  let texto = raw.trim()
+  let sinal = 1
+  if (texto[0] === '-') {
+    sinal = -1
+    texto = texto.slice(1).trimStart()
+  }
+  texto = texto.replace(MOEDA_NA_FRENTE, '')
+  if (sinal === 1 && texto[0] === '-') {
+    sinal = -1
+    texto = texto.slice(1)
+  }
+  const porCento = texto.endsWith('%')
+  if (porCento) texto = texto.slice(0, -1).trimEnd()
+  if (!/^\+?(\d|[.,]\d)/.test(texto)) return null
+  const value = Number(normalizarNumero(texto))
+  if (!Number.isFinite(value)) return null
+  return sinal * (porCento ? value / 100 : value)
+}
+
+/* -------------------------------------------------------------------- */
+/* Datas                                                                */
+/*                                                                      */
+/* Como no Excel, a data vira um número de dias (o "serial", contado de */
+/* 30/12/1899) quando entra numa conta: `=B1-A1` dá os dias entre as    */
+/* duas, e `=A1+30` a data trinta dias depois.                          */
+/* -------------------------------------------------------------------- */
+
+const DIA_MS = 86400000
+const EPOCA = Date.UTC(1899, 11, 30)
+const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/
+//: Dia, mês e ano com barra (ou hífen, ou ponto), com hora opcional. O ano é obrigatório:
+//: "1/2" é "metade" com a mesma frequência que é uma data.
+const DATA_ESCRITA = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?:\s+(\d{1,2}):(\d{2}))?$/
+
+/** Serial da data escrita no texto ("12/03/2026", "2026-03-12"), ou `null`. */
+export function serialDeData(raw) {
+  if (typeof raw !== 'string') return null
+  const texto = raw.trim()
+  let partes
+  const iso = DATA_ISO.exec(texto)
+  if (iso) {
+    partes = { ano: +iso[1], mes: +iso[2], dia: +iso[3], hora: +(iso[4] ?? 0), minuto: +(iso[5] ?? 0) }
+  } else {
+    const escrita = DATA_ESCRITA.exec(texto)
+    if (!escrita) return null
+    // Mês antes do dia só em inglês, como cada um escreve.
+    const [primeiro, segundo] = [+escrita[1], +escrita[2]]
+    const [dia, mes] = String(idioma).startsWith('en') ? [segundo, primeiro] : [primeiro, segundo]
+    let ano = +escrita[3]
+    // Ano com dois dígitos, pela regra do Excel: 00-29 é 20xx, 30-99 é 19xx.
+    if (escrita[3].length === 2) ano += ano < 30 ? 2000 : 1900
+    partes = { ano, mes, dia, hora: +(escrita[4] ?? 0), minuto: +(escrita[5] ?? 0) }
+  }
+  const { ano, mes, dia, hora, minuto } = partes
+  if (mes < 1 || mes > 12 || dia < 1 || hora > 23 || minuto > 59) return null
+  const ms = Date.UTC(ano, mes - 1, dia, hora, minuto)
+  // 31/02 vira 03/03 no `Date`: a volta tem de dar o mesmo dia.
+  if (new Date(ms).getUTCDate() !== dia) return null
+  return (ms - EPOCA) / DIA_MS
+}
+
+/** Data (e hora, se houver) do serial, no formato ISO que a coluna Data guarda. */
+export function dataDeSerial(serial) {
+  const iso = new Date(EPOCA + Math.round(serial * 1440) * 60000).toISOString()
+  return serial % 1 ? iso.slice(0, 16) : iso.slice(0, 10)
+}
+
+/** Hoje na data DO APARELHO: `toISOString` é UTC, e às 22h em Brasília já seria amanhã. */
+function hojeLocal() {
+  const agora = new Date()
+  return dataDeSerial((Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate()) - EPOCA) / DIA_MS)
+}
+
+/** Data ISO que uma fórmula devolveu (HOJE, data + dias): é mostrada como data. */
+const ehDataIso = (valor) => typeof valor === 'string' && DATA_ISO.test(valor)
+
+/** A célula guarda uma fórmula? `=` na frente, em qualquer coluna, como no Excel. */
+export function ehFormula(raw) {
+  return typeof raw === 'string' && raw.length > 1 && raw[0] === '='
+}
+
+/** Na coluna Fórmula toda célula preenchida é fórmula; nas outras, só o que começa com `=`. */
+export function celulaComFormula(column, raw) {
+  return column?.type === 'formula' ? !isBlank(raw) : ehFormula(raw)
+}
+
+/** Apóstrofo na frente é texto literal: `'=A1` mostra "=A1" sem calcular. */
+const literal = (raw) => (typeof raw === 'string' && raw[0] === "'" ? raw.slice(1) : raw)
+
+/**
+ * Erro de fórmula com o código curto que vai na célula (`#DIV/0!`) e a
+ * mensagem que explica (no título e na barra de fórmula).
+ */
+class ErroDeFormula extends Error {
+  constructor(codigo, mensagem) {
+    super(mensagem)
+    this.codigo = codigo
+  }
+}
+
+const erro = (mensagem) => new ErroDeFormula(t('#ERRO!'), mensagem)
 
 const toText = (raw) => (isBlank(raw) ? '' : String(raw))
 
@@ -82,22 +208,43 @@ function matchesCriterion(value, criterion) {
 
 const sum = (values) => values.reduce((acc, n) => acc + toNumber(n), 0)
 
+/**
+ * Só os valores que são número (ou data), como o Excel faz em MÉDIA, MÍN,
+ * MÁX e MED: célula vazia e texto ficam de fora. Contados como 0, uma
+ * célula vazia no intervalo puxava a média para baixo e o MÍN para zero.
+ */
+const numeros = (values) =>
+  values
+    .filter((v) => typeof v === 'number' || typeof v === 'boolean' || numeroOuNulo(v) !== null || serialDeData(v) !== null)
+    .map(toNumber)
+
+const media = (a) => {
+  const n = numeros(a)
+  return n.length ? n.reduce((x, y) => x + y, 0) / n.length : 0
+}
+
 const FUNCTIONS = {
   // -- Agregação -----------------------------------------------------
   SOMA: sum,
   SUM: sum,
-  MEDIA: (a) => (a.length ? sum(a) / a.length : 0),
-  AVG: (a) => (a.length ? sum(a) / a.length : 0),
-  AVERAGE: (a) => (a.length ? sum(a) / a.length : 0),
-  MIN: (a) => (a.length ? Math.min(...a.map(toNumber)) : 0),
-  MAX: (a) => (a.length ? Math.max(...a.map(toNumber)) : 0),
+  MEDIA: media,
+  AVG: media,
+  AVERAGE: media,
+  MIN: (a) => {
+    const n = numeros(a)
+    return n.length ? Math.min(...n) : 0
+  },
+  MAX: (a) => {
+    const n = numeros(a)
+    return n.length ? Math.max(...n) : 0
+  },
   CONT: (a) => a.filter((v) => !isBlank(v)).length,
   COUNT: (a) => a.filter((v) => !isBlank(v)).length,
   CONT_VAZIO: (a) => a.filter(isBlank).length,
   COUNTBLANK: (a) => a.filter(isBlank).length,
   MEDIAN: (a) => FUNCTIONS.MEDIANA(a),
   MEDIANA: (a) => {
-    const nums = a.map(toNumber).sort((x, y) => x - y)
+    const nums = numeros(a).sort((x, y) => x - y)
     if (!nums.length) return 0
     const middle = Math.floor(nums.length / 2)
     return nums.length % 2 ? nums[middle] : (nums[middle - 1] + nums[middle]) / 2
@@ -117,6 +264,15 @@ const FUNCTIONS = {
   COUNTIF: (a) => FUNCTIONS.CONT_SE(a),
 
   // -- Matemática ----------------------------------------------------
+  PRODUTO: (a) => (a.length ? a.reduce((acc, n) => acc * toNumber(n), 1) : 0),
+  PRODUCT: (a) => FUNCTIONS.PRODUTO(a),
+  INT: (a) => Math.floor(toNumber(a[0])),
+  MOD: (a) => {
+    const divisor = toNumber(a[1])
+    if (divisor === 0) throw new ErroDeFormula('#DIV/0!', t('Divisão por zero'))
+    // O sinal segue o divisor, como no Excel: MOD(-3; 2) é 1, não -1.
+    return toNumber(a[0]) - divisor * Math.floor(toNumber(a[0]) / divisor)
+  },
   ABS: (a) => Math.abs(toNumber(a[0])),
   ARRED: (a) => {
     const factor = 10 ** toNumber(a[1] ?? 0)
@@ -159,35 +315,139 @@ const FUNCTIONS = {
   TRIM: (a) => toText(a[0]).trim(),
 
   // -- Data ----------------------------------------------------------
-  HOJE: () => new Date().toISOString().slice(0, 10),
+  HOJE: () => hojeLocal(),
   TODAY: () => FUNCTIONS.HOJE(),
   DAYS: (a) => FUNCTIONS.DIAS(a),
-  DIAS: (a) => {
-    const start = new Date(toText(a[1]))
-    const end = new Date(toText(a[0]))
-    if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return 0
-    return Math.round((end - start) / 86400000)
-  },
+  // `new Date("12/03/2026")` lia 3 de dezembro (mês primeiro, à americana).
+  DIAS: (a) => Math.round(toNumber(a[0]) - toNumber(a[1])),
 }
 
-/** Nomes oferecidos na ajuda do editor, no idioma do app. */
-export const FUNCTION_HELP = [
-  { get name() { return t('SOMA(A1:A10)') }, get desc() { return t('Soma um intervalo') } },
-  { get name() { return t('MEDIA(A1:A10)') }, get desc() { return t('Média dos valores') } },
-  { get name() { return t('MIN / MAX') }, get desc() { return t('Menor e maior valor') } },
-  { get name() { return t('CONT(A1:A10)') }, get desc() { return t('Quantas células preenchidas') } },
-  { get name() { return t('MEDIANA(A1:A10)') }, get desc() { return t('Valor central') } },
-  { get name() { return t('SOMASE(A1:A10; ">5")') }, get desc() { return t('Soma o que atende ao critério') } },
-  { get name() { return t('CONT_SE(A1:A10; "ok")') }, get desc() { return t('Conta o que atende ao critério') } },
-  { get name() { return t('SE(A1>7; "passou"; "reprovou")') }, get desc() { return t('Condicional') } },
-  { get name() { return t('E / OU / NAO') }, get desc() { return t('Lógica booleana') } },
-  { get name() { return t('ARRED(A1; 2)') }, get desc() { return t('Arredonda com casas decimais') } },
-  { get name() { return t('CONCAT(A1; " - "; B1)') }, get desc() { return t('Junta textos') } },
-  { get name() { return t('MAIUSC / MINUSC') }, get desc() { return t('Troca a caixa do texto') } },
-  { get name() { return t('NUM_CARACT(A1)') }, get desc() { return t('Comprimento do texto') } },
-  { get name() { return t('HOJE()') }, get desc() { return t('Data de hoje') } },
-  { get name() { return t('DIAS(A1; B1)') }, get desc() { return t('Diferença em dias') } },
+// Os nomes do Excel em português, que levam acento e ponto (MÉDIA,
+// MÁXIMO, CONT.SE...). O nome é comparado sem acento e com `.` virando `_`
+// (`nomeDeFuncao`), então MÉDIA já cai em MEDIA e CONT.SE em CONT_SE.
+Object.assign(FUNCTIONS, {
+  MAXIMO: FUNCTIONS.MAX,
+  MINIMO: FUNCTIONS.MIN,
+  MAIUSCULA: FUNCTIONS.MAIUSC,
+  MINUSCULA: FUNCTIONS.MINUSC,
+  POTENCIA: FUNCTIONS.POT,
+  CONCATENAR: FUNCTIONS.CONCAT,
+})
+
+/** Nome de função como a tabela acima o guarda: maiúsculo, sem acento, `.` vira `_`. */
+const nomeDeFuncao = (nome) =>
+  nome.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\./g, '_')
+
+/**
+ * As funções que a pessoa vê: na ajuda, no autocompletar e na dica de
+ * argumentos. O nome e os argumentos vêm nos dois idiomas, porque é o que
+ * se DIGITA; a descrição passa pela tradução.
+ */
+export const FUNCOES = [
+  { pt: 'SOMA', en: 'SUM', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Soma números ou intervalos') } },
+  { pt: 'MEDIA', en: 'AVERAGE', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Média dos valores') } },
+  { pt: 'MIN', en: 'MIN', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Menor valor') } },
+  { pt: 'MAX', en: 'MAX', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Maior valor') } },
+  { pt: 'CONT', en: 'COUNT', args: ['intervalo', 'range'], get desc() { return t('Quantas células preenchidas') } },
+  { pt: 'CONT_VAZIO', en: 'COUNTBLANK', args: ['intervalo', 'range'], get desc() { return t('Quantas células vazias') } },
+  { pt: 'MEDIANA', en: 'MEDIAN', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Valor central') } },
+  { pt: 'SOMASE', en: 'SUMIF', args: ['intervalo; critério', 'range, criterion'], get desc() { return t('Soma o que atende ao critério') } },
+  { pt: 'CONT_SE', en: 'COUNTIF', args: ['intervalo; critério', 'range, criterion'], get desc() { return t('Conta o que atende ao critério') } },
+  { pt: 'PRODUTO', en: 'PRODUCT', args: ['valor1; valor2; ...', 'value1, value2, ...'], get desc() { return t('Multiplica os valores') } },
+  { pt: 'SE', en: 'IF', args: ['teste; se_verdadeiro; se_falso', 'test, if_true, if_false'], get desc() { return t('Condicional') } },
+  { pt: 'SEERRO', en: 'IFERROR', args: ['valor; se_erro', 'value, if_error'], get desc() { return t('Troca um erro por outro valor') } },
+  { pt: 'E', en: 'AND', args: ['teste1; teste2; ...', 'test1, test2, ...'], get desc() { return t('Verdadeiro se todos forem verdadeiros') } },
+  { pt: 'OU', en: 'OR', args: ['teste1; teste2; ...', 'test1, test2, ...'], get desc() { return t('Verdadeiro se algum for verdadeiro') } },
+  { pt: 'NAO', en: 'NOT', args: ['teste', 'test'], get desc() { return t('Inverte verdadeiro e falso') } },
+  { pt: 'ARRED', en: 'ROUND', args: ['número; casas', 'number, digits'], get desc() { return t('Arredonda com casas decimais') } },
+  { pt: 'TETO', en: 'CEIL', args: ['número', 'number'], get desc() { return t('Arredonda para cima') } },
+  { pt: 'PISO', en: 'FLOOR', args: ['número', 'number'], get desc() { return t('Arredonda para baixo') } },
+  { pt: 'INT', en: 'INT', args: ['número', 'number'], get desc() { return t('Parte inteira') } },
+  { pt: 'MOD', en: 'MOD', args: ['número; divisor', 'number, divisor'], get desc() { return t('Resto da divisão') } },
+  { pt: 'ABS', en: 'ABS', args: ['número', 'number'], get desc() { return t('Valor absoluto') } },
+  { pt: 'RAIZ', en: 'SQRT', args: ['número', 'number'], get desc() { return t('Raiz quadrada') } },
+  { pt: 'POT', en: 'POWER', args: ['base; expoente', 'base, exponent'], get desc() { return t('Potência') } },
+  { pt: 'CONCAT', en: 'CONCAT', args: ['texto1; texto2; ...', 'text1, text2, ...'], get desc() { return t('Junta textos') } },
+  { pt: 'MAIUSC', en: 'UPPER', args: ['texto', 'text'], get desc() { return t('Tudo em maiúsculas') } },
+  { pt: 'MINUSC', en: 'LOWER', args: ['texto', 'text'], get desc() { return t('Tudo em minúsculas') } },
+  { pt: 'NUM_CARACT', en: 'LEN', args: ['texto', 'text'], get desc() { return t('Comprimento do texto') } },
+  { pt: 'ESQUERDA', en: 'LEFT', args: ['texto; quantos', 'text, count'], get desc() { return t('Primeiros caracteres') } },
+  { pt: 'DIREITA', en: 'RIGHT', args: ['texto; quantos', 'text, count'], get desc() { return t('Últimos caracteres') } },
+  { pt: 'ARRUMAR', en: 'TRIM', args: ['texto', 'text'], get desc() { return t('Tira os espaços das pontas') } },
+  { pt: 'HOJE', en: 'TODAY', args: ['', ''], get desc() { return t('Data de hoje') } },
+  { pt: 'DIAS', en: 'DAYS', args: ['data_final; data_inicial', 'end_date, start_date'], get desc() { return t('Diferença em dias') } },
 ]
+
+const emPortugues = () => !String(idioma).startsWith('en')
+
+/** Nome e argumentos da função no idioma do app: "SOMA(valor1; valor2; ...)". */
+export function assinaturaDe(funcao) {
+  const pt = emPortugues()
+  return `${pt ? funcao.pt : funcao.en}(${funcao.args[pt ? 0 : 1]})`
+}
+
+/**
+ * Funções cujo nome começa com o que a pessoa está digitando, para o
+ * autocompletar. Compara sem acento: "MÉD" acha MEDIA.
+ */
+export function sugerirFuncoes(prefixo, limite = 6) {
+  const alvo = nomeDeFuncao(prefixo)
+  if (!alvo) return []
+  const pt = emPortugues()
+  return FUNCOES.filter((f) => (pt ? f.pt : f.en).startsWith(alvo) || (pt ? f.en : f.pt).startsWith(alvo))
+    .sort((a, b) => Number(!(pt ? a.pt : a.en).startsWith(alvo)) - Number(!(pt ? b.pt : b.en).startsWith(alvo)))
+    .slice(0, limite)
+}
+
+/** A função (do catálogo) pelo nome, em qualquer idioma ou grafia. */
+export function funcaoPorNome(nome) {
+  const alvo = nomeDeFuncao(nome)
+  return FUNCOES.find((f) => f.pt === alvo || f.en === alvo) ?? null
+}
+
+/**
+ * O que o cursor está escrevendo numa fórmula, para o editor ajudar:
+ *
+ * - `palavra`: o nome de função sendo digitado logo antes do cursor (para
+ *   o autocompletar), com a posição onde começa;
+ * - `dentroDe`: a função cujos parênteses o cursor está dentro (para a
+ *   dica de argumentos).
+ *
+ * Texto entre aspas não conta: `"SOMA"` é texto, não função.
+ */
+export function contextoDoCursor(texto, cursor) {
+  const antes = String(texto ?? '').slice(0, cursor)
+  if (!antes.startsWith('=')) return { palavra: null, dentroDe: null }
+
+  // Fora de aspas? Conta as aspas abertas até o cursor.
+  const aspas = (antes.match(/"/g) ?? []).length
+  if (aspas % 2 === 1) return { palavra: null, dentroDe: null }
+
+  const casou = /(^|[=(;,+\-*/^&<>:\s])([A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_.]*)$/.exec(antes)
+  // "A1" é referência, não começo de nome de função.
+  const palavra =
+    casou && !/^[A-Za-z]+\d+$/.test(casou[2]) ? { texto: casou[2], inicio: antes.length - casou[2].length } : null
+
+  // A função aberta mais próxima: anda para trás contando parênteses.
+  let profundidade = 0
+  let dentroDe = null
+  let entreAspas = false
+  for (let i = antes.length - 1; i >= 0; i -= 1) {
+    const ch = antes[i]
+    if (ch === '"') entreAspas = !entreAspas
+    if (entreAspas) continue
+    if (ch === ')') profundidade += 1
+    else if (ch === '(') {
+      if (profundidade === 0) {
+        const nome = /([A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_.]*)$/.exec(antes.slice(0, i))
+        dentroDe = nome ? funcaoPorNome(nome[1]) : null
+        break
+      }
+      profundidade -= 1
+    }
+  }
+  return { palavra, dentroDe }
+}
 
 /* -------------------------------------------------------------------- */
 /* Endereçamento                                                        */
@@ -218,28 +478,33 @@ function letterToIndex(letters) {
 /* -------------------------------------------------------------------- */
 
 const TOKEN_RE =
-  /\s*(?:("(?:[^"\\]|\\.)*")|(\d+\.?\d*)|(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)|([A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_]*)|(<=|>=|<>|!=|\*\*|[-+*/%(),;^<>=&]))/y
+  /\s*(?:("(?:[^"\\]|\\.)*")|(\d+\.?\d*|\.\d+)|(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)|([A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_.]*)|(#REF!)|(<=|>=|<>|!=|\*\*|[-+*/%(),;^<>=&]))/y
 
 function tokenize(input) {
   const tokens = []
   TOKEN_RE.lastIndex = 0
   while (TOKEN_RE.lastIndex < input.length) {
+    // Espaço no fim ("=A1+B1 ") não é caractere inesperado.
+    if (!input.slice(TOKEN_RE.lastIndex).trim()) break
     const match = TOKEN_RE.exec(input)
-    if (!match) throw new Error(t('Caractere inesperado'))
-    const [, str, number, reference, name, operator] = match
+    if (!match) throw erro(t('Caractere inesperado'))
+    const [, str, number, reference, name, refApagada, operator] = match
     if (str !== undefined) {
       tokens.push({ type: 'string', value: str.slice(1, -1).replace(/\\(.)/g, '$1') })
     } else if (number !== undefined) {
       tokens.push({ type: 'number', value: Number(number) })
     } else if (reference !== undefined) {
-      // O `$` de referência absoluta é aceito e ignorado: a planilha não
-      // copia fórmulas entre células, então não há o que ancorar.
+      // O `$` só importa ao copiar e preencher (`deslocarFormula`); para
+      // calcular, $A$1 e A1 são a mesma célula.
       tokens.push({ type: 'ref', value: reference.replace(/\$/g, '') })
     } else if (name !== undefined) {
-      const upper = name.toUpperCase()
+      const upper = nomeDeFuncao(name)
       if (upper === 'VERDADEIRO' || upper === 'TRUE') tokens.push({ type: 'bool', value: true })
       else if (upper === 'FALSO' || upper === 'FALSE') tokens.push({ type: 'bool', value: false })
-      else tokens.push({ type: 'name', value: upper.replace(/\./g, '_') })
+      else tokens.push({ type: 'name', value: upper })
+    } else if (refApagada !== undefined) {
+      // Linha ou coluna citada foi excluída (ver `ajustarAoExcluir`).
+      throw new ErroDeFormula('#REF!', t('A fórmula cita uma célula que foi excluída'))
     } else {
       tokens.push({ type: 'op', value: operator })
     }
@@ -254,6 +519,18 @@ function tokenize(input) {
 /* soma/subtração, multiplicação/divisão/resto, potência, unário.        */
 /* -------------------------------------------------------------------- */
 
+/**
+ * `+` e `-` que sabem de datas, como no Excel: data mais (ou menos) dias
+ * continua DATA, e data menos data é o número de dias entre as duas.
+ */
+function somarOuSubtrair(a, op, b) {
+  const resultado = op === '+' ? toNumber(a) + toNumber(b) : toNumber(a) - toNumber(b)
+  const dataA = serialDeData(a) !== null
+  const dataB = serialDeData(b) !== null
+  if (dataA !== dataB && !(op === '-' && dataB)) return dataDeSerial(resultado)
+  return resultado
+}
+
 function parse(tokens, resolve) {
   let position = 0
   const peek = () => tokens[position]
@@ -264,7 +541,11 @@ function parse(tokens, resolve) {
     while (peek()?.type === 'op' && ['<', '>', '<=', '>=', '=', '<>', '!='].includes(peek().value)) {
       const op = next().value
       const right = parseConcat()
-      const numeric = typeof left === 'number' || typeof right === 'number'
+      // Duas datas comparam pelo calendário: como texto, "12/03" vinha antes de "15/01".
+      const numeric =
+        typeof left === 'number' ||
+        typeof right === 'number' ||
+        (serialDeData(left) !== null && serialDeData(right) !== null)
       const a = numeric ? toNumber(left) : toText(left).toLowerCase()
       const b = numeric ? toNumber(right) : toText(right).toLowerCase()
       switch (op) {
@@ -293,7 +574,7 @@ function parse(tokens, resolve) {
     while (peek()?.type === 'op' && (peek().value === '+' || peek().value === '-')) {
       const op = next().value
       const right = parseTerm()
-      left = op === '+' ? toNumber(left) + toNumber(right) : toNumber(left) - toNumber(right)
+      left = somarOuSubtrair(left, op, right)
     }
     return left
   }
@@ -306,7 +587,7 @@ function parse(tokens, resolve) {
       const a = toNumber(left)
       if (op === '*') left = a * right
       else if (op === '/') {
-        if (right === 0) throw new Error(t('Divisão por zero'))
+        if (right === 0) throw new ErroDeFormula('#DIV/0!', t('Divisão por zero'))
         left = a / right
       } else left = a % right
     }
@@ -332,9 +613,30 @@ function parse(tokens, resolve) {
     return parsePrimary()
   }
 
+  /**
+   * Pula um argumento inteiro sem calcular: anda até a vírgula (ou `;`)
+   * ou o parêntese que fecha a função, contando os parênteses de dentro.
+   * É o que deixa o SEERRO seguir em frente quando o primeiro argumento
+   * deu erro no meio do caminho.
+   */
+  function pularArgumento() {
+    let profundidade = 0
+    while (position < tokens.length) {
+      const token = peek()
+      if (token.type === 'op') {
+        if (token.value === '(') profundidade += 1
+        else if (token.value === ')') {
+          if (profundidade === 0) return
+          profundidade -= 1
+        } else if ((token.value === ',' || token.value === ';') && profundidade === 0) return
+      }
+      next()
+    }
+  }
+
   function parsePrimary() {
     const token = next()
-    if (!token) throw new Error(t('Fórmula incompleta'))
+    if (!token) throw erro(t('Fórmula incompleta'))
 
     if (token.type === 'number' || token.type === 'string' || token.type === 'bool') {
       return token.value
@@ -342,15 +644,44 @@ function parse(tokens, resolve) {
 
     if (token.type === 'ref') {
       const values = resolve(token.value)
-      if (values.length > 1) throw new Error(t('Intervalo só é aceito dentro de função'))
+      if (values.length > 1) throw erro(t('Intervalo só é aceito dentro de função'))
       return values[0] ?? ''
     }
 
     if (token.type === 'name') {
+      const seErro = token.value === 'SEERRO' || token.value === 'IFERROR'
       const fn = FUNCTIONS[token.value]
-      if (!fn) throw new Error(t('Função desconhecida: {value}', { value: token.value }))
-      if (peek()?.value !== '(') throw new Error(t('Faltou "(" depois de {value}', { value: token.value }))
+      if (!fn && !seErro) {
+        throw new ErroDeFormula(t('#NOME?'), t('Função desconhecida: {value}', { value: token.value }))
+      }
+      if (peek()?.value !== '(') throw erro(t('Faltou "(" depois de {value}', { value: token.value }))
       next()
+
+      // SEERRO avalia o primeiro argumento por conta própria: um erro ali
+      // é justamente o caso que ele existe para tratar.
+      if (seErro) {
+        let valor
+        let falhou = false
+        const inicio = position
+        try {
+          valor = parseComparison()
+        } catch {
+          // O erro pode ter estourado dentro de outra função, no meio dos
+          // parênteses dela: recomeça do início do argumento para pular
+          // contando os parênteses certos.
+          falhou = true
+          position = inicio
+          pularArgumento()
+        }
+        let alternativa = ''
+        if (peek()?.value === ',' || peek()?.value === ';') {
+          next()
+          alternativa = parseComparison()
+        }
+        if (peek()?.value !== ')') throw erro(t('Faltou fechar parêntese'))
+        next()
+        return falhou ? alternativa : valor
+      }
 
       // Argumentos aceitam intervalos, que se expandem em vários valores.
       // `;` e `,` são intercambiáveis como separador.
@@ -369,23 +700,23 @@ function parse(tokens, resolve) {
           break
         }
       }
-      if (peek()?.value !== ')') throw new Error(t('Faltou fechar parêntese'))
+      if (peek()?.value !== ')') throw erro(t('Faltou fechar parêntese'))
       next()
       return fn(args)
     }
 
     if (token.value === '(') {
       const value = parseComparison()
-      if (peek()?.value !== ')') throw new Error(t('Faltou fechar parêntese'))
+      if (peek()?.value !== ')') throw erro(t('Faltou fechar parêntese'))
       next()
       return value
     }
 
-    throw new Error(t('Token inesperado'))
+    throw erro(t('Token inesperado'))
   }
 
   const result = parseComparison()
-  if (position < tokens.length) throw new Error(t('Sobrou conteúdo na fórmula'))
+  if (position < tokens.length) throw erro(t('Sobrou conteúdo na fórmula'))
   return result
 }
 
@@ -430,14 +761,14 @@ function memoDe(rows, columns) {
  * recursão estouraria a pilha e derrubaria a aba.
  */
 export function evaluateFormula(expression, { columns, rows, visiting = new Set() } = {}) {
-  const source = String(expression || '').replace(/^=/, '').trim()
-  if (!source) return { value: '', error: null }
+  const source = String(expression ?? '').replace(/^=/, '').trim()
+  if (!source) return { value: '', error: null, codigo: null }
 
   const resolve = (reference) => {
     const [start, end] = reference.split(':')
     const parseRef = (ref) => {
       const match = /^([A-Za-z]+)(\d+)$/.exec(ref)
-      if (!match) throw new Error(t('Referência inválida: {ref}', { ref }))
+      if (!match) throw erro(t('Referência inválida: {ref}', { ref }))
       return { col: letterToIndex(match[1]), row: Number(match[2]) - 1 }
     }
 
@@ -460,8 +791,11 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
         const key = `${c}:${r}`
         const raw = row.cells?.[column.id]
 
-        if (column.type === 'formula') {
-          if (visiting.has(key)) throw new Error(t('Referência circular'))
+        // Qualquer célula que comece com `=` é fórmula, em qualquer coluna:
+        // `=A1+B1` numa coluna de texto calcula, e quem cita essa célula
+        // recebe o RESULTADO, não o texto da fórmula.
+        if (celulaComFormula(column, raw)) {
+          if (visiting.has(key)) throw new ErroDeFormula('#CIRC!', t('Referência circular'))
           // Guardar também o ERRO é seguro: se uma célula caiu num ciclo
           // a partir daqui, o ciclo passa por ela, e cai de qualquer ponto.
           const memo = memoDe(rows, columns)
@@ -474,10 +808,10 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
             })
             memo.set(key, nested)
           }
-          if (nested.error) throw new Error(nested.error)
+          if (nested.error) throw new ErroDeFormula(nested.codigo, nested.error)
           values.push(nested.value)
         } else {
-          values.push(raw)
+          values.push(literal(raw))
         }
       }
     }
@@ -487,89 +821,197 @@ export function evaluateFormula(expression, { columns, rows, visiting = new Set(
   try {
     const value = parse(tokenize(source), resolve)
     if (typeof value === 'number') {
-      if (!Number.isFinite(value)) return { value: '', error: t('Resultado inválido') }
+      if (!Number.isFinite(value)) return { value: '', error: t('Resultado inválido'), codigo: t('#NÚM!') }
       // Corta o lixo de ponto flutuante (0.1+0.2) sem truncar de verdade.
-      return { value: Math.round(value * 1e10) / 1e10, error: null }
+      return { value: Math.round(value * 1e10) / 1e10, error: null, codigo: null }
     }
-    return { value, error: null }
+    return { value, error: null, codigo: null }
   } catch (error) {
-    return { value: '', error: error.message }
+    return { value: '', error: error.message, codigo: error.codigo ?? t('#ERRO!') }
   }
+}
+
+/** Posição de cada linha (ou coluna) na versão atual do array, sem `indexOf` a cada célula. */
+const indicesPorLista = new WeakMap()
+function indiceDe(lista, item) {
+  let mapa = indicesPorLista.get(lista)
+  if (!mapa) {
+    mapa = new Map(lista.map((x, i) => [x, i]))
+    indicesPorLista.set(lista, mapa)
+  }
+  return mapa.get(item) ?? -1
+}
+
+/**
+ * Resultado da fórmula de uma célula, calculado uma vez por versão da
+ * planilha: a tela redesenha a cada tecla e não pode refazer todas as
+ * contas a cada vez.
+ */
+function resultadoDaCelula(column, row, columns, rows) {
+  const c = indiceDe(columns, column)
+  const r = indiceDe(rows, row)
+  const raw = row.cells?.[column.id]
+  if (c === -1 || r === -1) return evaluateFormula(raw, { columns, rows })
+  const key = `${c}:${r}`
+  const memo = memoDe(rows, columns)
+  let resultado = memo.get(key)
+  if (!resultado) {
+    resultado = evaluateFormula(raw, { columns, rows, visiting: new Set([key]) })
+    memo.set(key, resultado)
+  }
+  return resultado
 }
 
 /* -------------------------------------------------------------------- */
 /* Formatação por tipo de coluna                                        */
 /* -------------------------------------------------------------------- */
 
-// Por idioma: o separador decimal muda quando a pessoa troca de língua.
-const formatosDeNumero = new Map()
-const formatoDeNumero = () => {
-  if (!formatosDeNumero.has(idioma)) formatosDeNumero.set(idioma, new Intl.NumberFormat(idioma, { maximumFractionDigits: 4 }))
-  return formatosDeNumero.get(idioma)
+/**
+ * Formatadores por idioma e opções. Montar um `Intl.NumberFormat` custa
+ * caro, e a grade redesenha a cada tecla digitada numa célula: criar um por
+ * célula de Moeda a cada desenho deixava a digitação lenta em planilha grande.
+ */
+const formatadores = new Map()
+function formatador(opcoes) {
+  const chave = `${idioma}|${JSON.stringify(opcoes)}`
+  if (!formatadores.has(chave)) formatadores.set(chave, new Intl.NumberFormat(idioma, opcoes))
+  return formatadores.get(chave)
 }
 
 function formatNumber(value, column) {
   const decimals = column.decimals
-  const formatter =
+  return formatador(
     decimals === undefined || decimals === null
-      ? formatoDeNumero()
-      : new Intl.NumberFormat(idioma, {
-          minimumFractionDigits: decimals,
-          maximumFractionDigits: decimals,
-        })
-  return formatter.format(value)
+      ? { maximumFractionDigits: 4 }
+      : { minimumFractionDigits: decimals, maximumFractionDigits: decimals },
+  ).format(value)
 }
 
-/** Valor exibido numa célula, já resolvendo fórmula e formato. */
+/** Dinheiro na moeda da coluna, com as casas decimais escolhidas na barra (o padrão da moeda sem escolha). */
+function formatarMoeda(valor, column) {
+  const casas = column.decimals
+  return formatador({
+    style: 'currency',
+    currency: column.currency || 'BRL',
+    ...(casas === undefined || casas === null ? {} : { minimumFractionDigits: casas, maximumFractionDigits: casas }),
+  }).format(valor)
+}
+
+/**
+ * Data no formato do idioma do app, ou `null`.
+ *
+ * Aceita o que a coluna Data guarda (ISO), o que se digita ("12/03/2026")
+ * e o serial que uma conta devolve. O relógio é o UTC dos dois lados: o
+ * serial não tem fuso, e converter para o local trocava o dia à noite.
+ */
+function dataLegivel(valor, comHora) {
+  const serial = typeof valor === 'number' ? valor : serialDeData(toText(valor))
+  if (serial === null) return null
+  const data = new Date(EPOCA + Math.round(serial * 1440) * 60000)
+  return comHora
+    ? data.toLocaleString(idioma, { timeZone: 'UTC' })
+    : data.toLocaleDateString(idioma, { timeZone: 'UTC' })
+}
+
+/**
+ * Valor exibido numa célula, já resolvendo fórmula e formato.
+ *
+ * Devolve também `formula` (a célula calcula) e `numerico` (o que aparece
+ * é número e vai alinhado à direita, como em toda planilha). O formato é o
+ * da COLUNA mesmo quando o valor veio de uma fórmula: `=B1*2` numa coluna
+ * Moeda sai como dinheiro.
+ */
 export function displayValue(column, row, columns, rows) {
   const raw = row.cells?.[column.id]
+  const formula = celulaComFormula(column, raw)
+  let valor = literal(raw)
 
-  if (column.type === 'formula') {
-    const { value, error } = evaluateFormula(raw, { columns, rows })
-    if (error) return { text: `#${error}`, error, raw }
-    if (typeof value === 'boolean') return { text: value ? t('VERDADEIRO') : t('FALSO'), error: null, raw }
-    if (typeof value === 'number') return { text: formatNumber(value, column), error: null, raw }
-    return { text: toText(value), error: null, raw }
+  if (formula) {
+    const { value, error, codigo } = resultadoDaCelula(column, row, columns, rows)
+    if (error) return { text: codigo || `#${error}`, error, raw, formula, numerico: false }
+    valor = value
   }
 
-  if (column.type === 'checkbox') return { text: raw ? '✓' : '', error: null, raw }
-  if (isBlank(raw)) return { text: '', error: null, raw }
+  const saida = (text, numerico = false) => ({ text, error: null, raw, formula, numerico })
 
+  if (column.type === 'checkbox') return saida(toBool(valor) && !isBlank(valor) ? '✓' : '')
+  if (isBlank(valor)) return saida('')
+  if (typeof valor === 'boolean') return saida(valor ? t('VERDADEIRO') : t('FALSO'))
+
+  const numero = numeroOuNulo(valor)
   switch (column.type) {
     case 'number':
-      return { text: formatNumber(toNumber(raw), column), error: null, raw }
+      return numero === null ? saida(toText(valor)) : saida(formatNumber(numero, column), true)
     case 'currency':
-      return {
-        text: new Intl.NumberFormat(idioma, {
-          style: 'currency',
-          currency: column.currency || 'BRL',
-        }).format(toNumber(raw)),
-        error: null,
-        raw,
-      }
-    case 'percent':
-      return { text: `${formatNumber(toNumber(raw), column)}%`, error: null, raw }
+      return numero === null
+        ? saida(toText(valor))
+        : saida(formatarMoeda(numero, column), true)
+    case 'percent': {
+      if (numero === null) return saida(toText(valor))
+      // A coluna guarda pontos percentuais (15 é "15%"); "15%" digitado com
+      // o sinal chega aqui como 0.15.
+      const pontos = typeof valor === 'string' && valor.trim().endsWith('%') ? numero * 100 : numero
+      return saida(`${formatNumber(pontos, column)}%`, true)
+    }
     case 'rating':
-      return { text: '★'.repeat(Math.max(0, Math.min(5, Math.round(toNumber(raw))))), error: null, raw }
+      return saida('★'.repeat(Math.max(0, Math.min(5, Math.round(toNumber(valor))))))
     case 'multiselect':
-      return { text: (Array.isArray(raw) ? raw : [raw]).join(', '), error: null, raw }
+      return saida((Array.isArray(valor) ? valor : [valor]).join(', '))
     case 'date':
-      return { text: new Date(`${raw}T00:00:00`).toLocaleDateString(idioma), error: null, raw }
-    case 'datetime':
-      return { text: new Date(raw).toLocaleString(idioma), error: null, raw }
+    case 'datetime': {
+      // Número só é data quando veio de uma conta: "5" digitado continua 5.
+      const legivel = typeof valor === 'number' && !formula ? null : dataLegivel(valor, column.type === 'datetime')
+      return legivel ? saida(legivel, true) : saida(toText(valor))
+    }
     default:
-      return { text: toText(raw), error: null, raw }
+      // Texto, link, seleção, coluna Fórmula: número calculado ganha o
+      // formato de número; número DIGITADO fica como foi escrito, mas
+      // alinhado à direita, que é o que diz "isto é um número". Data que
+      // uma conta devolveu (HOJE(), A1+30) aparece como data.
+      if (typeof valor === 'number') return saida(formatNumber(valor, column), true)
+      if (formula && ehDataIso(valor)) return saida(dataLegivel(valor, valor.length > 10), true)
+      return saida(toText(valor), numero !== null || serialDeData(valor) !== null)
   }
 }
 
-/** Valor numérico/comparável de uma célula — usado por ordenação e resumo. */
+/**
+ * Valor de uma célula para ordenar, filtrar, resumir e exportar: o
+ * resultado quando é fórmula, o conteúdo quando não é.
+ *
+ * `rows` é a planilha INTEIRA, na ordem gravada: é ela que as referências
+ * endereçam, mesmo quando quem pergunta está olhando uma visão filtrada.
+ */
 export function comparableValue(column, row, columns, rows) {
-  if (column.type === 'formula') {
-    const { value, error } = evaluateFormula(row.cells?.[column.id], { columns, rows })
+  const raw = row.cells?.[column.id]
+  if (celulaComFormula(column, raw)) {
+    const { value, error } = resultadoDaCelula(column, row, columns, rows)
     return error ? null : value
   }
-  return row.cells?.[column.id] ?? null
+  return literal(raw) ?? null
 }
+
+/**
+ * Valor que vai para o .xlsx e o .csv: o resultado da fórmula, e número
+ * como NÚMERO — "7" digitado numa coluna Número saía como texto, e o Excel
+ * marcava a célula com o triângulo verde de "número armazenado como texto".
+ */
+export function valorParaExportar(column, row, columns, rows) {
+  const valor = comparableValue(column, row, columns, rows)
+  if (column.type === 'checkbox') return valor ? t('VERDADEIRO') : t('FALSO')
+  if (Array.isArray(valor)) return valor.join(', ')
+  if (typeof valor === 'boolean') return valor ? t('VERDADEIRO') : t('FALSO')
+  if (typeof valor !== 'string') return valor
+  // Código com zero na frente (CEP, matrícula) continua texto numa coluna
+  // de texto: virar número apagaria o zero. "R$ 10" e "15%" também: como
+  // 10 e 0.15, o Excel mostraria o número sem o símbolo.
+  const ehColunaNumerica = NUMERIC_COLUMN_TYPES.includes(column.type)
+  if (!ehColunaNumerica && /^\s*[-+]?0\d|[%$€£]/.test(valor)) return valor
+  const numero = numeroOuNulo(valor)
+  if (numero !== null && column.type === 'percent' && valor.trim().endsWith('%')) return Math.round(numero * 1e12) / 1e10
+  return numero ?? valor
+}
+
+const NUMERIC_COLUMN_TYPES = ['number', 'currency', 'percent', 'rating', 'formula']
 
 /* -------------------------------------------------------------------- */
 /* Resumo de coluna                                                     */
@@ -587,11 +1029,18 @@ export const AGGREGATE_LABELS = {
   get percent_filled() { return t('% preenchida') },
 }
 
-export function aggregate(column, rows, columns) {
+/**
+ * Resumo do rodapé de uma coluna sobre `rows` (as linhas à vista).
+ *
+ * `todas` é a planilha inteira: as fórmulas endereçam a ordem gravada, e
+ * calculá-las sobre a visão filtrada fazia `=A2` apontar para a segunda
+ * linha DA TELA — o resumo de uma coluna de fórmula mudava ao ordenar.
+ */
+export function aggregate(column, rows, columns, todas = rows) {
   const kind = column.aggregate ?? 'none'
   if (kind === 'none' || !rows.length) return null
 
-  const values = rows.map((row) => comparableValue(column, row, columns, rows))
+  const values = rows.map((row) => comparableValue(column, row, columns, todas))
   const filled = values.filter((v) => !isBlank(v) && v !== false)
 
   switch (kind) {
@@ -607,7 +1056,7 @@ export function aggregate(column, rows, columns) {
         text: `${Math.round((filled.length / values.length) * 100)}%`,
       }
     default: {
-      const numbers = filled.map(toNumber)
+      const numbers = numeros(filled)
       if (!numbers.length) return { label: AGGREGATE_LABELS[kind], text: '—' }
       const result =
         kind === 'sum'
@@ -617,7 +1066,15 @@ export function aggregate(column, rows, columns) {
             : kind === 'min'
               ? Math.min(...numbers)
               : Math.max(...numbers)
-      return { label: AGGREGATE_LABELS[kind], text: formatNumber(Math.round(result * 1e4) / 1e4, column) }
+      // O resumo sai no formato da coluna: mínimo e máximo de datas são
+      // datas (e não o número de dias por trás), soma de Moeda é dinheiro.
+      const data = ['date', 'datetime'].includes(column.type) && ['min', 'max'].includes(kind)
+      const arredondado = Math.round(result * 1e4) / 1e4
+      let text = formatNumber(arredondado, column)
+      if (data) text = dataLegivel(result, column.type === 'datetime')
+      else if (column.type === 'currency') text = formatarMoeda(arredondado, column)
+      else if (column.type === 'percent') text = `${text}%`
+      return { label: AGGREGATE_LABELS[kind], text }
     }
   }
 }
@@ -693,11 +1150,166 @@ export function visibleRows(data) {
       if (isBlank(va) && isBlank(vb)) return 0
       if (isBlank(va)) return 1 // vazias sempre no fim
       if (isBlank(vb)) return -1
-      const numeric = ['number', 'currency', 'percent', 'rating', 'formula'].includes(column.type)
-      if (numeric) return (toNumber(va) - toNumber(vb)) * direction
-      return toText(va).localeCompare(toText(vb), idioma) * direction
+      // Número com número compara como número em QUALQUER coluna: numa de
+      // texto, "10" vinha antes de "9".
+      const na = numeroOuNulo(va)
+      const nb = numeroOuNulo(vb)
+      if (na !== null && nb !== null) return (na - nb) * direction
+      // Data com data pelo calendário: como texto, "15/01" vinha depois de "12/03".
+      const da = serialDeData(va)
+      const db = serialDeData(vb)
+      if (da !== null && db !== null) return (da - db) * direction
+      if (NUMERIC_COLUMN_TYPES.includes(column.type)) return (toNumber(va) - toNumber(vb)) * direction
+      // `numeric`: "Aula 2" antes de "Aula 10".
+      return toText(va).localeCompare(toText(vb), idioma, { numeric: true }) * direction
     })
   }
 
   return result
 }
+
+/* -------------------------------------------------------------------- */
+/* Reescrita de referências                                             */
+/*                                                                      */
+/* Quando a planilha muda de forma — linha inserida ou excluída, coluna  */
+/* movida, fórmula copiada para outra célula —, cada referência precisa  */
+/* acompanhar o DADO, como no Excel. Sem isso `=A5` continuava `=A5`     */
+/* depois de excluir a linha 2, e passava a somar a linha errada sem     */
+/* aviso nenhum.                                                        */
+/* -------------------------------------------------------------------- */
+
+/** Texto entre aspas (que passa intacto) ou uma referência / intervalo. */
+const PADRAO_REFERENCIA =
+  /("(?:[^"\\]|\\.)*")|(?<![A-Za-zÀ-ÿ0-9_$.])(\$?)([A-Za-z]+)(\$?)(\d+)(?::(\$?)([A-Za-z]+)(\$?)(\d+))?(?![A-Za-zÀ-ÿ0-9_(])/g
+
+const escreverReferencia = (r) =>
+  `${r.absCol ? '$' : ''}${columnLetter(r.col)}${r.absRow ? '$' : ''}${r.row + 1}`
+
+/**
+ * Passa cada referência da fórmula por `fn(inicio, fim)`, que devolve as
+ * novas pontas — ou `null` quando a célula deixou de existir, e a
+ * referência vira `#REF!`, como no Excel.
+ */
+function transformarReferencias(formula, fn) {
+  return String(formula).replace(PADRAO_REFERENCIA, (inteiro, aspas, a1, l1, b1, n1, a2, l2, b2, n2) => {
+    if (aspas !== undefined) return inteiro
+    const inicio = { absCol: a1 === '$', col: letterToIndex(l1), absRow: b1 === '$', row: Number(n1) - 1 }
+    const fim = l2 === undefined ? null : { absCol: a2 === '$', col: letterToIndex(l2), absRow: b2 === '$', row: Number(n2) - 1 }
+    const novas = fn(inicio, fim)
+    if (!novas) return '#REF!'
+    const [p, q] = novas
+    return q ? `${escreverReferencia(p)}:${escreverReferencia(q)}` : escreverReferencia(p)
+  })
+}
+
+const campoDoEixo = (eixo) => (eixo === 'linha' ? 'row' : 'col')
+
+/**
+ * A fórmula copiada `dLinhas` para baixo e `dColunas` para a direita: o que
+ * não tem `$` anda junto (`=A1*2` uma linha abaixo vira `=A2*2`). Sair da
+ * planilha pela esquerda ou por cima vira `#REF!`.
+ */
+export function deslocarFormula(formula, dLinhas, dColunas) {
+  if (!dLinhas && !dColunas) return formula
+  const mover = (r) => ({
+    ...r,
+    row: r.absRow ? r.row : r.row + dLinhas,
+    col: r.absCol ? r.col : r.col + dColunas,
+  })
+  return transformarReferencias(formula, (inicio, fim) => {
+    const pontas = [mover(inicio), fim && mover(fim)]
+    return pontas.some((r) => r && (r.row < 0 || r.col < 0)) ? null : pontas
+  })
+}
+
+/** Linha (ou coluna) nova na posição `indice`: o que estava dali para frente anda uma casa. */
+export function ajustarAoInserir(formula, eixo, indice, quantidade = 1) {
+  const campo = campoDoEixo(eixo)
+  const mover = (r) => (r[campo] >= indice ? { ...r, [campo]: r[campo] + quantidade } : r)
+  return transformarReferencias(formula, (inicio, fim) => [mover(inicio), fim && mover(fim)])
+}
+
+/**
+ * Linha (ou coluna) `indice` excluída: quem vinha depois volta uma casa,
+ * o intervalo que a continha encolhe, e a referência à própria célula
+ * excluída vira `#REF!`.
+ */
+export function ajustarAoExcluir(formula, eixo, indice) {
+  const campo = campoDoEixo(eixo)
+  return transformarReferencias(formula, (inicio, fim) => {
+    if (!fim) {
+      if (inicio[campo] === indice) return null
+      return [inicio[campo] > indice ? { ...inicio, [campo]: inicio[campo] - 1 } : inicio, null]
+    }
+    const [menor, maior] = inicio[campo] <= fim[campo] ? [inicio, fim] : [fim, inicio]
+    if (menor[campo] === indice && maior[campo] === indice) return null
+    const novoMenor = menor[campo] > indice ? { ...menor, [campo]: menor[campo] - 1 } : menor
+    const novoMaior = maior[campo] >= indice ? { ...maior, [campo]: maior[campo] - 1 } : maior
+    return menor === inicio ? [novoMenor, novoMaior] : [novoMaior, novoMenor]
+  })
+}
+
+/** Coluna (ou linha) movida de `de` para `para`: a referência segue o dado. */
+export function ajustarAoMover(formula, eixo, de, para) {
+  if (de === para) return formula
+  const campo = campoDoEixo(eixo)
+  const mapear = (i) => {
+    if (i === de) return para
+    if (de < para && i > de && i <= para) return i - 1
+    if (para < de && i >= para && i < de) return i + 1
+    return i
+  }
+  const mover = (r) => ({ ...r, [campo]: mapear(r[campo]) })
+  return transformarReferencias(formula, (inicio, fim) => [mover(inicio), fim && mover(fim)])
+}
+
+/**
+ * Aplica `reescrever` a toda célula com fórmula da planilha. Devolve o
+ * MESMO array quando nada mudou, para não gastar render nem passo de
+ * desfazer à toa.
+ */
+export function reescreverFormulas(columns, rows, reescrever) {
+  let mudou = false
+  const novas = rows.map((row) => {
+    let cells = null
+    for (const column of columns) {
+      const raw = row.cells?.[column.id]
+      if (!celulaComFormula(column, raw)) continue
+      const nova = reescrever(String(raw))
+      if (nova === raw) continue
+      cells ??= { ...row.cells }
+      cells[column.id] = nova
+    }
+    if (!cells) return row
+    mudou = true
+    return { ...row, cells }
+  })
+  return mudou ? novas : rows
+}
+
+/**
+ * As referências de uma fórmula, na ordem em que aparecem, para pintar as
+ * células citadas enquanto ela é escrita. Intervalo vem com as duas pontas
+ * já ordenadas; repetida aparece uma vez só.
+ */
+export function referenciasDaFormula(formula) {
+  if (!ehFormula(formula)) return []
+  const vistas = new Map()
+  transformarReferencias(formula, (inicio, fim) => {
+    const ponta = fim ?? inicio
+    const chave = `${inicio.col}:${inicio.row}:${ponta.col}:${ponta.row}`
+    if (!vistas.has(chave)) {
+      vistas.set(chave, {
+        colunaInicio: Math.min(inicio.col, ponta.col),
+        colunaFim: Math.max(inicio.col, ponta.col),
+        linhaInicio: Math.min(inicio.row, ponta.row),
+        linhaFim: Math.max(inicio.row, ponta.row),
+      })
+    }
+    return [inicio, fim]
+  })
+  return [...vistas.values()]
+}
+
+/** Endereço de uma célula ("B3"), a partir dos índices de coluna e de linha. */
+export const enderecoDe = (coluna, linha) => `${columnLetter(coluna)}${linha + 1}`
