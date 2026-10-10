@@ -396,7 +396,7 @@ export default function Home() {
           <EmptyState
             icon={Tag}
             title={t('Comece criando uma categoria')}
-            description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas e canvas.')}
+            description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas, canvas e designs.')}
             action={
               <Button icon={Plus} onClick={() => setCategoryModal({})}>
                 {t('Criar categoria')}

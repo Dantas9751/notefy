@@ -87,7 +87,7 @@ export default function AbaSeguranca() {
 
       <Bloco
         title={t('Excluir conta')}
-        description={t('Apaga a conta e tudo que está nela: categorias, pastas, notas, arquivos, planilhas, diagramas, canvas e tarefas. Não há como desfazer.')}
+        description={t('Apaga a conta e tudo que está nela: categorias, pastas, notas, arquivos, planilhas, diagramas, canvas, designs e tarefas. Não há como desfazer.')}
       >
         <Field label={t('Senha')} hint={t('Confirme sua senha para liberar a exclusão.')}>
           <Input

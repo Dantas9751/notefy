@@ -131,6 +131,8 @@ class DesignTests(APITestCase):
         self.assertIn("Entrar", texto)
         # Nome de camada qualquer não é conteúdo.
         self.assertNotIn("Título", texto)
+        # Nem o de um frame aninhado: "Botão" é nome de peça, não de tela.
+        self.assertNotIn("Botão", texto)
 
     def test_esvaziar_volta_ao_design_em_branco(self):
         doc = make_document(self.user, self.pasta, kind="design", data=copy.deepcopy(TELA))

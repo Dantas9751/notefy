@@ -57,7 +57,7 @@ function Alcas({ r, rotacao, linha, girar, pequena }) {
           <span
             key={qual}
             data-ponta={qual}
-            className="pointer-events-auto absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border border-accent-500 bg-white"
+            className="pointer-events-auto absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border border-accent-500 bg-white [@media(pointer:coarse)]:before:absolute [@media(pointer:coarse)]:before:-inset-4"
             style={{ left: qual === 'inicio' ? 0 : '100%', top: 0 }}
           />
         ))}
@@ -86,7 +86,7 @@ function Alcas({ r, rotacao, linha, girar, pequena }) {
           <span
             key={`g${canto}`}
             data-girar={canto}
-            className="pointer-events-auto absolute h-4 w-4"
+            className="pointer-events-auto absolute h-4 w-4 [@media(pointer:coarse)]:before:absolute [@media(pointer:coarse)]:before:-inset-3"
             style={{
               cursor: CURSOR_GIRAR,
               left: canto.includes('w') ? -18 : undefined,
@@ -100,7 +100,7 @@ function Alcas({ r, rotacao, linha, girar, pequena }) {
         <span
           key={alca}
           data-alca={alca}
-          className="pointer-events-auto absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 border border-accent-500 bg-white"
+          className="pointer-events-auto absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 border border-accent-500 bg-white [@media(pointer:coarse)]:before:absolute [@media(pointer:coarse)]:before:-inset-4"
           style={{ ...POSICAO_DA_ALCA[alca], cursor: cursorDaAlca(alca, rotacao) }}
         />
       ))}
@@ -118,7 +118,8 @@ export default function Sobreposicao({ camadas, selecao, hover, vista, visual, e
   const caixas = selecao
     .map((id) => {
       const abs = caixaAbsoluta(camadas, id)
-      return abs && { id, tipo: acharCamada(camadas, id)?.type, r: comDesloc(tela(abs), id) }
+      const camada = acharCamada(camadas, id)
+      return abs && { id, tipo: camada?.type, travada: !!camada?.locked, r: comDesloc(tela(abs), id) }
     })
     .filter(Boolean)
   const unica = caixas.length === 1 ? caixas[0] : null
@@ -144,7 +145,7 @@ export default function Sobreposicao({ camadas, selecao, hover, vista, visual, e
                 key={c.id}
                 data-rotulo={c.id}
                 className={cn(
-                  'pointer-events-auto absolute cursor-default select-none truncate text-[11px] leading-4',
+                  'pointer-events-auto absolute cursor-default select-none truncate text-[11px] leading-4 [@media(pointer:coarse)]:-translate-y-2 [@media(pointer:coarse)]:py-2',
                   selecao.includes(c.id) ? 'text-accent-600 dark:text-accent-400' : 'text-ink-500 hover:text-ink-700 dark:text-ink-400 dark:hover:text-ink-200',
                 )}
                 style={{ left: r.x, top: r.y - 18, maxWidth: r.w }}
@@ -167,10 +168,10 @@ export default function Sobreposicao({ camadas, selecao, hover, vista, visual, e
         <Caixa key={id} r={tipo === 'line' ? { ...r, h: 0 } : r} rotacao={r.rotation} className="border border-accent-500" style={tipo === 'line' ? { transformOrigin: '0 0' } : undefined} />
       ))}
 
-      {!somenteLeitura && unica && editando !== unica.id && gesto !== 'mover' && (
+      {!somenteLeitura && unica && !unica.travada && editando !== unica.id && gesto !== 'mover' && (
         <Alcas r={unica.r} rotacao={unica.r.rotation} linha={unica.tipo === 'line'} girar pequena={unica.r.w < 20 || unica.r.h < 20} />
       )}
-      {!somenteLeitura && caixaDaSelecao && gesto !== 'mover' && (
+      {!somenteLeitura && caixaDaSelecao && !caixas.some((c) => c.travada) && gesto !== 'mover' && (
         <>
           <Caixa r={caixaDaSelecao} className="border border-accent-500" />
           <Alcas r={caixaDaSelecao} rotacao={0} pequena={caixaDaSelecao.w < 20 || caixaDaSelecao.h < 20} />

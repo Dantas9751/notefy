@@ -11,7 +11,17 @@ from rest_framework.test import APITestCase
 
 from core.testutils import make_category, make_document, make_folder, make_user
 
-from .conversao import LIMITE_DE_PIXELS, LIMITE_DE_TEXTO, NaoConverte, converter, destinos, nome_convertido
+from .conversao import (
+    COLUNAS_DO_PDF,
+    LIMITE_DE_PIXELS,
+    LIMITE_DE_TEXTO,
+    NaoConverte,
+    _quebrar_em_colunas,
+    _texto_como_html,
+    converter,
+    destinos,
+    nome_convertido,
+)
 from .models import Document
 
 
@@ -68,6 +78,23 @@ class Converter(SimpleTestCase):
         exif[0x0112] = 6  # girar 90°: a câmera gravou deitada
         dados = imagem("JPEG", "RGB", "green", (4, 2), exif=exif.tobytes())
         self.assertEqual(abrir(converter(dados, "a.jpg", "png")).size, (2, 4))
+
+    def test_texto_para_pdf_mantem_as_quebras_de_linha_e_o_recuo(self):
+        # `white-space: pre-wrap` virava um parágrafo só no xhtml2pdf.
+        html = _texto_como_html("Linha 1\n    recuada\n\nLinha 4".encode(), "txt")
+        self.assertNotIn("pre-wrap", html)
+        self.assertIn("<pre", html)
+        self.assertIn("Linha 1\n    recuada\n\nLinha 4", html)
+
+    def test_linha_longa_quebra_na_margem_com_o_mesmo_recuo(self):
+        longa = "    " + "palavra " * 40
+        quebrada = _quebrar_em_colunas(longa)
+        linhas = quebrada.split("\n")
+        self.assertGreater(len(linhas), 1)
+        self.assertTrue(all(len(l) <= COLUNAS_DO_PDF for l in linhas))
+        self.assertTrue(all(l.startswith("    ") for l in linhas))
+        # Palavra sem espaço maior que a margem também parte, em vez de sair da página.
+        self.assertTrue(all(len(l) <= COLUNAS_DO_PDF for l in _quebrar_em_colunas("x" * 300).split("\n")))
 
     def test_texto_vira_pdf_com_o_conteudo(self):
         pdf = converter("Olá, ação\n\tcom recuo".encode(), "a.txt", "pdf")

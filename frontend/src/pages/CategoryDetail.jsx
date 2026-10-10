@@ -211,7 +211,7 @@ export default function CategoryDetail({ id: idProp }) {
           <EmptyState
             icon={FolderOpen}
             title={t('Nenhuma pasta nesta categoria')}
-            description={t('Crie uma pasta para começar a guardar notas, arquivos, planilhas e diagramas aqui.')}
+            description={t('Crie uma pasta para começar a guardar notas, arquivos, planilhas, diagramas, canvas e designs aqui.')}
             action={
               <Button
                 icon={FolderPlus}

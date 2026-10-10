@@ -599,7 +599,7 @@ export default function AssistentePanel() {
               <p className="mt-4 text-center text-xs text-ink-400 dark:text-ink-500">
                 {comandosDisponiveis.length
                   ? t('Peça ao Laviel para explicar, resumir ou organizar o item aberto. Digite / para ver os comandos.')
-                  : t('Abra uma nota, planilha, diagrama ou canvas para o Laviel trabalhar sobre ele.')}
+                  : t('Abra uma nota, planilha, diagrama, canvas ou design para o Laviel trabalhar sobre ele.')}
               </p>
             )}
             {mensagens.map((m, i) => (

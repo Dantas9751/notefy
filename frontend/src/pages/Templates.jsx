@@ -265,7 +265,7 @@ export default function Templates() {
               <LayoutTemplate size={16} className="mt-0.5 shrink-0" />
               {salvos.length
                 ? t('Nenhum modelo seu deste tipo.')
-                : t('Abra uma nota, planilha, diagrama ou canvas e use "Salvar como modelo" (no menu do item ou na barra do editor) para ele aparecer aqui.')}
+                : t('Abra uma nota, planilha, diagrama, canvas ou design e use "Salvar como modelo" (no menu do item ou na barra do editor) para ele aparecer aqui.')}
             </p>
           )}
         </section>

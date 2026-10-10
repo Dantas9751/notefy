@@ -491,7 +491,7 @@ export default function FolderDetail({ id: idProp }) {
           <EmptyState
             icon={FolderOpen}
             title={t('Pasta vazia')}
-            description={t('Use “Criar” para uma nota, planilha, diagrama ou canvas, ou arraste arquivos para cá.')}
+            description={t('Use “Criar” para uma nota, planilha, diagrama, canvas ou design, ou arraste arquivos para cá.')}
             action={
               <div className="flex w-full justify-center">
                 <CreateMenu

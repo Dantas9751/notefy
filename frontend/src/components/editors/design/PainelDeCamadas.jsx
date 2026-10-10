@@ -167,7 +167,7 @@ export default function PainelDeCamadas({
                   onDoubleClick={() => !somenteLeitura && setRenomeandoPagina(p.id)}
                   onContextMenu={(e) => !somenteLeitura && openMenu(e, { pagina: p })}
                   className={cn(
-                    'mx-1.5 flex h-7 items-center rounded-md px-2 transition',
+                    'mx-1.5 flex h-7 items-center rounded-md px-2 transition [@media(pointer:coarse)]:h-10',
                     p.id === paginaId
                       ? 'font-medium text-ink-900 dark:text-ink-50'
                       : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800',
@@ -227,7 +227,7 @@ export default function PainelDeCamadas({
               onDoubleClick={() => !somenteLeitura && onRenomeando(c.id)}
               onPointerEnter={() => onHover(c.id)}
               className={cn(
-                'group relative flex h-7 cursor-default items-center gap-1 pr-1.5 transition-colors',
+                'group relative flex h-7 cursor-default items-center gap-1 pr-1.5 transition-colors [@media(pointer:coarse)]:h-10',
                 selecionada
                   ? 'bg-accent-100 text-ink-900 dark:bg-accent-500/20 dark:text-ink-50'
                   : dentroDeSelecionada

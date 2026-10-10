@@ -97,6 +97,25 @@ class EditarTests(APITestCase):
         self.assertEqual(doc.data["pages"][0]["children"][0]["x"], 0)
         self.assertEqual(doc.data["viewport"], vazio["viewport"])
 
+    def test_design_aceita_os_deslizes_comuns_do_modelo(self):
+        doc = self.doc(Document.Kind.DESIGN, {"version": 1, "pages": [{"id": "p1", "name": "P", "children": []}]})
+        tela = {"version": 1, "pages": [{"id": "p1", "name": "P", "children": [
+            {"id": "f1", "type": "frame", "name": "Tela", "x": "0", "y": "0", "w": "390px", "h": 844,
+             "layout": {"mode": "column", "gap": "12", "padding": 16},
+             "children": [
+                 {"id": "t1", "type": "text", "text": "Oi", "font": {"size": "20px", "weight": "Semi Bold"}},
+                 {"id": "b1", "type": "frame", "layout": {"mode": "row", "padding": [8, 24]}, "children": []},
+             ]},
+        ]}]}
+        r, _ = self.editar(doc, json.dumps(tela))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        doc.refresh_from_db()
+        frame = doc.data["pages"][0]["children"][0]
+        self.assertEqual((frame["w"], frame["layout"]["gap"], frame["layout"]["padding"]), (390, 12, [16, 16, 16, 16]))
+        self.assertEqual(frame["children"][0]["font"], {"size": 20, "weight": 600})
+        # Como no CSS: dois valores são vertical e horizontal.
+        self.assertEqual(frame["children"][1]["layout"]["padding"], [8, 24, 8, 24])
+
     def test_resposta_fora_do_schema_nao_grava(self):
         doc = self.doc(Document.Kind.NOTE, NOTA)
         r, _ = self.editar(doc, json.dumps({"sections": [{"id": "s1", "type": "inventado"}]}))

@@ -8,6 +8,7 @@ no instalador.
 
 import io
 import os
+import textwrap
 from html import escape
 
 from PIL import Image, ImageOps
@@ -126,10 +127,33 @@ def _texto_como_html(dados, origem):
     if origem in ("html", "htm"):
         return conteudo
     # Markdown sai como o texto que é, sem renderizar: renderizar pediria
-    # outra biblioteca só para isso. `pre-wrap` mantém o recuo e quebra a
-    # linha longa na margem, em vez de cortá-la fora da página.
+    # outra biblioteca só para isso.
+    #
+    # `pre` puro, com as linhas já quebradas aqui: o xhtml2pdf trata
+    # `white-space: pre-wrap` como texto corrido e junta o arquivo inteiro num
+    # parágrafo só (sem quebra de linha e sem recuo), e com `pre` a linha
+    # longa passa da margem e é cortada fora da página.
     return (
         f'<html><head><meta charset="utf-8" /><style>{PAGE_CSS}</style></head><body>'
-        '<pre style="white-space: pre-wrap; font-family: Courier; font-size: 9.5pt">'
-        f"{escape(conteudo.expandtabs(4))}</pre></body></html>"
+        '<pre style="font-family: Courier; font-size: 9.5pt">'
+        f"{escape(_quebrar_em_colunas(conteudo))}</pre></body></html>"
     )
+
+
+#: Courier 9,5 pt tem 5,7 pt por caractere; a área útil da A4 (595 pt menos as
+#: margens de 1,8 cm) dá 86 colunas. Duas de folga para não depender do arredondamento.
+COLUNAS_DO_PDF = 84
+
+
+def _quebrar_em_colunas(conteudo, colunas=COLUNAS_DO_PDF):
+    """Quebra cada linha em `colunas`, mantendo o recuo na continuação."""
+    saida = []
+    for linha in conteudo.expandtabs(4).splitlines():
+        recuo = linha[: len(linha) - len(linha.lstrip(" "))]
+        saida.extend(
+            textwrap.wrap(
+                linha, colunas, subsequent_indent=recuo, break_long_words=True, break_on_hyphens=False
+            )
+            or [""]
+        )
+    return "\n".join(saida)

@@ -202,6 +202,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       acontece junto do commit — os demais campos do documento vêm do
       renderizado, que está correto para eles. */
   const commitHistory = useCallback((estado) => {
+    // Gesto que terminou sem mudar nada (clicar numa alça sem arrastar, "trazer
+    // para o topo" no que já está lá): sem isto cada um virava um passo de
+    // desfazer que não desfaz nada visível, e o Ctrl+Z parecia quebrado.
+    if (estado && historyRef.current?.presente.data === estado) return
     const atual = estado ? { ...docRef.current, data: estado } : docRef.current
     if (!atual) return
     if (!historyRef.current) {
@@ -450,7 +454,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
     scheduleAutosave(presente)
   }, [scheduleAutosave])
 
-  const patch = (changes) => {
+  /** `silencioso`: o que o editor calcula sozinho (medidas, enquadramento) — salva, mas não vira "não salvo". */
+  const patch = (changes, { silencioso = false } = {}) => {
     if (somenteLeitura) {
       // Só o enquadramento do quadro (arrastar o fundo, zoom) passa, e só na
       // tela: nada fica sujo nem vai para o servidor.
@@ -461,10 +466,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       if (soEnquadramento) setDoc((current) => ({ ...current, ...changes }))
       return
     }
-    edicoesRef.current += 1
+    if (!silencioso) edicoesRef.current += 1
     setDoc((current) => {
       const next = { ...current, ...changes }
-      setDirty(true)
+      if (!silencioso) setDirty(true)
       scheduleAutosave(next)
       return next
     })
@@ -1023,7 +1028,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
             key={doc.id ?? 'novo'}
             documentId={doc.id}
             data={doc.data}
-            onChange={(next) => patch({ data: next })}
+            onChange={(next, opcoes) => patch({ data: next }, opcoes)}
             onCommit={commitHistory}
             onUndo={somenteLeitura ? nada : undo}
             onRedo={somenteLeitura ? nada : redo}
