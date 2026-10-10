@@ -29,6 +29,7 @@ import NoteEditor from '@/components/editors/NoteEditor'
 import ItemNaLixeira from '@/components/ItemNaLixeira'
 import SpreadsheetEditor from '@/components/editors/SpreadsheetEditor'
 import GraphEditor from '@/components/editors/GraphEditor'
+import DesignEditor from '@/components/editors/design/DesignEditor'
 import { usePropriedades } from '@/context/PropriedadesContext'
 import DestinationModal from '@/components/modals/DestinationModal'
 import ModeloModal from '@/components/modals/ModeloModal'
@@ -1009,7 +1010,30 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         </div>
       )}
 
-      {kind !== 'note' && kind !== 'spreadsheet' && (
+      {/* O Design ocupa a tela de ponta a ponta, como o Figma: painéis
+          colados nas bordas e o quadro no meio. As imagens dele são anexos,
+          mas quem as mostra é o próprio quadro, não a lista de anexos. */}
+      {kind === 'design' && (
+        // Sem o item "IA" do botão direito: o quadro tem o menu dele, e o
+        // Laviel edita o design pelo chat (tarefa `editar`).
+        <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-ink-200 dark:border-ink-800">
+          {/* `key`: de /designs/A para /designs/B o React reaproveitaria o
+              editor, e B abriria com a página, a vista e a seleção de A. */}
+          <DesignEditor
+            key={doc.id ?? 'novo'}
+            documentId={doc.id}
+            data={doc.data}
+            onChange={(next) => patch({ data: next })}
+            onCommit={commitHistory}
+            onUndo={somenteLeitura ? nada : undo}
+            onRedo={somenteLeitura ? nada : redo}
+            onError={avisarErro}
+            somenteLeitura={somenteLeitura}
+          />
+        </div>
+      )}
+
+      {kind !== 'note' && kind !== 'spreadsheet' && kind !== 'design' && (
       <div
         className="mt-3 flex min-h-0 flex-1 flex-col px-4 pb-4"
         onContextMenu={(e) => {

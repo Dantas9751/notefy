@@ -142,6 +142,23 @@ STROKE_TOOLS = ("pen", "marker", "highlighter", "eraser")
 #: continuam válidos e seguem o app, como sempre seguiram.
 THEME_CHOICES = ("light", "dark", "system")
 
+# --------------------------------------------------------------------------
+# Design — telas, no jeito do Figma (docs/plans/2026-10-10-design.md).
+#
+# Uma ÁRVORE de camadas por página, com coordenadas relativas ao pai: um
+# frame contém outros, e mover o frame não reescreve os filhos. Só `frame`
+# e `group` têm `children`.
+# --------------------------------------------------------------------------
+DESIGN_NODE_TYPES = ("frame", "group", "rect", "ellipse", "line", "text")
+DESIGN_CONTAINERS = ("frame", "group")
+DESIGN_PAINT_TYPES = ("solid", "linear", "image")
+DESIGN_EFFECT_TYPES = ("drop", "inner", "blur", "bgblur")
+
+#: Tetos contra payload absurdo (colado, ou gerado pelo Laviel por engano).
+MAX_DESIGN_PAGINAS = 50
+MAX_DESIGN_CAMADAS = 5000
+MAX_DESIGN_PROFUNDIDADE = 40
+
 
 def empty_data_for(kind):
     """Payload inicial de um documento recém-criado."""
@@ -175,6 +192,12 @@ def empty_data_for(kind):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
             "background": "grid",
             "theme": "system",
+        }
+    if kind == "design":
+        return {
+            "version": 1,
+            "pages": [{"id": "p1", "name": texto("Página 1", "Page 1"), "background": None, "children": []}],
+            "viewport": {},
         }
     return {}
 
@@ -487,6 +510,127 @@ def _validate_graph(data, node_types, edge_types, *, allow_strokes=False):
                 )
 
 
+# --------------------------------------------------------------------------
+# Design
+# --------------------------------------------------------------------------
+
+def _numero(valor):
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool) and valor == valor and abs(valor) != float("inf")
+
+
+def _validate_paints(lista, onde):
+    if lista is None:
+        return
+    _require(isinstance(lista, list), f"`{onde}` deve ser uma lista.")
+    for i, paint in enumerate(lista):
+        _require(isinstance(paint, dict), f"`{onde}[{i}]` deve ser um objeto.")
+        tipo = paint.get("type")
+        _require(tipo in DESIGN_PAINT_TYPES, f"Tipo de preenchimento desconhecido: {tipo!r}.")
+        if tipo == "image":
+            _require(isinstance(paint.get("src", ""), str), f"`{onde}[{i}].src` deve ser texto.")
+        elif tipo == "linear":
+            _require(isinstance(paint.get("stops"), list), f"`{onde}[{i}].stops` deve ser uma lista.")
+
+
+def _validate_design_node(node, ids, profundidade):
+    _require(
+        profundidade <= MAX_DESIGN_PROFUNDIDADE,
+        texto(
+            f"O design passou de {MAX_DESIGN_PROFUNDIDADE} níveis de camadas.",
+            f"The design is over {MAX_DESIGN_PROFUNDIDADE} levels of layers.",
+        ),
+    )
+    _require(isinstance(node, dict), "Toda camada deve ser um objeto.")
+    nid = node.get("id")
+    _require(isinstance(nid, str) and bool(nid), "Toda camada precisa de um `id`.")
+    _require(nid not in ids, f"`id` de camada duplicado: {nid!r}.")
+    ids.add(nid)
+    _require(
+        len(ids) <= MAX_DESIGN_CAMADAS,
+        texto(
+            f"O design passou do limite de {MAX_DESIGN_CAMADAS} camadas.",
+            f"The design is over the limit of {MAX_DESIGN_CAMADAS} layers.",
+        ),
+    )
+
+    tipo = node.get("type")
+    _require(tipo in DESIGN_NODE_TYPES, f"Tipo de camada desconhecido: {tipo!r}.")
+    # Posição e tamanho são o mínimo para desenhar. Faltando, entram em 0:
+    # o Laviel às vezes omite `x`/`y` de quem está num auto layout.
+    for campo in ("x", "y", "w", "h"):
+        valor = node.setdefault(campo, 0)
+        _require(_numero(valor), f"`{campo}` da camada {nid!r} deve ser um número.")
+    _require(node["w"] >= 0 and node["h"] >= 0, f"Tamanho negativo na camada {nid!r}.")
+    if tipo == "text":
+        _require(isinstance(node.get("text", ""), str), f"`text` da camada {nid!r} deve ser texto.")
+
+    _validate_paints(node.get("fills"), f"{nid}.fills")
+    _validate_paints(node.get("strokes"), f"{nid}.strokes")
+    efeitos = node.get("effects")
+    if efeitos is not None:
+        _require(isinstance(efeitos, list), f"`effects` da camada {nid!r} deve ser uma lista.")
+        for efeito in efeitos:
+            _require(
+                isinstance(efeito, dict) and efeito.get("type") in DESIGN_EFFECT_TYPES,
+                f"Efeito desconhecido na camada {nid!r}.",
+            )
+
+    filhos = node.get("children")
+    if tipo in DESIGN_CONTAINERS:
+        if filhos is None:
+            node["children"] = filhos = []
+        _require(isinstance(filhos, list), f"`children` da camada {nid!r} deve ser uma lista.")
+        for filho in filhos:
+            _validate_design_node(filho, ids, profundidade + 1)
+    else:
+        # Filho num retângulo não aparece em lugar nenhum do editor: some
+        # da tela e do painel de camadas, mas continuaria no JSON.
+        _require(not filhos, f"Só frame e grupo têm camadas dentro ({nid!r} é {tipo}).")
+
+
+def _validate_design(data):
+    paginas = data.get("pages")
+    if paginas is None:
+        data["pages"] = paginas = []
+    _require(isinstance(paginas, list), "`data.pages` deve ser uma lista.")
+    _require(
+        len(paginas) <= MAX_DESIGN_PAGINAS,
+        texto(
+            f"O design passou do limite de {MAX_DESIGN_PAGINAS} páginas.",
+            f"The design is over the limit of {MAX_DESIGN_PAGINAS} pages.",
+        ),
+    )
+    ids = set()
+    for index, pagina in enumerate(paginas):
+        _require(isinstance(pagina, dict), f"`pages[{index}]` deve ser um objeto.")
+        pid = pagina.get("id")
+        _require(isinstance(pid, str) and bool(pid), f"`pages[{index}]` precisa de um `id`.")
+        _require(pid not in ids, f"`id` de página duplicado: {pid!r}.")
+        ids.add(pid)
+        filhos = pagina.get("children")
+        if filhos is None:
+            pagina["children"] = filhos = []
+        _require(isinstance(filhos, list), f"`children` da página {pid!r} deve ser uma lista.")
+        for filho in filhos:
+            _validate_design_node(filho, ids, 1)
+
+    vista = data.get("viewport")
+    _require(vista is None or isinstance(vista, dict), "`data.viewport` deve ser um objeto.")
+
+
+def _textos_do_design(nodes, parts):
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if node.get("type") == "text" and node.get("text"):
+            parts.append(str(node["text"]))
+        # O nome do frame é o nome da TELA ("Login", "Checkout"): é por ele
+        # que se procura. O de um retângulo é "Retângulo 3", ruído.
+        elif node.get("type") == "frame" and node.get("name"):
+            parts.append(str(node["name"]))
+        _textos_do_design(node.get("children"), parts)
+
+
 def validate_data(kind, data):
     """Valida o payload conforme o tipo. Levanta ValidationError."""
     if data is None:
@@ -507,6 +651,8 @@ def validate_data(kind, data):
         _validate_graph(data, DIAGRAM_NODE_TYPES, DIAGRAM_EDGE_TYPES)
     elif kind == "canvas":
         _validate_graph(data, CANVAS_NODE_TYPES, CANVAS_EDGE_TYPES, allow_strokes=True)
+    elif kind == "design":
+        _validate_design(data)
 
 
 # --------------------------------------------------------------------------
@@ -583,5 +729,9 @@ def extract_text(kind, data, content=""):
             for key in ("label", "source_label", "target_label"):
                 if edge.get(key):
                     parts.append(str(edge[key]))
+    elif kind == "design":
+        for pagina in data.get("pages") or []:
+            if isinstance(pagina, dict):
+                _textos_do_design(pagina.get("children"), parts)
 
     return " ".join(parts)

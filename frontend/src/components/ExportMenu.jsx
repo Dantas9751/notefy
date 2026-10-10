@@ -39,6 +39,11 @@ const FORMATS = {
     { ext: 'png', label: 'PNG' },
     { ext: 'json', label: 'JSON' },
   ],
+  design: [
+    { ext: 'png', label: 'PNG', default: true },
+    { ext: 'svg', label: 'SVG' },
+    { ext: 'json', label: 'JSON' },
+  ],
   file: [
     { ext: null, get label() { return t('Formato original') }, default: true },
   ],
@@ -105,6 +110,11 @@ async function gerarArquivo(doc, ext, title, nome) {
   if ((doc.kind === 'diagram' || doc.kind === 'canvas') && ext !== 'json') {
     const svg = await desenharFora(doc)
     return ext === 'svg' ? new Blob([svg.texto], { type: 'image/svg+xml' }) : svgParaPng(svg)
+  }
+  if (doc.kind === 'design' && ext !== 'json') {
+    // A primeira página inteira, do mesmo desenhista da tela.
+    const { exportarPagina } = await import('@/components/editors/design/exportar')
+    return exportarPagina(doc.data?.pages?.[0], ext)
   }
   return new Blob([JSON.stringify(doc.data, null, 2)], { type: 'application/json' })
 }

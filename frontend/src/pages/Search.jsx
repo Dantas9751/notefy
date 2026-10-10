@@ -113,7 +113,7 @@ export default function SearchPage() {
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
 
-  useF2(renomear, selectedIds, ['note', 'file', 'spreadsheet', 'diagram', 'canvas'])
+  useF2(renomear, selectedIds, ['note', 'file', 'spreadsheet', 'diagram', 'canvas', 'design'])
 
   const { pedirExclusao, dialogs: deleteDialogs } = useExcluirSelecao({
     selecionados: selectedIds,

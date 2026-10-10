@@ -310,6 +310,29 @@ TAREFAS = {
     },
 }
 
+#: Formato do Design, anexado ao sistema do `editar` quando o item aberto é
+#: um. Resumo de docs/plans/2026-10-10-design.md: é o contrato que o
+#: `validate_data` confere na volta.
+FORMATO_DESIGN = (
+    "\n\nO item é um DESIGN de telas (como no Figma). Formato: "
+    "{\"version\": 1, \"pages\": [{\"id\", \"name\", \"background\": null, \"children\": [camadas]}]}. "
+    "Camada: {\"id\" (único), \"type\": frame|group|rect|ellipse|line|text, \"name\", "
+    "\"x\", \"y\", \"w\", \"h\" (px, RELATIVOS ao pai), \"radius\", \"opacity\" (0-1), "
+    "\"fills\": [{\"type\": \"solid\", \"color\": \"#RRGGBB\", \"opacity\": 1}], "
+    "\"strokes\": [{\"type\": \"solid\", \"color\": \"#RRGGBB\"}], \"strokeWidth\", "
+    "\"effects\": [{\"type\": \"drop\", \"x\": 0, \"y\": 4, \"blur\": 12, \"spread\": 0, \"color\": \"#000000\", \"opacity\": 0.15}]}. "
+    "Só frame e group têm \"children\". Uma TELA é um frame no topo da página "
+    "(celular 390x844, desktop 1440x1024) com \"clip\": true. "
+    "Texto: {\"type\": \"text\", \"text\", \"font\": {\"family\": \"Segoe UI\", \"size\": 16, "
+    "\"weight\": 400, \"align\": \"left\"}, \"autoSize\": \"width\"}; a cor do texto é o primeiro fill. "
+    "Frame com auto layout: \"layout\": {\"mode\": \"row\"|\"column\", \"gap\": 12, "
+    "\"padding\": [16, 16, 16, 16], \"align\": \"start\"|\"center\"|\"end\"|\"stretch\", "
+    "\"justify\": \"start\"|\"center\"|\"end\"|\"between\"}; nele os filhos se arrumam sozinhos "
+    "e \"sizing\": {\"h\": \"fixed\"|\"fill\"|\"hug\", \"v\": ...} diz como cada um ocupa o espaço. "
+    "Monte telas limpas e alinhadas, com hierarquia clara, espaçamentos múltiplos de 4 e "
+    "nomes de camada que digam o que são (\"Botão entrar\", \"Campo e-mail\")."
+)
+
 #: Tarefa de criação por tipo de documento alvo.
 CRIAR_POR_KIND = {
     "note": "criar.nota",

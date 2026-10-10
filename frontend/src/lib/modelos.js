@@ -305,6 +305,60 @@ export const MODELOS_PRONTOS = [
       theme: 'system',
     }),
   },
+  {
+    id: 'notefy:tela-login',
+    kind: 'design',
+    get nome() { return t('Tela de login') },
+    get descricao() { return t('Uma tela de celular montada com auto layout, para adaptar.') },
+    titulo: () => t('Tela de login'),
+    dados: () => {
+      const verde = '#4F6B3A'
+      const cor = (color) => [{ type: 'solid', color, opacity: 1 }]
+      const textoDe = (texto, fonte, color, campos = {}) => ({
+        id: id('l'), type: 'text', x: 0, y: 0, w: 0, h: 0, text: texto, autoSize: 'width',
+        font: { family: 'Segoe UI', size: 15, weight: 400, ...fonte }, fills: cor(color), ...campos,
+      })
+      const caixa = (nome, layout, campos) => ({
+        id: id('l'), type: 'frame', name: nome, x: 0, y: 0, w: 345, h: 48, fills: [], clip: false,
+        sizing: { h: 'fill', v: 'hug' }, layout: { gap: 0, padding: [0, 0, 0, 0], align: 'start', justify: 'start', ...layout }, ...campos,
+      })
+      const entrada = (nome, dica) =>
+        caixa(nome, { mode: 'row', align: 'center', padding: [0, 16, 0, 16] }, {
+          sizing: { h: 'fill', v: 'fixed' }, radius: 10, fills: cor('#F4F3F0'),
+          strokes: [{ type: 'solid', color: '#E4E1DC', opacity: 1 }], strokeWidth: 1,
+          children: [textoDe(dica, {}, '#8A847C')],
+        })
+      const pagina = id('p')
+      return {
+        version: 1,
+        pages: [{
+          id: pagina, name: t('Página 1'), background: null,
+          children: [{
+            id: id('l'), type: 'frame', name: t('Login'), x: 0, y: 0, w: 393, h: 852, clip: true, fills: cor('#FFFFFF'),
+            layout: { mode: 'column', gap: 28, padding: [96, 24, 40, 24], align: 'stretch', justify: 'start' },
+            children: [
+              caixa(t('Cabeçalho'), { mode: 'column', gap: 8 }, {
+                children: [
+                  textoDe(t('Bem-vindo de volta'), { size: 28, weight: 700 }, '#1A1816'),
+                  textoDe(t('Entre para continuar seus estudos.'), {}, '#6B6560'),
+                ],
+              }),
+              caixa(t('Campos'), { mode: 'column', gap: 12, align: 'stretch' }, {
+                children: [entrada(t('Campo e-mail'), t('E-mail')), entrada(t('Campo senha'), t('Senha'))],
+              }),
+              caixa(t('Botão entrar'), { mode: 'row', align: 'center', justify: 'center' }, {
+                sizing: { h: 'fill', v: 'fixed' }, radius: 10, fills: cor(verde),
+                effects: [{ type: 'drop', x: 0, y: 4, blur: 12, spread: 0, color: verde, opacity: 0.25 }],
+                children: [textoDe(t('Entrar'), { weight: 600 }, '#FFFFFF')],
+              }),
+              textoDe(t('Esqueci minha senha'), { size: 14, weight: 500, align: 'center' }, verde, { sizing: { h: 'fill', v: 'hug' }, autoSize: 'height' }),
+            ],
+          }],
+        }],
+        viewport: {},
+      }
+    },
+  },
 ]
 
 export const modeloPronto = (chave) => MODELOS_PRONTOS.find((m) => m.id === chave) ?? null
@@ -327,5 +381,11 @@ export function resumoDoModelo(kind, dados) {
       .trim()
   }
   if (kind === 'spreadsheet') return (dados?.columns ?? []).map((c) => c.name).join(' · ')
+  if (kind === 'design') {
+    const textos = []
+    const andar = (camadas) => camadas?.forEach((c) => (c.type === 'text' ? textos.push(c.text) : andar(c.children)))
+    dados?.pages?.forEach((p) => andar(p.children))
+    return textos.join(' · ')
+  }
   return (dados?.nodes ?? []).map((n) => n.text).filter(Boolean).join(' · ')
 }

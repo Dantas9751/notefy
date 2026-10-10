@@ -1,6 +1,6 @@
 """Documentos — a unidade única de conteúdo do Notefy.
 
-Nota, arquivo, planilha, diagrama e canvas são o MESMO modelo, separados
+Nota, arquivo, planilha, diagrama, canvas e design são o MESMO modelo, separados
 apenas pelo campo `kind`. A alternativa — uma tabela por tipo — obrigaria
 cada pasta a consultar cinco tabelas, cada filtro a ser escrito cinco
 vezes e a busca a ter cinco ramos. Aqui, "o que tem nesta pasta?" é uma
@@ -151,6 +151,7 @@ class Document(BaseModel):
         SPREADSHEET = "spreadsheet", "Planilha"
         DIAGRAM = "diagram", "Diagrama"
         CANVAS = "canvas", "Canvas"
+        DESIGN = "design", "Design"
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Rascunho"
@@ -172,10 +173,10 @@ class Document(BaseModel):
         OTHER = "other", "Outro"
 
     #: Tipos que o usuário cria e edita dentro do app.
-    EDITABLE_KINDS = (Kind.NOTE, Kind.SPREADSHEET, Kind.DIAGRAM, Kind.CANVAS)
+    EDITABLE_KINDS = (Kind.NOTE, Kind.SPREADSHEET, Kind.DIAGRAM, Kind.CANVAS, Kind.DESIGN)
 
     #: Tipos cujo payload pode ser esvaziado pela rota /reset/.
-    RESETTABLE_KINDS = (Kind.SPREADSHEET, Kind.DIAGRAM, Kind.CANVAS)
+    RESETTABLE_KINDS = (Kind.SPREADSHEET, Kind.DIAGRAM, Kind.CANVAS, Kind.DESIGN)
 
     _FILE_KIND_BY_PREFIX = (
         ("image/", FileKind.IMAGE),
@@ -250,7 +251,7 @@ class Document(BaseModel):
     )
 
     # ------------------------------------------------------------------
-    # kind = spreadsheet | diagram | canvas  (formato em content/schemas.py)
+    # kind = spreadsheet | diagram | canvas | design  (formato em content/schemas.py)
     # ------------------------------------------------------------------
     data = models.JSONField("dados", default=dict, blank=True)
 
@@ -497,8 +498,8 @@ class Template(UUIDModel, TimeStampedModel, OwnedModel):
         super().clean()
         if self.kind not in Document.EDITABLE_KINDS:
             raise ValidationError(
-                {"kind": texto("Só nota, planilha, diagrama e canvas viram modelo.",
-                               "Only notes, spreadsheets, diagrams and canvases can become templates.")}
+                {"kind": texto("Só nota, planilha, diagrama, canvas e design viram modelo.",
+                               "Only notes, spreadsheets, diagrams, canvases and designs can become templates.")}
             )
         validate_data(self.kind, self.data or {})
 

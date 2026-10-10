@@ -11,6 +11,7 @@
  * - Editor: `DocumentEditor.jsx` e `lib/history.js`
  * - Nota: `NoteEditor.jsx` e os blocos (`ChecklistSection`, `TableSection`, `CodeSection`)
  * - Canvas e diagrama: `GraphEditor.jsx`
+ * - Design: `editors/design/DesignEditor.jsx`
  * - Planilha: `SpreadsheetEditor.jsx`
  * - Barra lateral e listas: `Sidebar.jsx`, `useMultiSelect.js`
  */
@@ -75,6 +76,25 @@ export const GRUPOS_DE_ATALHOS = [
       [['Ctrl', 'C'], t('Copiar')],
       [['Ctrl', 'V'], t('Colar, inclusive imagem')],
       [['Delete'], t('Apagar a seleção')],
+    ] },
+  },
+  {
+    get titulo() { return t('Design') },
+    get itens() { return [
+      [['V', 'H'], t('Mover, mão')],
+      [['F', 'R', 'O', 'L', 'T'], t('Frame, retângulo, elipse, linha, texto')],
+      [['Shift', 'A'], t('Auto layout')],
+      [['Ctrl', 'G'], t('Agrupar (com Shift: desagrupar)')],
+      [['Ctrl', 'Alt', 'G'], t('Criar frame com a seleção')],
+      [['Ctrl', 'D'], t('Duplicar (Alt+arrastar também)')],
+      [['Ctrl', ']'], t('Trazer para frente (com Shift: para o topo)')],
+      [['Alt', 'A'], t('Alinhar à esquerda (D, W, S, H, V: os outros lados)')],
+      [['Enter'], t('Entrar nos filhos; no texto, editar')],
+      [['Shift', 'Enter'], t('Selecionar o pai')],
+      [['Ctrl', t('clique')], t('Selecionar a camada mais funda')],
+      [['Shift', '1'], t('Enquadrar tudo (2: a seleção, 0: 100%)')],
+      [['Espaço'], t('Segurar e arrastar move a vista')],
+      [['Ctrl', 'Shift', 'H'], t('Ocultar (L: travar)')],
     ] },
   },
   {

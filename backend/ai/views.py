@@ -45,7 +45,7 @@ from .providers import (
     iterar,
 )
 from .serializers import ChatRequestSerializer, RunRequestSerializer
-from .tarefas import DOCUMENTO, INSTRUCAO_DE_EDICAO, TAREFAS, TEXTO
+from .tarefas import DOCUMENTO, FORMATO_DESIGN, INSTRUCAO_DE_EDICAO, TAREFAS, TEXTO
 
 #: Regra que nenhuma tarefa pode desligar: conteúdo de documento é dado,
 #: não comando. Vai junto do sistema de toda tarefa.
@@ -73,6 +73,7 @@ ROTULO_KIND = {
     "spreadsheet": "planilha",
     "diagram": "diagrama",
     "canvas": "canvas",
+    "design": "design (telas)",
 }
 
 
@@ -266,12 +267,16 @@ class RunView(BaseIAView):
         """O pedido livre sobre o item aberto: o modelo devolve o item inteiro editado."""
         if not documento or documento.kind not in ROTULO_KIND:
             return Response(
-                {"detail": texto("Abra uma nota, planilha, diagrama ou canvas para editar.",
-                                 "Open a note, spreadsheet, diagram or canvas to edit.")},
+                {"detail": texto("Abra uma nota, planilha, diagrama, canvas ou design para editar.",
+                                 "Open a note, spreadsheet, diagram, canvas or design to edit.")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if documento.is_read_only:
             raise SomenteLeitura()
+        if documento.kind == "design":
+            # O JSON do design não se explica sozinho como uma planilha: sem o
+            # formato, o modelo inventa "elements" e "style" e a validação cai.
+            sistema += FORMATO_DESIGN
 
         atual = json.dumps(para_editar(documento.data), ensure_ascii=False)
         # ponytail: item inteiro numa resposta só; acima disto não cabe na saída

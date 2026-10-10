@@ -10,7 +10,7 @@ from rest_framework import serializers
 
 class SearchResultSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["note", "file", "spreadsheet", "diagram", "canvas", "folder", "task"]
+        choices=["note", "file", "spreadsheet", "diagram", "canvas", "design", "folder", "task"]
     )
     id = serializers.CharField()
     title = serializers.CharField()

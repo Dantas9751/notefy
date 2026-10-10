@@ -35,6 +35,9 @@ from .schemas import (
     CANVAS_EDGE_TYPES,
     CANVAS_NODE_TYPES,
     COLUMN_TYPES,
+    DESIGN_EFFECT_TYPES,
+    DESIGN_NODE_TYPES,
+    DESIGN_PAINT_TYPES,
     DIAGRAM_EDGE_TYPES,
     DIAGRAM_NODE_TYPES,
     STROKE_TOOLS,
@@ -214,6 +217,11 @@ class DocumentViewSet(OwnedModelViewSet):
                     "node_types": list(CANVAS_NODE_TYPES),
                     "edge_types": list(CANVAS_EDGE_TYPES),
                     "stroke_tools": list(STROKE_TOOLS),
+                },
+                "design": {
+                    "node_types": list(DESIGN_NODE_TYPES),
+                    "paint_types": list(DESIGN_PAINT_TYPES),
+                    "effect_types": list(DESIGN_EFFECT_TYPES),
                 },
                 "kinds": [
                     {"value": v, "label": l} for v, l in Document.Kind.choices
@@ -442,7 +450,7 @@ class DocumentViewSet(OwnedModelViewSet):
             raise SomenteLeitura()
         if document.kind not in Document.RESETTABLE_KINDS:
             return Response(
-                {"detail": "Só planilhas, diagramas e canvas podem ser esvaziados."},
+                {"detail": "Só planilhas, diagramas, canvas e designs podem ser esvaziados."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         document.data = empty_data_for(document.kind)

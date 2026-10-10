@@ -8,6 +8,7 @@ import { useTabs } from '@/context/TabsContext'
 import { chatStream, MARCA_EDITAR, runIA } from '@/lib/ai'
 import api from '@/lib/api'
 import { cn, limparMarkdown } from '@/lib/utils'
+import { KIND_POR_ROTA } from '@/lib/documents'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { comandosPara, instrucaoDoComando, sugestoesPara } from './comandos'
 import { detectarAcao, rotuloAcao } from './acoes'
@@ -15,13 +16,8 @@ import { mergeDocumento } from './merge'
 import { anexarTextoNaNota } from './executar'
 import { t } from '../../lib/i18n.js'
 
-//: Segmento da rota -> `kind` do documento.
-const KIND_DA_ROTA = {
-  notes: 'note',
-  sheets: 'spreadsheet',
-  diagrams: 'diagram',
-  canvas: 'canvas',
-}
+//: `/notes/<uuid>`, `/designs/<uuid>`...: um editor aberto, com o segmento e o id.
+const ROTA_DE_DOCUMENTO = new RegExp(`^/(${Object.keys(KIND_POR_ROTA).join('|')})/([0-9a-f-]{36})(/|$)`)
 
 /** Largura da gaveta como fração do lado em que ela abre. */
 const CHAVE_FRACAO = 'notefy.assistente.fracao'
@@ -94,7 +90,7 @@ export default function AssistentePanel() {
   // Rota do lado em foco: o documento que vira contexto do chat.
   const rotaFocada = lado === 'painel' ? painel?.path : location.pathname
   const docNaTela = useMemo(() => {
-    const par = /^\/(notes|sheets|diagrams|canvas)\/([0-9a-f-]{36})(\/|$)/.exec(rotaFocada ?? '')
+    const par = ROTA_DE_DOCUMENTO.exec(rotaFocada ?? '')
     if (!par) return null
     // O nome do arquivo vem da aba correspondente — mostrar "Nota" não
     // diz ao usuário QUAL arquivo o assistente está lendo.
@@ -103,7 +99,7 @@ export default function AssistentePanel() {
     return {
       // O segmento da rota não é o `kind` do documento (`/sheets` guarda
       // um `spreadsheet`); os comandos filtram por kind, então traduz aqui.
-      kind: KIND_DA_ROTA[par[1]],
+      kind: KIND_POR_ROTA[par[1]],
       id: par[2],
       title: aba?.title || null,
     }

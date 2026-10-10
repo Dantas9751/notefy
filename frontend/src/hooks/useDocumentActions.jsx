@@ -20,7 +20,7 @@ import { t } from '@/lib/i18n'
 const KINDS_DERIVAVEIS = ['note', 'spreadsheet', 'diagram', 'canvas', 'file']
 
 //: Tipos que viram modelo (arquivo não: o modelo guarda o conteúdo editável).
-const KINDS_DE_MODELO = ['note', 'spreadsheet', 'diagram', 'canvas']
+const KINDS_DE_MODELO = ['note', 'spreadsheet', 'diagram', 'canvas', 'design']
 
 //: Tarefa do backend por tipo alvo.
 const TAREFA_POR_KIND = {
