@@ -80,6 +80,23 @@ class EditarTests(APITestCase):
         self.assertEqual(doc.data["strokes"], QUADRO["strokes"])
         self.assertEqual(doc.data["viewport"], QUADRO["viewport"])
 
+    def test_design_recebe_o_formato_e_gera_uma_tela(self):
+        vazio = {"version": 1, "pages": [{"id": "p1", "name": "P", "background": None, "children": []}], "viewport": {"p1": {"x": 5, "y": 5, "zoom": 1}}}
+        doc = self.doc(Document.Kind.DESIGN, vazio)
+        tela = {"version": 1, "pages": [{"id": "p1", "name": "P", "children": [
+            {"id": "f1", "type": "frame", "name": "Login", "w": 390, "h": 844, "clip": True,
+             "layout": {"mode": "column", "gap": 12}, "children": [{"id": "t1", "type": "text", "text": "Entrar"}]},
+        ]}]}
+        r, chamada = self.editar(doc, json.dumps(tela))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.content)
+        # Sem o formato no sistema, o modelo inventaria a estrutura.
+        self.assertIn("DESIGN de telas", chamada.call_args.args[2])
+        doc.refresh_from_db()
+        self.assertEqual(doc.data["pages"][0]["children"][0]["children"][0]["text"], "Entrar")
+        # Posição omitida pelo modelo entra como 0; o enquadramento é da tela e volta igual.
+        self.assertEqual(doc.data["pages"][0]["children"][0]["x"], 0)
+        self.assertEqual(doc.data["viewport"], vazio["viewport"])
+
     def test_resposta_fora_do_schema_nao_grava(self):
         doc = self.doc(Document.Kind.NOTE, NOTA)
         r, _ = self.editar(doc, json.dumps({"sections": [{"id": "s1", "type": "inventado"}]}))

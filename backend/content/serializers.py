@@ -299,8 +299,8 @@ class TemplateSerializer(serializers.ModelSerializer):
             attrs.setdefault("name", normalizar_nome(documento.title)[:120])
         if attrs.get("kind") not in Document.EDITABLE_KINDS:
             raise serializers.ValidationError(
-                {"kind": texto("Só nota, planilha, diagrama e canvas viram modelo.",
-                               "Only notes, spreadsheets, diagrams and canvases can become templates.")}
+                {"kind": texto("Só nota, planilha, diagrama, canvas e design viram modelo.",
+                               "Only notes, spreadsheets, diagrams, canvases and designs can become templates.")}
             )
         if not attrs.get("name"):
             raise serializers.ValidationError({"name": texto("Dê um nome ao modelo.", "Give the template a name.")})

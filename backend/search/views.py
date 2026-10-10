@@ -32,6 +32,7 @@ _DOCUMENT_UI = {
     Document.Kind.SPREADSHEET: ("table", "/sheets"),
     Document.Kind.DIAGRAM: ("workflow", "/diagrams"),
     Document.Kind.CANVAS: ("layout-dashboard", "/canvas"),
+    Document.Kind.DESIGN: ("pen-tool", "/designs"),
 }
 
 #: Teto do `?limit=`. Era 50, e o cliente nem mandava o parâmetro: o

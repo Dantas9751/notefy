@@ -1,7 +1,7 @@
 # Notefy
 
 Plataforma de produtividade e estudos — um **Drive somado a um Notion**:
-notas em texto rico, arquivos, planilhas, diagramas UML e canvas convivem nas
+notas em texto rico, arquivos, planilhas, diagramas UML, canvas e designs de tela convivem nas
 mesmas pastas e categorias, com planner de calendário e Kanban por cima.
 
 Arquitetura **headless**: o Django serve exclusivamente uma API REST em JSON e
@@ -14,7 +14,7 @@ notefy/
 │   ├── core/         Modelos abstratos, paginação, permissões, viewset base, idioma da requisição
 │   ├── users/        Usuário (login por nome de usuário), JWT, preferências, backup
 │   ├── organization/ Categorias e pastas hierárquicas
-│   ├── content/      Document: nota, arquivo, planilha, diagrama, canvas
+│   ├── content/      Document: nota, arquivo, planilha, diagrama, canvas, design
 │   ├── planner/      Tarefas, quadros e checklists
 │   ├── search/       Busca global unificada
 │   └── ai/           Laviel, o assistente de estudos (provedor e chave do próprio usuário)
@@ -31,6 +31,7 @@ notefy/
 | **Planilha** | `/sheets` | 14 tipos de coluna, fórmulas com condicionais e texto, resumo por coluna, ordenação e filtros. |
 | **Diagrama** | `/diagrams` | Classes, casos de uso, sequência, atividade, estado, ER e fluxograma — 40+ formas e 20+ conectores. |
 | **Canvas** | `/canvas` | Quadro branco: caneta, marcador, marca-texto, borracha, post-its, formas livres e conectores. |
+| **Design** | `/designs` | Telas no jeito do Figma: páginas, frames, formas, texto e imagens, auto layout, restrições, camadas, exportação em PNG/JPG/SVG e o CSS de cada camada. |
 | **Arquivo** | `/files` | Upload de PDF, imagem, áudio, vídeo e documentos, com pré-visualização. Botão direito → Converter para: imagens entre PNG, JPG, WEBP, GIF, BMP e TIFF, e imagem, TXT, MD e HTML para PDF. |
 
 ### Nota
@@ -116,7 +117,26 @@ Os traços vivem numa lista própria no payload (`strokes`), separada de nós e
 arestas: um traço não conecta nem tem borda de encaixe, então tratá-lo como nó
 só criaria casos especiais em todo o motor.
 
-Os cinco são o **mesmo modelo** (`Document`, distinguido por `kind`), então
+### Design
+
+Editor de telas com a mecânica do Figma e a cara do Notefy. Páginas à
+esquerda junto das camadas (árvore com ocultar, travar, renomear e arrastar
+para reordenar ou mudar de pai), quadro infinito no meio, propriedades e o
+CSS da camada à direita. Frames com tamanhos prontos (celular, tablet,
+computador, slide), retângulo, elipse, linha, texto e imagem; mover com
+encaixe e guias, redimensionar pelas alças (Shift proporcional, Alt do
+centro), girar pelos cantos, alinhar e distribuir, agrupar e criar frame com
+a seleção. **Auto layout** (Shift+A deduz direção, espaço e margens da
+arrumação atual) com preencher, abraçar e posição absoluta; **restrições**
+para os filhos acompanharem o frame. Preenchimento sólido, gradiente ou
+imagem, borda, sombra, desfoque. Exporta camada ou página em PNG, JPG e SVG.
+No celular os painéis viram gavetas e a vista anda com dois dedos.
+
+As camadas são HTML de verdade (auto layout é flexbox): o mesmo desenhista
+serve à tela, à exportação e à aba Código. O formato do payload está em
+`docs/plans/2026-10-10-design.md`, e o Laviel edita e gera telas por ele.
+
+Os seis são o **mesmo modelo** (`Document`, distinguido por `kind`), então
 qualquer pasta ou categoria mistura os tipos livremente, e "o que tem nesta
 pasta?" continua sendo uma query só.
 
@@ -186,7 +206,7 @@ Os testes do backend gravam os uploads numa pasta temporária, que some no fim
 | `UserPreferences` | users | Tema, estado da sidebar, layout do Início e o bloco de rascunho. |
 | `Category` | organization | Tag global do usuário, com cor e ícone. |
 | `Folder` | organization | Pasta auto-relacionável, com `path` materializado. |
-| `Document` | content | Nota, arquivo, planilha, diagrama ou canvas — `kind` decide. |
+| `Document` | content | Nota, arquivo, planilha, diagrama, canvas ou design — `kind` decide. |
 | `Template` | content | Modelo salvo pela pessoa: o conteúdo de partida de um item novo. |
 | `Task` | planner | Tarefa com janela temporal, prioridade e status. |
 | `ChecklistItem` | planner | Subitem de tarefa. |

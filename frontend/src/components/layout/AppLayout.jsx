@@ -204,6 +204,11 @@ export default function AppLayout() {
           icon: kindMeta('canvas').icon,
           onClick: () => irPara(`${kindMeta('canvas').route}/new?folder=${folderId}`),
         },
+        {
+          label: t('Novo design'),
+          icon: kindMeta('design').icon,
+          onClick: () => irPara(`${kindMeta('design').route}/new?folder=${folderId}`),
+        },
         { separator: true },
         {
           label: t('Novo a partir de modelo...'),

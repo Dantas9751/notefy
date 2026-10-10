@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { PADRAO, limitar } from '@/lib/split'
+import { ROTA_DE_CRIACAO, documentPath } from '@/lib/documents'
 
 const SplitContext = createContext(null)
 
@@ -87,18 +88,10 @@ export function SplitProvider({ children }) {
 
       // Monta a path se só veio id+kind.
       let bruto = alvo.path
-      if (!bruto && alvo.id) {
-        const prefixo =
-          alvo.kind === 'spreadsheet' ? 'sheets'
-          : alvo.kind === 'diagram' ? 'diagrams'
-          : alvo.kind === 'canvas' ? 'canvas'
-          : alvo.kind === 'note' ? 'notes'
-          : 'files'
-        bruto = `/${prefixo}/${alvo.id}`
-      }
+      if (!bruto && alvo.id) bruto = documentPath({ kind: alvo.kind ?? 'file', id: alvo.id })
 
       // Rotas de criação guardam a query (o `?folder=`); as demais não.
-      const eCriacao = /^\/(notes|sheets|diagrams|canvas)\/new($|\?)/.test(bruto ?? '')
+      const eCriacao = ROTA_DE_CRIACAO.test(bruto ?? '')
       const path = eCriacao ? bruto : semQuery(bruto ?? '')
       if (!path) return
       // `/new` de outro tipo não existe no painel — mandar "new" gera um
@@ -163,7 +156,7 @@ export function SplitProvider({ children }) {
   const registrarPathPainel = useCallback(
     (path) => {
       // Rotas de criação guardam a query (o `?folder=`); as demais não.
-      const eCriacao = /^\/(notes|sheets|diagrams|canvas)\/new($|\?)/.test(path ?? '')
+      const eCriacao = ROTA_DE_CRIACAO.test(path ?? '')
       const p = eCriacao ? path : semQuery(path)
       // `/new` de outro tipo não existe no painel — o path guardado não
       // pode virar lixo de `/new`.

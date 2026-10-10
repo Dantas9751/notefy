@@ -30,6 +30,7 @@ const ABRIVEIS = [
   [/^\/sheets\/[^/]+$/, 'spreadsheet'],
   [/^\/diagrams\/[^/]+$/, 'diagram'],
   [/^\/canvas\/[^/]+$/, 'canvas'],
+  [/^\/designs\/[^/]+$/, 'design'],
   [/^\/files\/[^/]+$/, 'file'],
   [/^\/$/, 'home'],
   [/^\/categories\/[^/]+$/, 'category'],

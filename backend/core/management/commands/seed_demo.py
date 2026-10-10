@@ -218,6 +218,47 @@ class Command(BaseCommand):
             },
         )
 
+        def texto(tid, conteudo, tamanho=15, peso=400, cor="#6B6560"):
+            return {"id": tid, "type": "text", "x": 0, "y": 0, "w": 0, "h": 0, "text": conteudo,
+                    "autoSize": "width", "font": {"family": "Segoe UI", "size": tamanho, "weight": peso},
+                    "fills": [{"type": "solid", "color": cor, "opacity": 1}]}
+
+        def cartao(cid, titulo, detalhe, cor):
+            return {"id": cid, "type": "frame", "name": titulo, "x": 0, "y": 0, "w": 345, "h": 72,
+                    "radius": 12, "fills": [{"type": "solid", "color": "#F4F3F0", "opacity": 1}],
+                    "sizing": {"h": "fill", "v": "hug"},
+                    "layout": {"mode": "row", "gap": 12, "padding": [14, 16, 14, 16], "align": "center"},
+                    "children": [
+                        {"id": cid + "b", "type": "ellipse", "name": "Marca", "x": 0, "y": 0, "w": 12, "h": 12,
+                         "fills": [{"type": "solid", "color": cor, "opacity": 1}]},
+                        {"id": cid + "t", "type": "frame", "name": "Textos", "x": 0, "y": 0, "w": 200, "h": 40,
+                         "fills": [], "sizing": {"h": "fill", "v": "hug"}, "layout": {"mode": "column", "gap": 2},
+                         "children": [texto(cid + "1", titulo, 15, 600, "#1A1816"), texto(cid + "2", detalhe, 13)]},
+                    ]}
+
+        Document.objects.create(
+            owner=user,
+            folder=pastas["Ideias"],
+            kind=Document.Kind.DESIGN,
+            title="Protótipo do app de estudos",
+            data={
+                "version": 1,
+                "pages": [{"id": "p1", "name": "Telas", "background": None, "children": [{
+                    "id": "f1", "type": "frame", "name": "Hoje", "x": 0, "y": 0, "w": 393, "h": 852,
+                    "clip": True, "fills": [{"type": "solid", "color": "#FFFFFF", "opacity": 1}],
+                    "layout": {"mode": "column", "gap": 14, "padding": [72, 24, 32, 24], "align": "stretch"},
+                    "children": [
+                        texto("h1", "Bom dia, Ana", 28, 700, "#1A1816"),
+                        texto("h2", "3 revisões para hoje"),
+                        cartao("c1", "Dijkstra", "Algoritmos · 25 min", "#4F6B3A"),
+                        cartao("c2", "Formas normais", "Banco de Dados · 15 min", "#D97706"),
+                        cartao("c3", "Transformers", "Leitura · 40 min", "#2563EB"),
+                    ],
+                }]}],
+                "viewport": {},
+            },
+        )
+
         favorita = Document.objects.filter(
             owner=user, title="Dijkstra vs Bellman-Ford"
         ).first()

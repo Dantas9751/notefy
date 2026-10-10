@@ -39,6 +39,7 @@ const FILTROS = [
   { kind: 'spreadsheet', get label() { return t('Planilhas') } },
   { kind: 'diagram', get label() { return t('Diagramas') } },
   { kind: 'canvas', get label() { return t('Canvas') } },
+  { kind: 'design', get label() { return t('Designs') } },
 ]
 
 function CartaoDeModelo({ nome, descricao, kind, onAbrir, onContextMenu }) {

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   Paperclip,
+  PenTool,
   Table2,
   Tag,
   Trash2,
@@ -57,6 +58,14 @@ export const DOCUMENT_KINDS = {
     accent: '#EC4899',
     get description() { return t('Quadro livre para conectar ideias.') },
   },
+  design: {
+    get label() { return t('Design') },
+    get plural() { return t('Designs') },
+    icon: PenTool,
+    route: '/designs',
+    accent: '#A855F7',
+    get description() { return t('Telas e protótipos, como no Figma.') },
+  },
   file: {
     get label() { return t('Arquivo') },
     get plural() { return t('Arquivos') },
@@ -68,7 +77,13 @@ export const DOCUMENT_KINDS = {
 }
 
 /** Tipos que o usuário cria dentro do app (arquivo entra por upload). */
-export const CREATABLE_KINDS = ['note', 'spreadsheet', 'diagram', 'canvas']
+export const CREATABLE_KINDS = ['note', 'spreadsheet', 'diagram', 'canvas', 'design']
+
+/** `notes` → `note`, `designs` → `design`: o segmento da rota de cada editor. */
+export const KIND_POR_ROTA = Object.fromEntries(CREATABLE_KINDS.map((k) => [DOCUMENT_KINDS[k].route.slice(1), k]))
+
+/** `/notes/new`, `/designs/new?folder=...`: rota de criação de algum editor. */
+export const ROTA_DE_CRIACAO = new RegExp(`^/(${Object.keys(KIND_POR_ROTA).join('|')})/new($|\\?)`)
 
 /**
  * Metadados das páginas que abrem como aba: dashboard, categoria, pasta e

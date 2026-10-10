@@ -45,6 +45,7 @@ const EDITOR_ROUTES = [
   { path: 'sheets', kind: 'spreadsheet' },
   { path: 'diagrams', kind: 'diagram' },
   { path: 'canvas', kind: 'canvas' },
+  { path: 'designs', kind: 'design' },
 ]
 
 function FullScreenLoader() {

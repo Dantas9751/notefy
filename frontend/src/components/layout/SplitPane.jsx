@@ -3,6 +3,7 @@ import { UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom'
 import { useSplit } from '@/context/SplitContext'
 import { MAX, MIN, PADRAO, porcentagemDoPonteiro } from '@/lib/split'
 import { cn } from '@/lib/utils'
+import { KIND_POR_ROTA } from '@/lib/documents'
 import { Spinner } from '@/components/ui'
 import PanelErrorBoundary from '@/components/layout/PanelErrorBoundary'
 import { t } from '@/lib/i18n'
@@ -28,13 +29,6 @@ const CARREGANDO = (
   </div>
 )
 
-/** `notes` → `note`, `sheets` → `spreadsheet`, e por aí vai. */
-const KIND_POR_ROTA = {
-  notes: 'note',
-  sheets: 'spreadsheet',
-  diagrams: 'diagram',
-  canvas: 'canvas',
-}
 
 /** Páginas fixas que o painel sabe renderizar além de `Início`. */
 const PAGINAS_FIXAS = [

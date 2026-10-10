@@ -18,7 +18,7 @@ test('cada modelo tem id único, nome, descrição e título', () => {
   for (const m of MODELOS_PRONTOS) {
     assert.ok(m.id.startsWith('notefy:'), m.id)
     assert.ok(m.nome && m.descricao && m.titulo(), m.id)
-    assert.ok(['note', 'spreadsheet', 'diagram', 'canvas'].includes(m.kind), m.id)
+    assert.ok(['note', 'spreadsheet', 'diagram', 'canvas', 'design'].includes(m.kind), m.id)
   }
 })
 
@@ -58,6 +58,27 @@ test('quadros: toda aresta liga dois nós que existem', () => {
     const ids = new Set(nodes.map((n) => n.id))
     assert.equal(ids.size, nodes.length, m.id)
     assert.ok(edges.every((e) => ids.has(e.from) && ids.has(e.to)), m.id)
+  }
+})
+
+test('designs: camadas com id único, tipo conhecido e filhos só em frame e grupo', () => {
+  const TIPOS = new Set(['frame', 'group', 'rect', 'ellipse', 'line', 'text'])
+  for (const m of MODELOS_PRONTOS.filter((x) => x.kind === 'design')) {
+    const ids = []
+    const andar = (camadas) =>
+      camadas.forEach((c) => {
+        ids.push(c.id)
+        assert.ok(TIPOS.has(c.type), `${m.id}: ${c.type}`)
+        assert.ok(['x', 'y', 'w', 'h'].every((k) => typeof c[k] === 'number' && c[k] >= (k === 'x' || k === 'y' ? -Infinity : 0)), m.id)
+        if (c.children) {
+          assert.ok(c.type === 'frame' || c.type === 'group', m.id)
+          andar(c.children)
+        }
+      })
+    const { pages } = m.dados()
+    pages.forEach((p) => andar(p.children))
+    assert.deepEqual(repetidos(ids), [], m.id)
+    assert.match(resumoDoModelo('design', m.dados()), /\S/)
   }
 })
 
