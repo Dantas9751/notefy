@@ -6,6 +6,7 @@ import {
   aplicarRestricoes,
   atualizar,
   caixaAbsoluta,
+  caixaVisivel,
   caminhoAte,
   cssDaCamada,
   desagrupar,
@@ -97,12 +98,12 @@ test('emoldurar cria um frame sem fundo no lugar da seleção', () => {
 })
 
 test('duplicar põe a cópia logo acima, com ids novos; frame do topo vai para o lado', () => {
-  const { children, ids } = duplicar(pagina(), ['g', 'f'])
+  const { children, ids } = duplicar(pagina(), ['g', 'solto'])
   const grupos = children[0].children.filter((c) => c.type === 'group')
   assert.equal(grupos.length, 2)
   assert.notEqual(grupos[1].children[0].id, 'b')
   assert.equal(ids.length, 2)
-  assert.equal(children[1].x, 100 + 400 + 40)
+  assert.equal(duplicar(pagina(), ['f']).children[1].x, 100 + 400 + 40)
 })
 
 test('reordenar sobe, desce e vai para o topo e o fundo', () => {
@@ -229,3 +230,44 @@ test('Shift+A deduz direção, espaço e margem da arrumação atual', () => {
   assert.deepEqual(ordem, ['a', 'b'])
   assert.equal(inferirLayout([ret('a', 0, 0, 40, 40), ret('b', 60, 0, 40, 40)]).layout.mode, 'row')
 })
+
+test('agrupar e desagrupar todos os filhos de um grupo não perdem camadas', () => {
+  const pagina = () => [{ id: 'g', type: 'group', x: 100, y: 100, w: 30, h: 30, children: [ret('a', 0, 0), ret('b', 20, 20)] }]
+  const agrupado = agrupar(pagina(), ['a', 'b'])
+  assert.deepEqual(caixaAbsoluta(agrupado.children, 'b'), { x: 120, y: 120, w: 10, h: 10, rotation: 0 })
+  assert.ok(caminhoAte(agrupado.children, 'a').some((c) => c.id === agrupado.id))
+
+  // Grupo H sozinho dentro de G: desagrupar H não pode levar A e B junto com G.
+  const aninhado = [{ id: 'G', type: 'group', x: 0, y: 0, w: 30, h: 30, children: [{ id: 'H', type: 'group', x: 0, y: 0, w: 30, h: 30, children: [ret('a', 0, 0), ret('b', 20, 20)] }] }]
+  const solto = desagrupar(aninhado, ['H'])
+  assert.deepEqual(caixaAbsoluta(solto.children, 'b'), { x: 20, y: 20, w: 10, h: 10, rotation: 0 })
+
+  // Mover todos os filhos de G para dentro do próprio G (reordenar) também.
+  const reordenado = moverPara(pagina(), ['a', 'b'], 'g', 0)
+  assert.equal(acharNos(reordenado).length, 3)
+})
+
+test('frame e filho juntos na seleção: o filho não é inserido duas vezes', () => {
+  const p = pagina()
+  const ids = []
+  const movido = moverPara(p, ['f', 'a'], null)
+  const andar = (l) => l.forEach((c) => (ids.push(c.id), c.children && andar(c.children)))
+  andar(movido)
+  assert.equal(new Set(ids).size, ids.length)
+  assert.equal(duplicar(p, ['f', 'a']).ids.length, 1)
+})
+
+test('cópia do Alt+arrastar fica no lugar; a área visível conta rotação e linha', () => {
+  const { children, ids } = duplicar(pagina(), ['f'], { noLugar: true })
+  assert.equal(acharNos(children).find((c) => c.id === ids[0]).x, 100)
+  assert.deepEqual(caixaVisivel({ type: 'line', x: 0, y: 10, w: 100, h: 0, strokeWidth: 4 }), { x: -2, y: 8, w: 104, h: 4 })
+  const girado = caixaVisivel({ type: 'rect', x: 0, y: 0, w: 100, h: 0.0001, rotation: 90 })
+  assert.ok(Math.abs(girado.h - 100) < 0.01)
+})
+
+function acharNos(lista) {
+  const todos = []
+  const andar = (l) => l.forEach((c) => (todos.push(c), c.children && andar(c.children)))
+  andar(lista)
+  return todos
+}

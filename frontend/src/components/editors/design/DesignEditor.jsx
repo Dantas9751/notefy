@@ -58,6 +58,7 @@ import {
   redimensionarFilhos,
   remover,
   reordenar,
+  soAsDeCima,
   temLayout,
   uniao,
 } from '@/lib/design'
@@ -139,7 +140,6 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   const [vista, setVista] = useState(() => doc.viewport?.[pagina.id] ?? null)
   const [visual, setVisual] = useState(null)
   const [espaco, setEspaco] = useState(false)
-  const [, redesenhar] = useState(0)
 
   const raizRef = useRef(null)
   const areaRef = useRef(null)
@@ -295,6 +295,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   /* a seleção, as guias e o JSON (que o Laviel lê) dizerem a verdade.   */
   /* É estável: o CSS dessas camadas não depende do que se grava aqui.   */
   /* ------------------------------------------------------------------ */
+  const [digitado, redesenhar] = useState(0)
   useLayoutEffect(() => {
     if (somenteLeitura || !palcoRef.current || gestoRef.current?.tipo === 'redim') return
     const elementos = new Map([...palcoRef.current.querySelectorAll('[data-camada]')].map((el) => [el.dataset.camada, el]))
@@ -315,7 +316,10 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
     }
     andar(camadas, null)
     if (mudancas.length) mudarCamadas((lista) => mudancas.reduce((acc, [id, m]) => atualizar(acc, id, (c) => ({ ...c, ...m })), lista))
-  })
+    // `digitado` (texto em edição) e `visual` (fim do redimensionar) não entram
+    // no corpo, mas pedem uma nova medida: sem eles na lista, panorâmica e
+    // hover varriam o DOM inteiro a cada quadro.
+  }, [camadas, somenteLeitura, mudarCamadas, digitado, visual])
 
   /* ------------------------------------------------------------------ */
   /* Consultas no quadro                                                */
@@ -348,12 +352,18 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
 
   /** Retângulos dos irmãos (fora os da seleção), no espaço do pai. */
   const irmaosDe = (paiId, ids) => {
-    const lista = paiId == null ? camadas : acharCamada(camadas, paiId)?.children ?? []
+    const agora = camadasAgora()
+    const lista = paiId == null ? agora : acharCamada(agora, paiId)?.children ?? []
     return lista.filter((c) => !ids.includes(c.id) && c.visible !== false).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h }))
   }
 
   /** Só as camadas do topo da seleção: arrastar um frame e um filho dele moveria o filho duas vezes. */
-  const semDescendentes = (ids) => ids.filter((id) => !ids.some((outro) => outro !== id && estaDentro(camadas, id, outro)))
+  const semDescendentes = (ids) => soAsDeCima(camadas, ids)
+
+  /** As camadas da página como estão AGORA (no meio de um gesto, o render já ficou para trás). */
+  const camadasAgora = () => dataRef.current.pages.find((p) => p.id === paginaIdRef.current)?.children ?? camadas
+  /** Origem do pai na página, lida do estado atual: o grupo muda de origem a cada quadro do gesto. */
+  const origemAgora = (paiId) => (paiId == null ? { x: 0, y: 0 } : caixaAbsoluta(camadasAgora(), paiId) ?? { x: 0, y: 0 })
 
   /* ------------------------------------------------------------------ */
   /* Ações                                                              */
@@ -922,7 +932,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
         const rad = ((c.rotation ?? 0) * Math.PI) / 180
         const a = { x: abs.x, y: abs.y }
         const b = { x: abs.x + Math.cos(rad) * c.w, y: abs.y + Math.sin(rad) * c.w }
-        gestoRef.current = { tipo: 'ponta', id: c.id, qual: ponta, a, b, origem: origemDe(paiDe(camadas, c.id)?.id ?? null) }
+        gestoRef.current = { tipo: 'ponta', id: c.id, qual: ponta, a, b }
         return
       }
     }
@@ -972,7 +982,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       if (g.alt) {
         let novos = []
         mudarCamadas((l) => {
-          const r = duplicar(l, g.ids)
+          const r = duplicar(l, g.ids, { noLugar: true })
           novos = r.ids
           return r.children
         })
@@ -984,7 +994,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       if (Math.abs(dx) > Math.abs(dy)) dy = 0
       else dx = 0
     }
-    const atuais = dataRef.current.pages.find((p) => p.id === paginaIdRef.current)?.children ?? camadas
+    const atuais = camadasAgora()
     const primeira = acharCamada(atuais, g.ids[0])
     const pai = g.paiId === undefined ? null : g.paiId == null ? null : acharCamada(atuais, g.paiId)
     const fluxo = g.ids.every((id) => noFluxo(acharCamada(atuais, id), paiDe(atuais, id)))
@@ -1089,13 +1099,17 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       if (g.ids.length === 1) {
         const id = g.ids[0]
         const orig = g.orig.get(id)
-        let r = redimensionar({ ...orig, rotation: orig.rotation ?? 0 }, g.alca, dx, dy, opcoes)
-        const paiId = paiDe(camadas, id)?.id ?? null
+        // Na página, e só no fim no espaço do pai: dentro de grupo, a origem do
+        // pai anda a cada quadro, e partir do x/y de quando o gesto começou
+        // acumulava erro.
+        const paiId = paiDe(camadasAgora(), id)?.id ?? null
+        const origem = origemAgora(paiId)
+        const abs = redimensionar(g.caixas.get(id), g.alca, dx, dy, opcoes)
+        let r = { ...abs, x: abs.x - origem.x, y: abs.y - origem.y }
         if (!(orig.rotation ?? 0) && ['e', 's', 'se'].includes(g.alca) && !opcoes.proporcional && !opcoes.doCentro) {
-          const pai = paiId ? acharCamada(camadas, paiId) : null
+          const pai = paiId ? acharCamada(camadasAgora(), paiId) : null
           const res = encaixar(r, irmaosDe(paiId, [id]), pai && { w: pai.w, h: pai.h }, { zoom: z, modo: 'tamanho' })
           r = { ...res.ret, w: Math.round(res.ret.w), h: Math.round(res.ret.h) }
-          const origem = origemDe(paiId)
           guias = res.guias.map((gu) => ({ ...gu, pos: gu.pos + (gu.eixo === 'x' ? origem.x : origem.y), de: gu.de + (gu.eixo === 'x' ? origem.y : origem.x), ate: gu.ate + (gu.eixo === 'x' ? origem.y : origem.x) }))
         }
         mudarCamadas((l) => atualizar(l, id, () => ajustarTamanho(orig, r)))
@@ -1110,7 +1124,8 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
             const a = g.caixas.get(id)
             const nx = R.x + (a.x - u.x) * sx
             const ny = R.y + (a.y - u.y) * sy
-            return atualizar(acc, id, () => ajustarTamanho(orig, { x: Math.round(orig.x + nx - a.x), y: Math.round(orig.y + ny - a.y), w: Math.max(1, Math.round(a.w * sx)), h: Math.max(orig.type === 'line' ? 0 : 1, Math.round(a.h * sy)) }))
+            const origem = paiDe(acc, id) ? caixaAbsoluta(acc, paiDe(acc, id).id) : { x: 0, y: 0 }
+            return atualizar(acc, id, () => ajustarTamanho(orig, { x: Math.round(nx - origem.x), y: Math.round(ny - origem.y), w: Math.max(1, Math.round(a.w * sx)), h: Math.max(orig.type === 'line' ? 0 : 1, Math.round(a.h * sy)) }))
           }, l),
         )
       }
@@ -1126,11 +1141,12 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       const fixa = g.qual === 'fim' ? g.a : g.b
       const solta = pontaPresa(fixa, paraMundo(e.clientX, e.clientY), e.shiftKey)
       const [a, b] = g.qual === 'fim' ? [fixa, solta] : [solta, fixa]
+      const origem = origemAgora(paiDe(camadasAgora(), g.id)?.id ?? null)
       mudarCamadas((l) =>
         atualizar(l, g.id, (c) => ({
           ...c,
-          x: Math.round((a.x - g.origem.x) * 100) / 100,
-          y: Math.round((a.y - g.origem.y) * 100) / 100,
+          x: Math.round((a.x - origem.x) * 100) / 100,
+          y: Math.round((a.y - origem.y) * 100) / 100,
           w: Math.round(Math.hypot(b.x - a.x, b.y - a.y)),
           rotation: Math.round((Math.atan2(b.y - a.y, b.x - a.x) * 18000) / Math.PI) / 100,
         })),

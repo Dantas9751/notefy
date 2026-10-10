@@ -153,6 +153,8 @@ DESIGN_NODE_TYPES = ("frame", "group", "rect", "ellipse", "line", "text")
 DESIGN_CONTAINERS = ("frame", "group")
 DESIGN_PAINT_TYPES = ("solid", "linear", "image")
 DESIGN_EFFECT_TYPES = ("drop", "inner", "blur", "bgblur")
+DESIGN_LAYOUT_MODES = ("none", "row", "column")
+DESIGN_ALINHAMENTOS = ("start", "center", "end", "stretch", "between")
 
 #: Tetos contra payload absurdo (colado, ou gerado pelo Laviel por engano).
 MAX_DESIGN_PAGINAS = 50
@@ -518,6 +520,13 @@ def _numero(valor):
     return isinstance(valor, (int, float)) and not isinstance(valor, bool) and valor == valor and abs(valor) != float("inf")
 
 
+def _numeros(obj, campos, onde):
+    """Os `campos` presentes em `obj` são números (o editor faz conta com eles)."""
+    for campo in campos:
+        if obj.get(campo) is not None:
+            _require(_numero(obj[campo]), f"`{onde}.{campo}` deve ser um número.")
+
+
 def _validate_paints(lista, onde):
     if lista is None:
         return
@@ -526,10 +535,35 @@ def _validate_paints(lista, onde):
         _require(isinstance(paint, dict), f"`{onde}[{i}]` deve ser um objeto.")
         tipo = paint.get("type")
         _require(tipo in DESIGN_PAINT_TYPES, f"Tipo de preenchimento desconhecido: {tipo!r}.")
+        _numeros(paint, ("opacity", "angle"), f"{onde}[{i}]")
+        _require(isinstance(paint.get("color", ""), str), f"`{onde}[{i}].color` deve ser texto.")
         if tipo == "image":
             _require(isinstance(paint.get("src", ""), str), f"`{onde}[{i}].src` deve ser texto.")
         elif tipo == "linear":
-            _require(isinstance(paint.get("stops"), list), f"`{onde}[{i}].stops` deve ser uma lista.")
+            paradas = paint.get("stops")
+            _require(isinstance(paradas, list), f"`{onde}[{i}].stops` deve ser uma lista.")
+            for parada in paradas:
+                _require(isinstance(parada, dict), f"`{onde}[{i}].stops` deve ter objetos.")
+                _numeros(parada, ("at", "opacity"), f"{onde}[{i}].stops")
+
+
+def _validate_layout(layout, nid):
+    """Auto layout: o editor desmonta `padding` em quatro números e soma `gap`."""
+    if layout is None:
+        return
+    _require(isinstance(layout, dict), f"`layout` da camada {nid!r} deve ser um objeto.")
+    modo = layout.get("mode", "none")
+    _require(modo in DESIGN_LAYOUT_MODES, f"Modo de auto layout desconhecido: {modo!r}.")
+    _numeros(layout, ("gap",), f"{nid}.layout")
+    margens = layout.get("padding")
+    if margens is not None:
+        _require(
+            isinstance(margens, list) and len(margens) == 4 and all(_numero(m) for m in margens),
+            f"`layout.padding` da camada {nid!r} deve ter quatro números [cima, direita, baixo, esquerda].",
+        )
+    for campo in ("align", "justify"):
+        if layout.get(campo) is not None:
+            _require(layout[campo] in DESIGN_ALINHAMENTOS, f"`layout.{campo}` desconhecido na camada {nid!r}.")
 
 
 def _validate_design_node(node, ids, profundidade):
@@ -561,8 +595,23 @@ def _validate_design_node(node, ids, profundidade):
         valor = node.setdefault(campo, 0)
         _require(_numero(valor), f"`{campo}` da camada {nid!r} deve ser um número.")
     _require(node["w"] >= 0 and node["h"] >= 0, f"Tamanho negativo na camada {nid!r}.")
+    _numeros(node, ("rotation", "opacity", "strokeWidth"), nid)
+    raio = node.get("radius")
+    if raio is not None:
+        _require(
+            _numero(raio) or (isinstance(raio, list) and len(raio) == 4 and all(_numero(r) for r in raio)),
+            f"`radius` da camada {nid!r} deve ser um número ou quatro números.",
+        )
+    for campo in ("constraints", "sizing"):
+        _require(node.get(campo) is None or isinstance(node[campo], dict), f"`{campo}` da camada {nid!r} deve ser um objeto.")
+    _validate_layout(node.get("layout"), nid)
     if tipo == "text":
         _require(isinstance(node.get("text", ""), str), f"`text` da camada {nid!r} deve ser texto.")
+        fonte = node.get("font")
+        if fonte is not None:
+            _require(isinstance(fonte, dict), f"`font` da camada {nid!r} deve ser um objeto.")
+            _numeros(fonte, ("size", "weight", "lineHeight", "letterSpacing"), f"{nid}.font")
+            _require(isinstance(fonte.get("family", ""), str), f"`font.family` da camada {nid!r} deve ser texto.")
 
     _validate_paints(node.get("fills"), f"{nid}.fills")
     _validate_paints(node.get("strokes"), f"{nid}.strokes")
@@ -574,6 +623,7 @@ def _validate_design_node(node, ids, profundidade):
                 isinstance(efeito, dict) and efeito.get("type") in DESIGN_EFFECT_TYPES,
                 f"Efeito desconhecido na camada {nid!r}.",
             )
+            _numeros(efeito, ("x", "y", "blur", "spread", "opacity"), f"{nid}.effects")
 
     filhos = node.get("children")
     if tipo in DESIGN_CONTAINERS:

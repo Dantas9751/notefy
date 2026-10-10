@@ -1,5 +1,5 @@
 import { buscarArquivo } from '@/lib/fileMedia'
-import { uniao } from '@/lib/design'
+import { caixaVisivel, uniao } from '@/lib/design'
 import { t } from '@/lib/i18n'
 import DesignNode, { BASE_DO_PALCO } from './DesignNode'
 
@@ -14,14 +14,17 @@ import DesignNode, { BASE_DO_PALCO } from './DesignNode'
  * ponytail: o SVG guarda HTML, então abre em navegador e no próprio app mas
  * não vira vetor editável no Illustrator. Um conversor camada→<rect>/<text>
  * resolve, se um dia for preciso editar o SVG fora daqui.
- * ponytail: sombra que vaza da caixa da camada é cortada na borda.
+ * ponytail: sombra que vaza da caixa da camada é cortada na borda (a rotação e
+ * a espessura da linha já contam, em `caixaVisivel`).
  */
 
 /** `camadas`: as do topo, com `x`/`y` na página. Devolve um Blob. */
 export async function exportarCamadas(camadas, { formato = 'png', escala = 1, fundo = null } = {}) {
   const visiveis = camadas.filter((c) => c.visible !== false)
   if (!visiveis.length) throw new Error(t('Não há nada visível para exportar.'))
-  const caixa = uniao(visiveis.map((c) => ({ x: c.x, y: c.y, w: Math.max(1, c.w), h: Math.max(1, c.h) })))
+  const caixa = uniao(visiveis.map(caixaVisivel))
+  caixa.w = Math.max(1, caixa.w)
+  caixa.h = Math.max(1, caixa.h)
   const html = await desenharFora(visiveis, caixa, fundo)
   const largura = Math.ceil(caixa.w)
   const altura = Math.ceil(caixa.h)

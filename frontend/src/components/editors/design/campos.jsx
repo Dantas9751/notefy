@@ -21,10 +21,12 @@ const arred = (n, casas) => {
  * `valor` null = seleção com valores diferentes ("Misto"). Confirma no
  * Enter e ao sair; Esc volta ao valor de antes.
  */
-export function CampoNumero({ rotulo, titulo, valor, onChange, min = -Infinity, max = Infinity, passo = 1, casas = 2, sufixo, className, disabled, vazio }) {
+export function CampoNumero({ rotulo, titulo, valor, onChange, min = -Infinity, max = Infinity, passo = 1, casas = 2, sufixo, className, disabled, vazio, onLimpar }) {
   const [texto, setTexto] = useState('')
   const [editando, setEditando] = useState(false)
   const arrasteRef = useRef(null)
+  //: Esc pede para descartar; o blur que vem em seguida ainda vê o texto digitado.
+  const descartarRef = useRef(false)
   const mostrado = valor == null ? '' : String(arred(valor, casas))
 
   useEffect(() => {
@@ -34,6 +36,12 @@ export function CampoNumero({ rotulo, titulo, valor, onChange, min = -Infinity, 
   const prender = (n) => Math.min(max, Math.max(min, n))
   const confirmar = () => {
     setEditando(false)
+    if (descartarRef.current) {
+      descartarRef.current = false
+      return setTexto(mostrado)
+    }
+    // Vazio volta ao automático onde existe um (altura da linha); nos outros, desfaz.
+    if (texto.trim() === '' && onLimpar && valor != null) return onLimpar()
     if (texto.trim() === '' || texto === mostrado) return setTexto(mostrado)
     // Aceita conta simples, como o Figma: "120+16", "50*2".
     const limpo = texto.replace(',', '.').replace(/[^\d.+\-*/() ]/g, '')
@@ -86,8 +94,7 @@ export function CampoNumero({ rotulo, titulo, valor, onChange, min = -Infinity, 
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
           else if (e.key === 'Escape') {
-            setTexto(mostrado)
-            setEditando(false)
+            descartarRef.current = true
             e.currentTarget.blur()
           } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             if (valor == null) return

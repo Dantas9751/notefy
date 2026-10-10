@@ -98,6 +98,22 @@ class DesignTests(APITestCase):
         data["pages"][0]["children"][0]["fills"] = [{"type": "noise"}]
         self.assertEqual(self.criar(data).status_code, 400)
 
+    def test_recusa_formato_que_derrubaria_o_editor(self):
+        # Vindo do Laviel ou da API: passava na validação e o editor quebrava ao abrir.
+        quebrados = [
+            ("layout", {"mode": "row", "padding": 16}),
+            ("layout", {"mode": "grid"}),
+            ("font", {"size": "grande"}),
+            ("radius", [4, 4]),
+            ("effects", [{"type": "drop", "blur": "muito"}]),
+            ("fills", [{"type": "linear", "stops": ["#fff"]}]),
+            ("rotation", "45"),
+        ]
+        for campo, valor in quebrados:
+            data = copy.deepcopy(TELA)
+            data["pages"][0]["children"][0]["children"][0][campo] = valor
+            self.assertEqual(self.criar(data).status_code, 400, campo)
+
     def test_recusa_profundidade_absurda(self):
         data = copy.deepcopy(TELA)
         camada = {"id": "g0", "type": "group", "x": 0, "y": 0, "w": 1, "h": 1, "children": []}

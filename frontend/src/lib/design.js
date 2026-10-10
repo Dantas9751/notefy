@@ -258,8 +258,37 @@ export function atualizarVarias(children, ids, fn) {
   return ids.reduce((acc, id) => atualizar(acc, id, fn), children)
 }
 
-/** Remove as camadas; grupo que fica vazio some junto, como no Figma. */
-export function remover(children, ids) {
+/** Só as de cima: com um frame e um filho dele na seleção, o filho já vai junto com o frame. */
+export function soAsDeCima(children, ids) {
+  return ids.filter((id) => !ids.some((outro) => outro !== id && estaDentro(children, id, outro)))
+}
+
+/** Tira os grupos que ficaram sem filhos (grupo não existe vazio, no Figma também não). */
+function podarGruposVazios(lista) {
+  let mudou = false
+  const novos = []
+  for (const c of lista) {
+    if (!c.children) {
+      novos.push(c)
+      continue
+    }
+    const filhos = podarGruposVazios(c.children)
+    if (c.type === 'group' && !filhos.length) {
+      mudou = true
+      continue
+    }
+    if (filhos !== c.children) mudou = true
+    novos.push(filhos === c.children ? c : { ...c, children: filhos })
+  }
+  return mudou ? novos : lista
+}
+
+/**
+ * Remove as camadas; grupo que fica vazio some junto, como no Figma.
+ * `podar: false` deixa o grupo vazio no lugar: quem remove para reinserir
+ * (agrupar, desagrupar, mover) pode estar reinserindo justamente nele.
+ */
+export function remover(children, ids, { podar = true } = {}) {
   const fora = new Set(ids)
   const tirar = (lista) => {
     let mudou = false
@@ -273,7 +302,7 @@ export function remover(children, ids) {
         const filhos = tirar(c.children)
         if (filhos !== c.children) {
           mudou = true
-          if (c.type === 'group' && !filhos.length) continue
+          if (podar && c.type === 'group' && !filhos.length) continue
           novos.push({ ...c, children: filhos })
           continue
         }
@@ -301,7 +330,8 @@ export function inserir(children, paiId, camadas, indice) {
  * Leva as camadas para outro pai, mantendo-as onde estão na tela.
  * Ignora o pedido se o destino estiver dentro de uma delas.
  */
-export function moverPara(children, ids, novoPaiId, indice) {
+export function moverPara(children, idsPedidos, novoPaiId, indice) {
+  const ids = soAsDeCima(children, idsPedidos)
   if (novoPaiId != null && ids.some((id) => estaDentro(children, novoPaiId, id))) return children
   const absolutas = ids.map((id) => ({ camada: acharCamada(children, id), caixa: caixaAbsoluta(children, id) }))
     .filter((a) => a.camada)
@@ -312,7 +342,7 @@ export function moverPara(children, ids, novoPaiId, indice) {
   absolutas.sort((a, b) => ordem.indexOf(a.camada.id) - ordem.indexOf(b.camada.id))
 
   // O índice pedido conta sem as camadas que saem do próprio pai.
-  let resto = remover(children, ids)
+  let resto = remover(children, ids, { podar: false })
   const origem = novoPaiId == null ? { x: 0, y: 0 } : caixaAbsoluta(resto, novoPaiId)
   if (!origem) return children
   const movidas = absolutas.map(({ camada, caixa }) => ({
@@ -321,7 +351,7 @@ export function moverPara(children, ids, novoPaiId, indice) {
     y: arred(caixa.y - origem.y),
   }))
   resto = inserir(resto, novoPaiId, movidas, indice)
-  return resto
+  return normalizarGrupos(podarGruposVazios(resto))
 }
 
 /**
@@ -362,13 +392,28 @@ function caixaDoFilho(c) {
   return { x: Math.min(c.x, fx), y: Math.min(c.y, fy), w: Math.abs(fx - c.x), h: Math.abs(fy - c.y) }
 }
 
+/** O que a camada ocupa de fato, com a rotação e a espessura da linha (área de exportação). */
+export function caixaVisivel(c) {
+  if (c.type === 'line') {
+    const r = caixaDoFilho(c)
+    const m = (c.strokeWidth ?? 1) / 2
+    return { x: r.x - m, y: r.y - m, w: r.w + m * 2, h: r.h + m * 2 }
+  }
+  const rad = ((c.rotation ?? 0) * Math.PI) / 180
+  if (!rad) return { x: c.x, y: c.y, w: c.w, h: c.h }
+  const w = Math.abs(c.w * Math.cos(rad)) + Math.abs(c.h * Math.sin(rad))
+  const h = Math.abs(c.w * Math.sin(rad)) + Math.abs(c.h * Math.cos(rad))
+  return { x: c.x + c.w / 2 - w / 2, y: c.y + c.h / 2 - h / 2, w, h }
+}
+
 /** Mesmo pai para todas? Devolve o id dele (null = topo) ou `undefined`. */
 export function paiComum(children, ids) {
   const pais = new Set(ids.map((id) => paiDe(children, id)?.id ?? null))
   return pais.size === 1 ? [...pais][0] : undefined
 }
 
-function envolver(children, ids, tipo, campos) {
+function envolver(children, idsPedidos, tipo, campos) {
+  const ids = soAsDeCima(children, idsPedidos)
   if (!ids.length) return { children, id: null }
   let base = children
   let paiId = paiComum(base, ids)
@@ -392,8 +437,13 @@ function envolver(children, ids, tipo, campos) {
     children: escolhidas.map((c) => ({ ...c, x: arred(c.x - caixa.x), y: arred(c.y - caixa.y) })),
   })
   const indice = topo - (escolhidas.length - 1)
-  const semElas = remover(base, ids)
-  return { children: inserir(semElas, paiId, novo, indice), id: novo.id }
+  // A posição vai pela tela: tirar as camadas pode mudar a origem do grupo pai.
+  const antes = paiId == null ? { x: 0, y: 0 } : caixaAbsoluta(base, paiId)
+  const semElas = remover(base, ids, { podar: false })
+  const depois = paiId == null ? { x: 0, y: 0 } : caixaAbsoluta(semElas, paiId)
+  novo.x = arred(novo.x + antes.x - depois.x)
+  novo.y = arred(novo.y + antes.y - depois.y)
+  return { children: normalizarGrupos(podarGruposVazios(inserir(semElas, paiId, novo, indice))), id: novo.id }
 }
 
 /** Ctrl+G. */
@@ -412,24 +462,35 @@ export function desagrupar(children, ids) {
     const pai = paiDe(atual, id)
     const irmaos = pai ? pai.children : atual
     const indice = irmaos.findIndex((c) => c.id === id)
-    const filhos = camada.children.map((f) => ({ ...f, x: arred(f.x + camada.x), y: arred(f.y + camada.y) }))
-    atual = inserir(remover(atual, [id]), pai?.id ?? null, filhos, indice)
+    const antes = pai ? caixaAbsoluta(atual, pai.id) : { x: 0, y: 0 }
+    const semEle = remover(atual, [id], { podar: false })
+    const depois = pai ? caixaAbsoluta(semEle, pai.id) : { x: 0, y: 0 }
+    const filhos = camada.children.map((f) => ({
+      ...f,
+      x: arred(f.x + camada.x + antes.x - depois.x),
+      y: arred(f.y + camada.y + antes.y - depois.y),
+    }))
+    atual = normalizarGrupos(podarGruposVazios(inserir(semEle, pai?.id ?? null, filhos, indice)))
     soltos.push(...filhos.map((f) => f.id))
   }
   return { children: atual, ids: soltos }
 }
 
-/** Ctrl+D: cópia logo acima do original. Frame do topo vai para o lado, como no Figma. */
-export function duplicar(children, ids) {
+/**
+ * Ctrl+D: cópia logo acima do original. Frame do topo vai para o lado, como
+ * no Figma; `noLugar` deixa a cópia em cima do original (Alt+arrastar, em
+ * que é o arraste que a leva).
+ */
+export function duplicar(children, idsPedidos, { noLugar = false } = {}) {
   let atual = children
   const novos = []
-  for (const id of ids) {
+  for (const id of soAsDeCima(children, idsPedidos)) {
     const camada = acharCamada(atual, id)
     if (!camada) continue
     const pai = paiDe(atual, id)
     const irmaos = pai ? pai.children : atual
     const copia = clonar(camada)
-    if (!pai && camada.type === 'frame') copia.x = arred(camada.x + camada.w + 40)
+    if (!noLugar && !pai && camada.type === 'frame') copia.x = arred(camada.x + camada.w + 40)
     atual = inserir(atual, pai?.id ?? null, copia, irmaos.findIndex((c) => c.id === id) + 1)
     novos.push(copia.id)
   }

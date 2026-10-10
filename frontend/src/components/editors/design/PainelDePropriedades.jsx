@@ -380,6 +380,7 @@ function SecaoDeTexto({ itens, editar }) {
           titulo={t('Altura da linha (vezes o tamanho; vazio = automática)')}
           valor={alturaDaLinha === 'auto' ? null : alturaDaLinha}
           vazio={alturaDaLinha === 'auto' ? t('Auto') : undefined}
+          onLimpar={() => mudar({ lineHeight: null })}
           min={0.5}
           max={5}
           passo={0.05}
