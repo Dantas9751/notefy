@@ -69,3 +69,9 @@ test('download que falhou (blob) não quebra', () => {
 test('detail em lista é achatado', () => {
   assert.equal(extractError(erro(400, { detail: ['Primeiro motivo.'] })), 'Primeiro motivo.')
 })
+
+test('erro do próprio app passa como está; rede continua sendo rede', () => {
+  assert.equal(extractError(new Error('Nada para exportar.')), 'Nada para exportar.')
+  assert.match(extractError(Object.assign(new Error('Network Error'), { isAxiosError: true })), /servidor/i)
+  assert.match(extractError(new TypeError('Failed to fetch')), /servidor/i)
+})

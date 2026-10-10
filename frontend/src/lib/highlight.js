@@ -34,6 +34,7 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { t } from './i18n.js'
+import { escapeHtml } from './utils.js'
 
 const LANGUAGES = {
   plaintext, python, javascript, typescript, java, c, cpp, csharp,
@@ -142,13 +143,6 @@ export function highlightCode(code, language) {
   } catch {
     return escapeHtml(source)
   }
-}
-
-export function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
 }
 
 /** Detecta a linguagem de um trecho colado, para pré-selecionar no bloco. */

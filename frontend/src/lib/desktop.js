@@ -8,6 +8,8 @@
  */
 
 import { t } from './i18n.js'
+import { avisarErro, avisarProgresso, avisarSucesso, fecharAviso } from './avisoFlutuante.js'
+import { extractError } from './erros.js'
 
 /** O app rodando no celular (a webview do Tauri no Android). */
 export const emCelular = () =>
@@ -64,8 +66,8 @@ export async function abrirEmNovaJanela(rota, titulo = t('Notefy')) {
  * e não como JSON: um arquivo de dezenas de MB serializado em lista de
  * números não passa.
  *
- * Devolve `false` quando a pessoa cancelou o diálogo, para quem chamou
- * não anunciar sucesso nem falha.
+ * Devolve o caminho gravado (desktop), `true` (navegador, onde o caminho
+ * é do gerenciador de downloads) ou `false` quando a pessoa cancelou.
  */
 export async function salvarArquivo(blob, nomeSugerido) {
   const nome = nomeSugerido || t('arquivo')
@@ -96,21 +98,68 @@ export async function salvarArquivo(blob, nomeSugerido) {
     headers: { 'x-nome': encodeURIComponent(nome) },
   })
 
-  return caminho !== null
+  return caminho ?? false
 }
 
 /**
- * Ponte entre janelas da mesma sessão.
- *
- * Duas janelas abertas no mesmo documento não podem discordar sobre ele.
- * O app já avisa a si mesmo por eventos (`notefy:moved`, `notefy:favorites-
- * changed`, `notefy:task-changed`); esta ponte repete esses mesmos avisos
- * nas outras janelas, então qualquer tela que já escutava continua
- * funcionando sem saber que existe uma segunda janela.
- *
- * `BroadcastChannel` funciona em WebView2 e em navegador, e só alcança a
- * mesma origem — o que é exatamente o alcance desejado.
+ * Tela cheia de verdade, para o modo zen: no desktop a janela some com a
+ * barra de título (fechar, minimizar, maximizar) e a barra de tarefas; no
+ * navegador, a API de tela cheia — que só obedece a um gesto da pessoa, então
+ * o zen lembrado ao abrir o app fica sem ela até o próximo Ctrl+.
  */
+export async function telaCheia(ligar) {
+  if (emCelular()) return
+  if (noDesktop()) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await getCurrentWindow().setFullscreen(ligar)
+  } else if (ligar && !document.fullscreenElement) {
+    await document.documentElement.requestFullscreen?.()
+  } else if (!ligar && document.fullscreenElement) {
+    await document.exitFullscreen()
+  }
+}
+
+let downloads = 0
+
+/**
+ * Gera e salva um arquivo com retorno na tela do começo ao fim: um aviso
+ * "Exportando..." enquanto o arquivo é montado (PDF e .zip levam segundos)
+ * vira, no mesmo lugar, "Salvo em <pasta>" ou o erro. Cancelar o "Salvar
+ * como" fecha o aviso sem dizer nada. Antes, exportar não dizia nada: nem
+ * que começou, nem que terminou, nem onde o arquivo foi parar.
+ *
+ * `gerar` devolve o Blob, ou `{ blob, nome }` quando o nome só se sabe
+ * depois (o do servidor). Não lança: todo resultado sai no aviso.
+ */
+export async function baixar(nome, gerar) {
+  const id = `download${(downloads += 1)}`
+  // Sem nome (o .zip, que só se sabe depois de juntar as pastas): genérico.
+  avisarProgresso(id, nome ? t('Exportando "{nome}"...', { nome }) : t('Exportando...'))
+  try {
+    const gerado = await gerar()
+    const final = gerado instanceof Blob ? nome : gerado.nome
+    const onde = await salvarArquivo(gerado instanceof Blob ? gerado : gerado.blob, final)
+    if (!onde) {
+      fecharAviso(id)
+    } else if (typeof onde === 'string') {
+      const pasta = onde.replace(/[\\/][^\\/]*$/, '')
+      avisarSucesso(t('"{nome}" salvo em {pasta}. Clique para abrir a pasta.', { nome: final, pasta }), id, () => mostrarNaPasta(onde))
+    } else {
+      avisarSucesso(t('"{nome}" baixado.', { nome: final }), id)
+    }
+    return onde
+  } catch (erro) {
+    avisarErro(extractError(erro, nome ? t('Não foi possível exportar "{nome}".', { nome }) : t('Não foi possível exportar.')), id)
+    return false
+  }
+}
+
+/** Abre o explorador de arquivos com o arquivo recém-salvo selecionado. */
+async function mostrarNaPasta(caminho) {
+  const { invoke } = await import('@tauri-apps/api/core')
+  invoke('mostrar_na_pasta', { caminho }).catch(() => {})
+}
+
 /**
  * Identificador de uma tela aberta, para ela ignorar o próprio aviso.
  *
@@ -130,6 +179,18 @@ export const EVENTOS_SINCRONIZADOS = [
   'notefy:task-changed',
 ]
 
+/**
+ * Ponte entre janelas da mesma sessão.
+ *
+ * Duas janelas abertas no mesmo documento não podem discordar sobre ele.
+ * O app já avisa a si mesmo por eventos (`notefy:moved`, `notefy:favorites-
+ * changed`, `notefy:task-changed`); esta ponte repete esses mesmos avisos
+ * nas outras janelas, então qualquer tela que já escutava continua
+ * funcionando sem saber que existe uma segunda janela.
+ *
+ * `BroadcastChannel` funciona em WebView2 e em navegador, e só alcança a
+ * mesma origem — o que é exatamente o alcance desejado.
+ */
 export function conectarJanelas() {
   if (typeof BroadcastChannel === 'undefined') return () => {}
 

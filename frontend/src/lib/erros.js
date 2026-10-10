@@ -66,7 +66,14 @@ function mensagemDoErro(error, fallback) {
   const data = error?.response?.data
 
   // Sem resposta nenhuma: servidor fora do ar, CORS ou tempo esgotado.
-  if (!error?.response) return semResposta()
+  // Menos o erro do próprio app (`new Error(t(...))`: o PNG que não saiu,
+  // "nada para exportar"), que já é a frase certa — tratá-lo como servidor
+  // fora do ar mandava a pessoa olhar o lugar errado. O `TypeError` é o
+  // "Failed to fetch" do navegador, que é rede.
+  if (!error?.response) {
+    const doApp = error instanceof Error && !error.isAxiosError && !(error instanceof TypeError)
+    return doApp && error.message ? error.message : semResposta()
+  }
 
   const porStatus = POR_STATUS[status] ?? (status >= 500 ? erroDoServidor() : null)
 

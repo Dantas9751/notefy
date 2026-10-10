@@ -54,6 +54,17 @@ function planilha(colunas, linhas) {
   }
 }
 
+/**
+ * Planilha nova, em branco: cinco colunas e dez linhas, como uma folha de
+ * Excel recém-aberta — dá onde clicar e escrever `=A1+B1` de saída.
+ */
+export function planilhaEmBranco() {
+  return planilha(
+    Array.from({ length: 5 }, (_, i) => ({ name: t('Coluna {n}', { n: i + 1 }), type: 'text', width: 140 })),
+    Array.from({ length: 10 }, () => ['']),
+  )
+}
+
 export const MODELOS_PRONTOS = [
   {
     id: 'notefy:aula',

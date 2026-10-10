@@ -39,7 +39,7 @@ const LINGUAGEM_POR_EXTENSAO = {
 /** Extensões de texto sem gramática própria — abrem como texto simples. */
 const EXTENSOES_SIMPLES = ['txt', 'log', 'csv', 'tsv', 'gitignore', 'lock']
 
-const extensaoDe = (nome) => (nome || '').split('.').pop()?.toLowerCase() ?? ''
+export const extensaoDe = (nome) => (nome || '').split('.').pop()?.toLowerCase() ?? ''
 
 /**
  * O arquivo é legível como texto?

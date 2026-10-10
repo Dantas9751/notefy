@@ -225,16 +225,6 @@ export function comandoDe(texto, kind) {
 }
 
 /**
- * Se o texto é um comando conhecido, mantém como está (para aparecer no chat).
- * Texto que não é comando passa intacto.
- */
-export function expandirComando(texto, kind) {
-  const comando = comandoDe(texto, kind)
-  if (!comando) return texto
-  return texto // mantém o /comando visível no histórico
-}
-
-/**
  * A instrução real que o modelo recebe para um comando.
  *
  * Fica separada do texto exibido: no chat aparece `/resumir` (curto, é o

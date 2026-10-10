@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Columns2, ExternalLink, LayoutDashboard, Plus, X, XCircle } from 'lucide-react'
+import { Columns2, ExternalLink, Home, Plus, X, XCircle } from 'lucide-react'
 import { useTabs } from '@/context/TabsContext'
 import { semQuery, useSplit } from '@/context/SplitContext'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
@@ -396,7 +396,7 @@ export default function TabBar() {
         items={[
           {
             label: t('Início'),
-            icon: LayoutDashboard,
+            icon: Home,
             onClick: () => {
               // Segunda aba de Início: navegar só focaria a que já
               // existe — o `+` é o pedido explícito de uma nova.

@@ -18,6 +18,7 @@ import { limparHtml } from '@/lib/sanitizar'
 import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
 import { t } from '@/lib/i18n'
+import { avisarErro } from '@/lib/avisoFlutuante'
 
 /**
  * Modelos: o ponto de partida de um item novo.
@@ -136,7 +137,6 @@ export default function Templates() {
   const [renomeando, setRenomeando] = useState(null)
   const [excluindo, setExcluindo] = useState(null)
   const [escolhendoPasta, setEscolhendoPasta] = useState(false)
-  const [erro, setErro] = useState(null)
   const { menu, openMenu, closeMenu } = useContextMenu()
 
   const pastaId = searchParams.get('folder')
@@ -150,7 +150,6 @@ export default function Templates() {
 
   /** Abre a prévia; modelo salvo busca o conteúdo, o do app já o tem. */
   const abrir = async (modelo) => {
-    setErro(null)
     if (modelo.pronto) {
       setAberto({ ...modelo, dados: modelo.dados() })
       return
@@ -161,7 +160,7 @@ export default function Templates() {
       setAberto((atual) => atual && atual.id === modelo.id && { ...atual, dados: data.data })
     } catch (err) {
       setAberto(null)
-      setErro(extractError(err))
+      avisarErro(extractError(err))
     }
   }
 
@@ -182,7 +181,6 @@ export default function Templates() {
       />
 
       <PageBody className="space-y-8">
-        {erro && <ErrorState message={erro} />}
 
         <div className="flex flex-wrap items-center gap-2">
           {FILTROS.map((f) => (

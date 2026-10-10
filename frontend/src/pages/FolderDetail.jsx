@@ -8,34 +8,33 @@ import {
   FolderPlus,
   Pencil,
   Trash2,
-  X,
 } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
+import api from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useTabState } from '@/context/TabsContext'
 import { useDocumentActions } from '@/hooks/useDocumentActions'
-import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { propsDoCampo, useF2, useRenomear } from '@/hooks/useRenomear'
-import { parseKey, useMultiSelect } from '@/hooks/useMultiSelect'
+import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
+import { useF2, useRenomear } from '@/hooks/useRenomear'
+import { useMultiSelect } from '@/hooks/useMultiSelect'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
-import { Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
+import { BarraDeSelecao, Badge, Button, EmptyState, ErrorState, ListSkeleton } from '@/components/ui'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import DocumentCard from '@/components/DocumentCard'
-import FavoriteButton from '@/components/FavoriteButton'
+import PastaCard from '@/components/PastaCard'
 import CreateMenu from '@/components/layout/CreateMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
-import ConfirmDialog from '@/components/modals/ConfirmDialog'
-import { exportBatchAsZip } from '@/components/ExportMenu'
+import { itensDaPasta } from '@/components/layout/menusDaArvore'
+import { exportarSelecao } from '@/components/ExportMenu'
 import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 import {
   canDrop,
   hasFilePayload,
   hasItemPayload,
-  limparDragPayload,
   readDragPayload,
-  setDragPayload,
 } from '@/lib/dnd'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import { TASK_STATUS, cn, formatRelative } from '@/lib/utils'
@@ -73,9 +72,6 @@ export default function FolderDetail({ id: idProp }) {
   const [folderModal, setFolderModal] = useState(null)
   const [kindFilter, setKindFilter] = useState('')
   const [dragging, setDragging] = useState(null)
-  const [uploadError, setUploadError] = useState(null)
-  //: Quantidade aguardando confirmação de exclusão em lote.
-  const [confirmarLote, setConfirmarLote] = useState(null)
 
   const fileInputRef = useRef(null)
 
@@ -87,7 +83,7 @@ export default function FolderDetail({ id: idProp }) {
       refetch()
       refresh()
     },
-    onErro: setUploadError,
+    onErro: avisarErro,
   })
 
   const {
@@ -113,43 +109,27 @@ export default function FolderDetail({ id: idProp }) {
   const { selected: selectedIds, isSelected, clear, handleClick, handleContextMenu } =
     useMultiSelect(selectableKeys)
 
-  useF2(renomear, selectedIds)
+  useF2(renomear, selectedIds, ['document', 'folder'])
 
-  const {
-    requestDelete,
-    dialogs: deleteDialogs,
-  } = useCascadeDelete({
-    onDeleted: () => {
+  const { pedirExclusao, requestDelete, dialogs: deleteDialogs } = useExcluirSelecao({
+    selecionados: selectedIds,
+    itemDe: (chave) =>
+      subfolders.find((sub) => `folder:${sub.id}` === chave) ??
+      documents.find((doc) => `document:${doc.id}` === chave),
+    onExcluido: () => {
       clear()
-      refetch()
       refresh()
     },
-    onError: setUploadError,
   })
 
-  useEffect(() => {
-    const onMoved = () => refetch()
-    window.addEventListener('notefy:moved', onMoved)
-    return () => {
-      window.removeEventListener('notefy:moved', onMoved)
-    }
-  }, [refetch])
+  useListenerDeJanela('notefy:moved', refetch)
 
   useEffect(() => {
     clear()
   }, [id, clear])
 
-  // O aviso some sozinho, como já acontece no CategoryDetail: ele fica no
-  // topo da grade e ninguém o fecha na mão depois de ler.
-  useEffect(() => {
-    if (!uploadError) return undefined
-    const timer = setTimeout(() => setUploadError(null), 4000)
-    return () => clearTimeout(timer)
-  }, [uploadError])
-
   const upload = (files) => {
     if (!files.length) return
-    setUploadError(null)
     // A lista de documentos da pasta já está em mãos — o conflito de
     // nomes é decidido contra ela.
     iniciarUpload(files, id, data?.documents ?? [])
@@ -158,7 +138,7 @@ export default function FolderDetail({ id: idProp }) {
     }
   }
 
-  // 👇 AQUI ESTÁ A MÁGICA: `&& !data` evita que a página se destrua no meio do refetch
+  // `&& !data`: um refetch não troca a página pelo esqueleto.
   if (loading && !data) {
     return (
       <PageBody>
@@ -191,151 +171,6 @@ export default function FolderDetail({ id: idProp }) {
     openMenu(event, { ...payload, isMultiple: total > 1 })
   }
 
-  /**
-   * Apaga um item. Devolve o resultado em vez de lançar.
-   *
-   * Lançar aqui abortava o `for` do lote: os itens ANTES do bloqueado eram
-   * apagados e os DEPOIS nem eram tentados. Um item recusado deve ser
-   * pulado, não virar parede no meio da fila.
-   */
-  const deleteOne = async (selectionKey) => {
-    const { type: itemType, id: itemId } = parseKey(selectionKey)
-
-    const endpoint =
-      itemType === 'folder'
-        ? `/folders/${itemId}/`
-        : `/documents/${itemId}/`
-
-    try {
-      await api.delete(endpoint)
-      return { ok: true }
-    } catch (err) {
-      const status = err.response?.status
-      if (status === 404) return { ok: true }
-      // 423 é o bloqueio por favorito, e `?force=true` não derruba —
-      // repetir só gastaria outra requisição para receber o mesmo não.
-      if (status === 423) return { ok: false, motivo: extractError(err) }
-
-      try {
-        await api.delete(`${endpoint}?force=true`)
-        return { ok: true }
-      } catch (forceErr) {
-        if (forceErr.response?.status === 404) return { ok: true }
-        return { ok: false, motivo: extractError(forceErr) }
-      }
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-
-    const idsToDelete = [...selectedIds]
-
-    setUploadError(null)
-    setConfirmarLote(null)
-
-    // A fila vai até o fim: um item recusado não impede os seguintes.
-    const bloqueados = []
-    for (const selectionKey of idsToDelete) {
-      const resultado = await deleteOne(selectionKey)
-      if (!resultado.ok) bloqueados.push(resultado.motivo)
-    }
-
-    clear()
-
-    if (bloqueados.length) {
-      setUploadError(
-        t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total: idsToDelete.length, motivo: bloqueados[0] }),
-      )
-    }
-
-    await refetch()
-    refresh()
-
-    window.dispatchEvent(new Event('notefy:moved'))
-  }
-
-  const handleBulkDeleteWithDialog = () => {
-    if (selectedIds.length === 0) return
-
-    if (selectedIds.length === 1) {
-      const { type: itemType, id: itemId } = parseKey(selectedIds[0])
-
-      if (itemType === 'folder') {
-        const sub = subfolders.find(
-          (item) => String(item.id) === String(itemId),
-        )
-
-        if (sub) {
-          setUploadError(null)
-
-          requestDelete({
-            kind: 'folder',
-            id: sub.id,
-            name: sub.name,
-          })
-
-          return
-        }
-      }
-
-      handleBulkDelete()
-      return
-    }
-
-    // Com vários, o diálogo é aberto direto — e NÃO via `requestDelete`.
-    //
-    // `requestDelete` começa tentando um DELETE de verdade no alvo, e só cai
-    // no diálogo se o servidor pedir confirmação. Passando o primeiro item
-    // como alvo, uma pasta vazia era apagada na hora, `onDeleted` fechava o
-    // fluxo e o `onConfirmOverride` nunca rodava: só o primeiro sumia.
-    //
-    // De quebra, o caminho antigo caía em `handleBulkDelete()` direto quando
-    // o primeiro selecionado era um documento — apagava tudo sem perguntar.
-    setConfirmarLote(selectedIds.length)
-  }
-
-  /** Baixa os selecionados como ZIP, cada um no formato padrão. */
-  const handleBulkExport = async () => {
-    if (selectedIds.length === 0) return
-    setUploadError(null)
-
-    const documentos = []
-    for (const selectionKey of selectedIds) {
-      const { type: itemType, id: itemId } = parseKey(selectionKey)
-
-      try {
-        if (itemType === 'document') {
-          const { data } = await api.get(`/documents/${itemId}/`)
-          documentos.push(data)
-        } else if (itemType === 'folder') {
-          // A subpasta vira as suas folhas soltas (mesmo critério da
-          // sidebar): uma pasta vazia no zip seria um zero no lugar do
-          // conteúdo que o usuário mandou baixar.
-          const { data } = await api.get(`/folders/${itemId}/contents/`)
-          for (const doc of data.documents ?? []) {
-            const completo = await api.get(`/documents/${doc.id}/`)
-            documentos.push(completo.data)
-          }
-        }
-      } catch {
-        // Item que falha não derruba o lote: melhor um zip com o que deu
-        // certo do que nenhum arquivo por causa de um item quebrado.
-      }
-    }
-
-    if (!documentos.length) {
-      setUploadError(t('Nada para exportar na seleção.'))
-      return
-    }
-
-    try {
-      await exportBatchAsZip(documentos)
-    } catch (err) {
-      setUploadError(extractError(err))
-    }
-  }
-
   const subfolderMenu = (payload) => {
     const { sub, isMultiple } = payload
 
@@ -344,61 +179,26 @@ export default function FolderDetail({ id: idProp }) {
         {
           label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
-          onClick: handleBulkExport,
+          onClick: () => exportarSelecao(selectedIds),
         },
         { separator: true },
         {
           label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
-          onClick: handleBulkDeleteWithDialog,
+          onClick: pedirExclusao,
         },
       ]
     }
 
-    return [
-      {
-        label: t('Abrir'),
-        icon: FolderOpen,
-        onClick: () => navigate(`/folders/${sub.id}`),
-      },
-      {
-        label: t('Nova subpasta'),
-        icon: FolderPlus,
-        onClick: () =>
-          setFolderModal({
-            parent: sub,
-            categoryId: folder.category,
-          }),
-      },
-      {
-        separator: true,
-      },
-      {
-        label: t('Renomear'),
-        icon: Pencil,
-        onClick: () =>
-          setFolderModal({
-            folder: sub,
-            categoryId: folder.category,
-          }),
-      },
-      {
-        label: t('Excluir'),
-        icon: Trash2,
-        danger: true,
-        onClick: () => {
-          setUploadError(null)
-
-          requestDelete({
-            kind: 'folder',
-            id: sub.id,
-            name: sub.name,
-          })
-        },
-      },
-      ...fimDoMenu('pasta', sub.id),
-    ]
+    return itensDaPasta(sub, {
+      navigate,
+      novaSubpasta: () => setFolderModal({ parent: sub, categoryId: folder.category }),
+      renomear: () => renomear.abrir(sub.id),
+      editar: () => setFolderModal({ folder: sub, categoryId: folder.category }),
+      excluir: () => requestDelete({ kind: 'folder', id: sub.id, name: sub.name }),
+      fimDoMenu,
+    })
   }
 
   const pageMenu = () => [
@@ -426,14 +226,14 @@ export default function FolderDetail({ id: idProp }) {
         {
           label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
-          onClick: handleBulkExport,
+          onClick: () => exportarSelecao(selectedIds),
         },
         { separator: true },
         {
           label: t('Excluir ({length} selecionados)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
-          onClick: handleBulkDeleteWithDialog,
+          onClick: pedirExclusao,
         },
       ]
     }
@@ -687,10 +487,6 @@ export default function FolderDetail({ id: idProp }) {
         className="min-h-full space-y-8"
         onContextMenu={(event) => openMenu(event, { type: 'page' })}
       >
-        {uploadError && (
-          <ErrorState message={uploadError} />
-        )}
-
         {isEmpty && (
           <EmptyState
             icon={FolderOpen}
@@ -720,65 +516,26 @@ export default function FolderDetail({ id: idProp }) {
                 const selecionada = isSelected(selectionKey)
 
                 return (
-                  <article
+                  <PastaCard
                     key={sub.id}
-                    draggable
-                    onDragStart={(event) =>
-                      setDragPayload(event, {
-                        type: 'folder',
-                        id: sub.id,
-                        title: sub.name,
-                        parentId: id,
-                        categoryId: folder.category,
-                        isRoot: false,
-                        path: sub.path,
-                      })
-                    }
-                    onDragEnd={() => limparDragPayload()}
+                    pasta={sub}
+                    selecionada={selecionada}
+                    renomear={renomear}
+                    arraste={{
+                      type: 'folder',
+                      id: sub.id,
+                      title: sub.name,
+                      parentId: id,
+                      categoryId: folder.category,
+                      isRoot: false,
+                      path: sub.path,
+                    }}
                     onClickCapture={(event) =>
-                      handleClick(selectionKey, event, () =>
-                        navigate(`/folders/${sub.id}`),
-                      )
+                      handleClick(selectionKey, event, () => navigate(`/folders/${sub.id}`))
                     }
-                    onContextMenu={(event) =>
-                      handleContextAction(selectionKey, event, {
-                        type: 'subfolder',
-                        sub,
-                      })
-                    }
-                    className={cn(
-                      'card group flex cursor-pointer items-center gap-3 p-4 active:cursor-grabbing transition',
-                      selecionada &&
-                        'ring-2 ring-accent-500 bg-accent-50/50 dark:bg-accent-500/10',
-                    )}
-                  >
-                    <FolderOpen
-                      size={17}
-                      className="shrink-0 text-ink-400"
-                      style={
-                        sub.color
-                          ? { color: sub.color }
-                          : undefined
-                      }
-                    />
-
-                    <div className="min-w-0 flex-1">
-                      <p className="titulo truncate text-[15px]">
-                        {sub.name}
-                      </p>
-
-                      <p className="text-xs text-ink-400">
-                        {sub.document_count} {t('item(ns) ·')}{' '}
-                        {sub.child_count} {t('subpasta(s)')}
-                      </p>
-                    </div>
-
-                    <FavoriteButton
-                      endpoint={`/folders/${sub.id}/`}
-                      value={sub.is_favorite}
-                      onChanged={refresh}
-                    />
-                  </article>
+                    onContextMenu={(event) => handleContextAction(selectionKey, event, { type: 'subfolder', sub })}
+                    onFavoritou={refresh}
+                  />
                 )
               })}
             </div>
@@ -818,16 +575,7 @@ export default function FolderDetail({ id: idProp }) {
                     <DocumentCard
                       document={doc}
                       selecionado={selecionado}
-                      renomeando={renomear.estaEditando(doc.id)}
-                      onRename={() => renomear.abrir(doc.id)}
-                      erroDeRenomear={renomear.estaEditando(doc.id) ? renomear.erro : null}
-                      camposDeRenomear={propsDoCampo({
-                        valorAtual: doc.title,
-                        endpoint: `/documents/${doc.id}/`,
-                        campo: 'title',
-                        gravar: renomear.gravar,
-                        fechar: renomear.fechar,
-                      })}
+                      renomear={renomear}
                       className={cn(
                         selecionado &&
                           'ring-2 ring-accent-500 ring-offset-0 bg-accent-50/60 dark:bg-accent-500/10',
@@ -877,31 +625,7 @@ export default function FolderDetail({ id: idProp }) {
         )}
       </PageBody>
 
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-slide-up flex items-center gap-3 rounded-xl bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800 border border-ink-700">
-          <span className="text-xs font-medium">
-            {selectedIds.length} {t('selecionado(s)')}
-          </span>
-
-          <div className="h-4 w-px bg-ink-700" />
-
-          <button
-            onClick={handleBulkDeleteWithDialog}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
-          >
-            <Trash2 size={14} />
-            {t('Excluir')}
-          </button>
-
-          <button
-            onClick={clear}
-            className="rounded p-1 text-ink-400 transition hover:text-white"
-            title={t('Limpar seleção')}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <BarraDeSelecao total={selectedIds.length} onExcluir={pedirExclusao} onLimpar={clear} />
 
       <ContextMenu
         open={!!menu}
@@ -930,18 +654,6 @@ export default function FolderDetail({ id: idProp }) {
           refetch()
           refresh()
         }}
-      />
-
-      {/* Confirmação do lote. Mesmo `ConfirmDialog` do resto do app; o que
-          muda é que aqui ele é aberto direto, sem passar pelo
-          `requestDelete` — que apagaria o primeiro item antes de perguntar. */}
-      <ConfirmDialog
-        open={!!confirmarLote}
-        title={t('Excluir itens selecionados')}
-        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: confirmarLote })}
-        confirmLabel={t('Excluir {n} itens', { n: confirmarLote })}
-        onClose={() => setConfirmarLote(null)}
-        onConfirm={handleBulkDelete}
       />
 
       {deleteDialogs}

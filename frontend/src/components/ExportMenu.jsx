@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
+import api from '@/lib/api'
 import { buildNoteHtml, buildNoteMarkdown } from '@/lib/exportNota'
-import { salvarArquivo } from '@/lib/desktop'
-import { valorDaCelula } from '@/lib/celulas'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { baixar } from '@/lib/desktop'
+import { valorParaExportar } from '@/lib/formula'
 import { buscarArquivo } from '@/lib/fileMedia'
 import { useMenuSuspenso } from '@/hooks/useMenuSuspenso'
+import { parseKey } from '@/hooks/useMultiSelect'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -57,114 +59,54 @@ function sanitizarNome(nome, padrao = t('documento')) {
 }
 
 /**
- * Salva o blob perguntando onde. No desktop abre o "Salvar como" nativo;
- * no navegador, o download de sempre. Devolve `false` se cancelaram.
+ * Exporta o conteúdo de um documento como arquivo, com o aviso de
+ * "Exportando..." e de onde foi salvo (`baixar`). Não lança.
+ *
+ * Nota vira markdown ou HTML; planilha, CSV, Excel ou JSON; diagrama e
+ * canvas, SVG, PNG ou JSON. O PDF continua no backend: o renderer é pesado
+ * e não faz sentido duplicar no cliente.
  */
-function downloadBlob(blob, filename) {
-  return salvarArquivo(blob, filename)
+function exportDocument(doc, ext) {
+  const title = sanitizarNome(doc.title)
+  const nome = ext === null ? doc.original_name || doc.title || t('arquivo') : `${title}.${ext}`
+  return baixar(nome, () => gerarArquivo(doc, ext, title, nome))
 }
 
-/**
- * Exporta o conteúdo de um documento como arquivo.
- *
- * Para notas, gera o markdown a partir das seções. Para planilhas, CSV.
- * Para diagramas e canvas, JSON do payload. O PDF continua passando pelo
- * backend (o renderer é pesado e não faz sentido duplicar no cliente).
- * O SVG do diagrama é o próprio `<svg>` renderizado — ainda não extraído
- * aqui, mas pronto pra ser.
- *
- * `onSaved` só é chamado quando a ação salva dentro do Notefy (ex:
- * "Salvar aqui" do PDF antigo). As demais baixam pro computador.
- */
-async function exportDocument(doc, ext, onSaved, onError) {
-  try {
-    const title = sanitizarNome(doc.title)
-
-    // PDF continua server-side: o renderer é complexo demais pra
-    // duplicar no cliente.
-    if (ext === 'pdf') {
-      const response = await api.get(`/documents/${doc.id}/pdf/`, {
-        responseType: 'blob',
-      })
-      const disposition = response.headers['content-disposition'] ?? ''
-      const match = /filename="?([^"]+)"?/.exec(disposition)
-      await downloadBlob(response.data, match?.[1] ?? `${title}.pdf`)
-      return
-    }
-
-    // Formato original de arquivos uploadados.
-    if (ext === null) {
-      if (doc.file_url) {
-        // `buscarArquivo` e não `api.get(doc.file_url)`: o `file_url` do
-        // backend é ABSOLUTO (`http://127.0.0.1:8000/media/...`). Passar
-        // uma URL absoluta ao axios faz ele ignorar a baseURL e sair da
-        // origem do app — e como o interceptor anexa `Authorization`, o
-        // navegador exige preflight, que a rota de mídia não responde.
-        // Dava erro de CORS ao exportar pelo Início. O helper remonta o
-        // caminho sobre a origem da API, que é o que o resto do app já
-        // fazia para preview e download.
-        const response = await buscarArquivo(doc.file_url)
-        await downloadBlob(response.data, doc.original_name || doc.title || t('arquivo'))
-      }
-      return
-    }
-
-    let blob, filename
-
-    if (doc.kind === 'note') {
-      if (ext === 'html') {
-        const html = buildNoteHtml(doc)
-        blob = new Blob([html], { type: 'text/html' })
-        filename = `${title}.html`
-      } else {
-        // Markdown
-        const md = buildNoteMarkdown(doc)
-        blob = new Blob([md], { type: 'text/markdown' })
-        filename = `${title}.md`
-      }
-    } else if (doc.kind === 'spreadsheet') {
-      if (ext === 'csv') {
-        const csv = buildSpreadsheetCsv(doc)
-        // O BOM é o que faz o Excel reconhecer UTF-8 ao abrir um .csv;
-        // sem ele, acento vira caractere quebrado no Windows.
-        blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' })
-        filename = `${title}.csv`
-      } else if (ext === 'xlsx') {
-        const { buildXlsx } = await import('@/lib/xlsx')
-        blob = await buildXlsx(doc.data?.columns ?? [], doc.data?.rows ?? [], doc.title)
-        filename = `${title}.xlsx`
-      } else {
-        blob = new Blob([JSON.stringify(doc.data, null, 2)], { type: 'application/json' })
-        filename = `${title}.json`
-      }
-    } else if (doc.kind === 'diagram' || doc.kind === 'canvas') {
-      if (ext === 'json') {
-        blob = new Blob([JSON.stringify(doc.data, null, 2)], { type: 'application/json' })
-        filename = `${title}.json`
-      } else {
-        const svg = capturarSvg()
-        if (!svg) {
-          // O desenho não está na tela (exportação em lote, ou o editor
-          // ainda não montou). JSON preserva tudo e reabre no Notefy;
-          // uma imagem vazia não serviria para nada.
-          blob = new Blob([JSON.stringify(doc.data, null, 2)], { type: 'application/json' })
-          filename = `${title}.json`
-        } else if (ext === 'svg') {
-          blob = new Blob([svg.texto], { type: 'image/svg+xml' })
-          filename = `${title}.svg`
-        } else {
-          blob = await svgParaPng(svg)
-          filename = `${title}.png`
-        }
-      }
-    }
-
-    // Com await: uma falha ao gravar cai no catch e vira mensagem, em vez
-    // de virar rejeição não tratada e silêncio.
-    if (blob) await downloadBlob(blob, filename)
-  } catch (err) {
-    onError?.(extractError(err))
+async function gerarArquivo(doc, ext, title, nome) {
+  if (ext === 'pdf') {
+    const response = await api.get(`/documents/${doc.id}/pdf/`, { responseType: 'blob' })
+    const disposition = response.headers['content-disposition'] ?? ''
+    const match = /filename="?([^"]+)"?/.exec(disposition)
+    return { blob: response.data, nome: match?.[1] ?? nome }
   }
+
+  // Formato original de arquivos importados.
+  if (ext === null) {
+    // `buscarArquivo` e não `api.get(doc.file_url)`: o `file_url` é
+    // ABSOLUTO, e o axios sairia da origem do app com `Authorization` —
+    // preflight que a rota de mídia não responde (erro de CORS).
+    return (await buscarArquivo(doc.file_url, 'blob')).data
+  }
+
+  if (doc.kind === 'note') {
+    return ext === 'html'
+      ? new Blob([buildNoteHtml(doc)], { type: 'text/html' })
+      : new Blob([buildNoteMarkdown(doc)], { type: 'text/markdown' })
+  }
+  if (doc.kind === 'spreadsheet') {
+    // O BOM é o que faz o Excel reconhecer UTF-8 ao abrir um .csv; sem
+    // ele, acento vira caractere quebrado no Windows.
+    if (ext === 'csv') return new Blob(['﻿', buildSpreadsheetCsv(doc)], { type: 'text/csv;charset=utf-8' })
+    if (ext === 'xlsx') {
+      const { buildXlsx } = await import('@/lib/xlsx')
+      return buildXlsx(doc.data?.columns ?? [], doc.data?.rows ?? [], doc.title, { congeladas: doc.data?.frozen_columns ?? 0 })
+    }
+  }
+  if ((doc.kind === 'diagram' || doc.kind === 'canvas') && ext !== 'json') {
+    const svg = await desenharFora(doc)
+    return ext === 'svg' ? new Blob([svg.texto], { type: 'image/svg+xml' }) : svgParaPng(svg)
+  }
+  return new Blob([JSON.stringify(doc.data, null, 2)], { type: 'application/json' })
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,20 +114,62 @@ async function exportDocument(doc, ext, onSaved, onError) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Fotografa o `<svg>` do diagrama/canvas que está na tela.
+ * Desenha o quadro fora da vista e fotografa o `<svg>`.
  *
- * Devolve `null` quando não há desenho montado — é o caso da exportação
- * em lote, onde os documentos nunca chegam a ser renderizados.
+ * Sempre a partir do `data` salvo, e não do editor na tela: pelo menu de
+ * contexto o desenho nem está montado (o PNG saía como .json, calado), e
+ * com dois quadros abertos lado a lado o exportador pegava o primeiro que
+ * achasse. O botão de exportar do editor só funciona com tudo salvo, então
+ * o `data` é o que está na tela.
+ */
+async function desenharFora(doc) {
+  const [{ createRoot }, { flushSync }, { default: GraphEditor }] = await Promise.all([
+    import('react-dom/client'),
+    import('react-dom'),
+    import('@/components/editors/GraphEditor'),
+  ])
+  const caixa = document.createElement('div')
+  // Fora da tela, mas com layout: o `getBBox` que mede o desenho não
+  // funciona em `display: none`.
+  caixa.style.cssText = 'position:fixed;left:-20000px;top:0;width:1200px;height:800px;pointer-events:none'
+  caixa.setAttribute('aria-hidden', 'true')
+  document.body.appendChild(caixa)
+  const raiz = createRoot(caixa)
+  try {
+    const nada = () => {}
+    flushSync(() =>
+      raiz.render(
+        <GraphEditor kind={doc.kind} data={doc.data} onChange={nada} onCommit={nada} onUndo={nada} onRedo={nada} somenteLeitura />,
+      ),
+    )
+    const svg = capturarSvg(caixa.querySelector('[data-graph-canvas="true"]'))
+    if (!svg) throw new Error(t('Não foi possível ler o desenho.'))
+    return svg
+  } finally {
+    raiz.unmount()
+    caixa.remove()
+  }
+}
+
+/**
+ * Fotografa um `<svg>` de quadro já montado.
  *
  * O clone é recortado no conteúdo, e não na janela: exportar o
  * enquadramento atual produziria uma imagem com o zoom e a rolagem do
  * momento, cortando o que estivesse fora da vista.
  */
-function capturarSvg() {
-  const original = document.querySelector('[data-graph-canvas="true"]')
+function capturarSvg(original) {
   if (!original) return null
 
   const clone = original.cloneNode(true)
+  // As cores vêm de classes do Tailwind, que não existem fora da página.
+  // Resolvidas ANTES de mexer no clone: a cópia anda em paralelo pela
+  // ordem dos elementos, e cada um tirado ou posto deslocava todas as
+  // cores dali em diante — o PNG saía preto.
+  fixarCoresComputadas(original, clone)
+  // O fundo do quadro como está na tela (claro ou escuro): fixo em branco,
+  // um quadro escuro saía com letra clara sobre branco.
+  const corDeFundo = getComputedStyle(original).backgroundColor || '#ffffff'
 
   // A prévia da borracha e o retângulo elástico são estado de ferramenta,
   // não desenho — não podem aparecer no arquivo.
@@ -201,7 +185,8 @@ function capturarSvg() {
 
   // A grade é um padrão ancorado no viewport: sem o transform ela fica
   // deslocada, e num arquivo exportado ela é ruído de qualquer forma.
-  clone.querySelector('rect[fill="url(#grid)"]')?.remove()
+  // `*=`: com as cores já resolvidas, o atributo virou `url("#grid")`.
+  clone.querySelector('rect[fill*="#grid"]')?.remove()
 
   // `getBBox` mede o conteúdo real, mas só funciona no DOM vivo — daí
   // medir no original e não no clone.
@@ -225,14 +210,14 @@ function capturarSvg() {
     clone.setAttribute('height', altura)
     clone.removeAttribute('class')
 
-    // Fundo branco explícito: SVG sem fundo vira PNG transparente, e um
-    // diagrama de traço escuro somem num visualizador de tema escuro.
+    // Fundo explícito: SVG sem fundo vira PNG transparente, e o traço
+    // some num visualizador da cor oposta.
     const fundo = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
     fundo.setAttribute('x', x)
     fundo.setAttribute('y', y)
     fundo.setAttribute('width', largura)
     fundo.setAttribute('height', altura)
-    fundo.setAttribute('fill', '#ffffff')
+    fundo.setAttribute('fill', corDeFundo)
     clone.insertBefore(fundo, clone.firstChild)
 
     dimensoes = { largura, altura }
@@ -243,13 +228,9 @@ function capturarSvg() {
     }
   }
 
-  // As cores vêm de classes do Tailwind, que não existem fora da página.
-  // Sem resolvê-las para valores literais, o arquivo abre todo preto.
-  fixarCoresComputadas(original, clone)
-
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   const texto = new XMLSerializer().serializeToString(clone)
-  return { texto, ...dimensoes }
+  return { texto, corDeFundo, ...dimensoes }
 }
 
 /**
@@ -284,7 +265,7 @@ function fixarCoresComputadas(original, clone) {
 }
 
 /** Rasteriza o SVG capturado num PNG, com o dobro da resolução. */
-function svgParaPng({ texto, largura, altura }) {
+function svgParaPng({ texto, corDeFundo, largura, altura }) {
   return new Promise((resolve, reject) => {
     // 2x para a imagem não sair borrada em tela de alta densidade e ao
     // ser ampliada num documento.
@@ -294,7 +275,7 @@ function svgParaPng({ texto, largura, altura }) {
     canvas.height = altura * escala
 
     const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = corDeFundo
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     const imagem = new Image()
@@ -326,7 +307,9 @@ function buildSpreadsheetCsv(doc) {
   }
   const header = columns.map((c) => sep(c.name)).join(',')
   const body = rows
-    .map((row) => columns.map((c) => sep(valorDaCelula(row, c))).join(','))
+    // O valor calculado, e não o texto da fórmula: `=B1*2` no .csv não
+    // significa nada fora daqui.
+    .map((row) => columns.map((c) => sep(valorParaExportar(c, row, columns, rows))).join(','))
     .join('\n')
   return `${header}\n${body}`
 }
@@ -338,7 +321,7 @@ function buildSpreadsheetCsv(doc) {
  * abre dropdown com os formatos disponíveis pro tipo do documento. O
  * formato padrão dispara com um clique direto; os extras ficam no menu.
  */
-export default function ExportMenu({ document: doc, disabled, onError }) {
+export default function ExportMenu({ document: doc, disabled }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const { ref: menuRef, paraCima } = useMenuSuspenso(open)
@@ -349,7 +332,7 @@ export default function ExportMenu({ document: doc, disabled, onError }) {
   const handleExport = async (ext) => {
     setOpen(false)
     setBusy(true)
-    await exportDocument(doc, ext, null, onError)
+    await exportDocument(doc, ext)
     setBusy(false)
   }
 
@@ -406,87 +389,47 @@ export default function ExportMenu({ document: doc, disabled, onError }) {
   )
 }
 
-/**
- * Exporta vários documentos como um único ZIP.
- *
- * Cada documento vai no seu formato padrão. Usado pela sidebar (lote de
- * multi-select) e pelo menu de contexto de pastas.
- */
-export async function exportBatchAsZip(documents, onError) {
-  const JSZip = (await import('jszip')).default
-  const zip = new JSZip()
+/* -------------------------------------------------------------------- */
+/* .zip                                                                  */
+/* -------------------------------------------------------------------- */
 
-  for (const doc of documents) {
-    const title = sanitizarNome(doc.title)
-    try {
-      if (doc.kind === 'note') {
-        zip.file(`${title}.md`, buildNoteMarkdown(doc))
-      } else if (doc.kind === 'spreadsheet') {
-        zip.file(`${title}.csv`, buildSpreadsheetCsv(doc))
-      } else if (doc.kind === 'file' && doc.file_url) {
-        const response = await buscarArquivo(doc.file_url, 'arraybuffer')
-        zip.file(doc.title || t('arquivo'), response.data)
-      } else {
-        zip.file(`${title}.json`, JSON.stringify(doc.data ?? {}, null, 2))
-      }
-    } catch {
-      // Item que falha é ignorado: melhor um zip com 9 de 10 do que
-      // abortar tudo por causa de um arquivo corrompido.
-    }
-  }
-
-  const blob = await zip.generateAsync({ type: 'blob' })
-  await salvarArquivo(blob, 'export.zip')
+/** O documento inteiro: a lista traz só o resumo, sem `data` (e a busca, sem `file_url`). */
+async function documentoInteiro(doc) {
+  const falta = doc.kind === 'file' ? !doc.file_url : doc.data === undefined
+  return falta ? (await api.get(`/documents/${doc.id}/`)).data : doc
 }
 
-/**
- * Exporta uma pasta inteira como ZIP, preservando a hierarquia.
- *
- * `tree` é a resposta de `/folders/tree/` — uma árvore de categorias,
- * pastas e documentos. Cada nó tem `children`, `documents`, etc.
- */
-export async function exportFolderAsZip(tree, onError) {
-  const JSZip = (await import('jszip')).default
-  const zip = new JSZip()
-
-  async function walk(nodes, prefix = '') {
-    for (const node of nodes) {
-      // Sanitizar aqui também: uma pasta chamada "Antes/Depois" abriria
-      // dois níveis de diretório ao descompactar.
-      const nome = sanitizarNome(node.name, t('pasta'))
-      const folderPath = prefix ? `${prefix}/${nome}` : nome
-
-      // Documentos desta pasta
-      for (const doc of node.documents ?? []) {
-        const title = sanitizarNome(doc.title)
-        try {
-          if (doc.kind === 'note') {
-            zip.file(`${folderPath}/${title}.md`, buildNoteMarkdown(doc))
-          } else if (doc.kind === 'spreadsheet') {
-            zip.file(`${folderPath}/${title}.csv`, buildSpreadsheetCsv(doc))
-          } else if (doc.kind === 'file' && doc.file_url) {
-            const response = await buscarArquivo(doc.file_url, 'arraybuffer')
-            zip.file(`${folderPath}/${doc.title || t('arquivo')}`, response.data)
-          } else {
-            zip.file(`${folderPath}/${title}.json`, JSON.stringify(doc.data ?? {}, null, 2))
-          }
-        } catch {
-          // Ignora item com erro.
-        }
-      }
-
-      // Subpastas recursivamente
-      if (node.children?.length) {
-        await walk(node.children, folderPath)
-      }
-    }
+/** Grava um documento no formato padrão do tipo, dentro de `pasta` ('' é a raiz). */
+async function gravarNoZip(zip, pasta, resumo) {
+  const doc = await documentoInteiro(resumo)
+  const caminho = (nome) => (pasta ? `${pasta}/${nome}` : nome)
+  const title = sanitizarNome(doc.title)
+  if (doc.kind === 'note') {
+    zip.file(caminho(`${title}.md`), buildNoteMarkdown(doc))
+  } else if (doc.kind === 'spreadsheet') {
+    zip.file(caminho(`${title}.csv`), buildSpreadsheetCsv(doc))
+  } else if (doc.kind === 'file' && doc.file_url) {
+    const response = await buscarArquivo(doc.file_url, 'arraybuffer')
+    zip.file(caminho(doc.title || t('arquivo')), response.data)
+  } else {
+    zip.file(caminho(`${title}.json`), JSON.stringify(doc.data ?? {}, null, 2))
   }
+}
 
-  const raizes = Array.isArray(tree) ? tree : [tree]
-  await walk(raizes)
+/** Uma pasta e toda a subárvore, como o .zip espera: `{ name, documents, children }`. */
+async function coletarPasta(folderId) {
+  const { data } = await api.get(`/folders/${folderId}/contents/`)
+  const children = []
+  for (const sub of data.subfolders ?? []) children.push(await coletarPasta(sub.id))
+  return { name: data.folder.name, documents: data.documents ?? [], children }
+}
 
-  const blob = await zip.generateAsync({ type: 'blob' })
-  await salvarArquivo(blob, nomeDoZip(raizes))
+/** A categoria vira a pasta de cima do .zip, com as pastas raiz dentro. */
+async function coletarCategoria(categoryId) {
+  const { data } = await api.get(`/categories/${categoryId}/contents/`)
+  const children = []
+  for (const pasta of data.folders ?? []) children.push(await coletarPasta(pasta.id))
+  return { name: data.category.name, documents: [], children }
 }
 
 /**
@@ -496,12 +439,79 @@ export async function exportFolderAsZip(tree, onError) {
  * renomear no explorador toda vez, e duas exportações seguidas viravam
  * "pasta.zip" e "pasta (1).zip", indistinguíveis depois.
  */
-function nomeDoZip(raizes) {
-  if (raizes.length === 1 && raizes[0]?.name) {
-    return `${sanitizarNome(raizes[0].name)}.zip`
+function nomeDoZip(soltos, pastas) {
+  if (!soltos.length && pastas.length === 1 && pastas[0]?.name) {
+    return `${sanitizarNome(pastas[0].name)}.zip`
   }
-  // Várias raízes não têm um nome só que sirva — aí o genérico é honesto.
-  return 'pastas.zip'
+  // Várias coisas não têm um nome só que sirva: aí o genérico é honesto.
+  return 'export.zip'
+}
+
+/**
+ * Exporta a seleção (chaves `"tipo:id"`) num .zip só: documento no seu
+ * formato padrão, pasta e categoria com toda a subárvore. Tarefas não têm
+ * arquivo e ficam de fora.
+ *
+ * O .zip sai com o que deu certo, que é melhor do que nenhum arquivo por
+ * causa de um item quebrado; o aviso diz quantos ficaram de fora. Não
+ * lança: todo resultado sai no aviso flutuante.
+ */
+export async function exportarSelecao(chaves) {
+  let falhas = 0
+  let total = 0
+  const salvo = await baixar(null, async () => {
+    const montado = await montarZip(chaves)
+    ;({ falhas, total } = montado)
+    if (total === falhas) {
+      throw new Error(falhas ? t('{falhas} de {total} itens ficaram de fora do .zip.', { falhas, total }) : t('Nada para exportar.'))
+    }
+    return { blob: await montado.zip.generateAsync({ type: 'blob' }), nome: montado.nome }
+  })
+  if (salvo && falhas) avisarErro(t('{falhas} de {total} itens ficaram de fora do .zip.', { falhas, total }))
+}
+
+async function montarZip(chaves) {
+  const soltos = []
+  const pastas = []
+  let total = 0
+  let falhas = 0
+
+  for (const chave of chaves) {
+    const { type: tipo, id } = parseKey(chave)
+    if (tipo === 'task' || tipo === 'board') continue
+    try {
+      if (tipo === 'folder') pastas.push(await coletarPasta(id))
+      else if (tipo === 'category') pastas.push(await coletarCategoria(id))
+      else soltos.push({ id })
+    } catch {
+      total += 1
+      falhas += 1
+    }
+  }
+
+  const JSZip = (await import('jszip')).default
+  const zip = new JSZip()
+  const gravar = async (pasta, doc) => {
+    total += 1
+    try {
+      await gravarNoZip(zip, pasta, doc)
+    } catch {
+      falhas += 1
+    }
+  }
+  const andar = async (nos, prefixo) => {
+    for (const no of nos) {
+      // Sanitizar o nome da pasta também: "Antes/Depois" abriria dois
+      // níveis de diretório ao descompactar.
+      const caminho = [prefixo, sanitizarNome(no.name, t('pasta'))].filter(Boolean).join('/')
+      for (const doc of no.documents ?? []) await gravar(caminho, doc)
+      await andar(no.children ?? [], caminho)
+    }
+  }
+  for (const doc of soltos) await gravar('', doc)
+  await andar(pastas, '')
+
+  return { zip, nome: nomeDoZip(soltos, pastas), falhas, total }
 }
 
 export { exportDocument }

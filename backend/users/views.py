@@ -19,7 +19,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from core.excecoes import JSONParserSeguro
 from core.idioma import texto
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 
 from . import backup
 from .models import UserPreferences
@@ -139,18 +139,35 @@ class PreferencesView(generics.RetrieveUpdateAPIView):
         return prefs
 
 
-class CapaDoInicioView(APIView):
-    """A foto da capa do Início, enviada do computador ou arrastada para ela.
+#: Onde cada foto do Início fica guardada: `?para=` escolhe.
+FOTOS_DO_INICIO = {"capa": "home_cover", "fundo": "home_background", "foto": "home_photo"}
 
-    Fica nas preferências, e não como arquivo numa pasta: capa não é conteúdo,
-    e um arquivo solto apareceria na pasta, na busca e nos recentes. Uma por
-    conta — enviar outra apaga a anterior do disco.
+
+class CapaDoInicioView(APIView):
+    """As fotos do Início: a capa, o papel de parede e a do relógio
+    (`?para=capa|fundo|foto`, capa sem nada), enviadas do computador ou
+    arrastadas para elas.
+
+    Ficam nas preferências, e não como arquivo numa pasta: não são conteúdo,
+    e um arquivo solto apareceria na pasta, na busca e nos recentes. Uma de
+    cada por conta — enviar outra apaga a anterior do disco.
     """
 
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
 
+    def campo(self, request):
+        return FOTOS_DO_INICIO.get(request.query_params.get("para", "capa"))
+
+    @extend_schema(
+        parameters=[OpenApiParameter("para", str, enum=list(FOTOS_DO_INICIO), required=False)],
+        request=inline_serializer("CapaDoInicio", {"imagem": serializers.ImageField()}),
+        responses={201: inline_serializer("CapaDoInicioUrl", {"url": serializers.URLField()})},
+    )
     def post(self, request):
+        nome = self.campo(request)
+        if not nome:
+            return Response({"para": [texto("Destino desconhecido.", "Unknown target.")]}, status=status.HTTP_400_BAD_REQUEST)
         campo = serializers.ImageField()
         try:
             imagem = campo.run_validation(request.data.get("imagem"))
@@ -163,18 +180,24 @@ class CapaDoInicioView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         prefs, _ = UserPreferences.objects.get_or_create(user=request.user)
-        if prefs.home_cover:
-            prefs.home_cover.delete(save=False)
-        prefs.home_cover = imagem
-        prefs.save(update_fields=["home_cover"])
-        return Response({"url": request.build_absolute_uri(prefs.home_cover.url)}, status=status.HTTP_201_CREATED)
+        antiga = getattr(prefs, nome)
+        if antiga:
+            antiga.delete(save=False)
+        setattr(prefs, nome, imagem)
+        prefs.save(update_fields=[nome])
+        return Response({"url": request.build_absolute_uri(getattr(prefs, nome).url)}, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("para", str, enum=list(FOTOS_DO_INICIO), required=False)],
+        responses={204: None},
+    )
     def delete(self, request):
+        nome = self.campo(request)
         prefs = UserPreferences.objects.filter(user=request.user).first()
-        if prefs and prefs.home_cover:
-            prefs.home_cover.delete(save=False)
-            prefs.home_cover = None
-            prefs.save(update_fields=["home_cover"])
+        if nome and prefs and getattr(prefs, nome):
+            getattr(prefs, nome).delete(save=False)
+            setattr(prefs, nome, None)
+            prefs.save(update_fields=[nome])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

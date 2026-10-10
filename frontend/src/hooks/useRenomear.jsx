@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import api, { extractError } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
+import { parseKey } from '@/hooks/useMultiSelect'
 
 /**
  * Renomear no lugar: o texto vira um campo, e o campo vira texto de volta.
@@ -70,14 +72,8 @@ export function useRenomear({ onRenamed } = {}) {
   return { editando, erro, abrir, fechar, gravar, estaEditando: (id) => editando === id }
 }
 
-/**
- * Props do `<input>` de renomear.
- *
- * Fora do hook porque é markup puro e toda tela precisa exatamente dos
- * mesmos handlers — repetir Enter/Esc/blur em cinco lugares é como eles
- * divergem.
- */
-export function propsDoCampo({ valorAtual, endpoint, campo, gravar, fechar }) {
+/** Props do `<input>` de renomear: os mesmos handlers em todo lugar, para Enter/Esc/blur não divergirem. */
+function propsDoCampo({ valorAtual, endpoint, campo, gravar, fechar }) {
   return {
     defaultValue: valorAtual,
     autoFocus: true,
@@ -109,6 +105,32 @@ export function propsDoCampo({ valorAtual, endpoint, campo, gravar, fechar }) {
 }
 
 /**
+ * O nome que vira campo, no lugar e no mesmo tipo do texto: o único
+ * desenho dele no app (cartões, árvore, busca). A recusa do servidor
+ * aparece embaixo: o nome é único por pasta, e sem o motivo à vista o
+ * campo só voltava ao nome antigo e parecia que renomear não funciona.
+ *
+ * `campo` é `title` para documento e `name` para pasta e categoria.
+ */
+export function CampoDeRenomear({ renomear, valorAtual, endpoint, campo = 'name', className }) {
+  const { erro, gravar, fechar } = renomear
+  return (
+    <span className="min-w-0 flex-1">
+      <input
+        {...propsDoCampo({ valorAtual, endpoint, campo, gravar, fechar })}
+        aria-invalid={!!erro}
+        className={cn(
+          'w-full rounded-sm px-1 outline-none ring-1',
+          erro ? 'bg-red-50 ring-red-400 dark:bg-red-500/10' : 'bg-accent-50 ring-accent-400 dark:bg-accent-500/15',
+          className,
+        )}
+      />
+      {erro && <span className="mt-1 block text-[11px] font-normal text-red-500">{erro}</span>}
+    </span>
+  )
+}
+
+/**
  * F2 renomeia o item selecionado.
  *
  * Na TELA, e não no cartão: depois de um clique direito o foco do teclado
@@ -119,7 +141,7 @@ export function propsDoCampo({ valorAtual, endpoint, campo, gravar, fechar }) {
  *
  * @param renomear       o que `useRenomear` devolveu
  * @param chaves         as chaves selecionadas ("tipo:id")
- * @param tiposAceitos   tipos que abrem o campo; `null` aceita qualquer um
+ * @param tiposAceitos   tipos que abrem o campo
  */
 export function useF2(renomear, chaves, tiposAceitos = ['document']) {
   // Pelo hook, e não por um `useEffect` sem array de dependências: o
@@ -129,13 +151,8 @@ export function useF2(renomear, chaves, tiposAceitos = ['document']) {
   useListenerDeJanela('keydown', (evento) => {
     // Só com UM item marcado: renomear vários de uma vez não existe.
     if (evento.key !== 'F2' || renomear.editando || chaves.length !== 1) return
-
-    const chave = String(chaves[0])
-    const separador = chave.indexOf(':')
-    const tipo = separador === -1 ? null : chave.slice(0, separador)
-    const id = separador === -1 ? chave : chave.slice(separador + 1)
-    if (tiposAceitos && tipo && !tiposAceitos.includes(tipo)) return
-
+    const { type, id } = parseKey(chaves[0])
+    if (!tiposAceitos.includes(type)) return
     evento.preventDefault()
     renomear.abrir(id)
   })

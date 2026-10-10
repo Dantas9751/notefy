@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import api, { extractError } from '@/lib/api'
-import { Button, Modal, Spinner } from '@/components/ui'
+import { Button, ErrorState, Modal, Spinner } from '@/components/ui'
 import { t } from '@/lib/i18n'
 
 /**
@@ -266,9 +266,9 @@ export function useUploadComConflitos({ onEnviado, onErro } = {}) {
         ))}
       </div>
       {erro && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-400">
-          {erro}
-        </p>
+        <div className="mt-3">
+          <ErrorState message={erro} />
+        </div>
       )}
     </Modal>
   ) : null

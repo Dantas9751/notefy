@@ -39,6 +39,10 @@ const ABRIVEIS = [
   [/^\/recent$/, 'recent'],
   [/^\/trash$/, 'trash'],
   [/^\/roadmap$/, 'roadmap'],
+  // Arquivos e Modelos são páginas do menu como Recentes e Lixeira: sem
+  // aba, a barra ficava sem nenhuma aba marcada enquanto se usava a tela.
+  [/^\/files$/, 'files'],
+  [/^\/templates$/, 'templates'],
 ]
 
 /**
@@ -55,10 +59,12 @@ const TITULOS_PADRAO = {
   get recent() { return t('Recentes') },
   get trash() { return t('Lixeira') },
   get roadmap() { return t('Roadmap') },
+  get files() { return t('Arquivos') },
+  get templates() { return t('Modelos') },
 }
 
 /** Páginas cujo título é sempre o padrão (categoria e pasta levam o nome delas). */
-const TITULOS_FIXOS = new Set(['home', 'board', 'calendar', 'recent', 'trash', 'roadmap'])
+const TITULOS_FIXOS = new Set(['home', 'board', 'calendar', 'recent', 'trash', 'roadmap', 'files', 'templates'])
 
 /** Descreve a aba de uma rota, ou `null` se a rota não é abrível. */
 export function tabDe(location) {
@@ -332,6 +338,15 @@ export function TabsProvider({ children }) {
     ],
   )
 
+  // O título da janela é o da aba ativa — documento ou página (Quadro,
+  // Recentes...). Era só o documento que o escrevia, e as páginas deixavam
+  // "Notefy": numa aba destacada como janela, a barra de tarefas não dizia
+  // qual era qual.
+  const tituloAtivo = tabs.find((aba) => aba.key === activeKey)?.title
+  useEffect(() => {
+    document.title = tituloAtivo ? `${tituloAtivo} — Notefy` : 'Notefy'
+  }, [tituloAtivo])
+
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>
 }
 
@@ -358,20 +373,17 @@ export function useTabState({ title, dirty = false, enabled = true } = {}) {
   // assim que o pai a cria.
   const jaExiste = tabs.some((t) => t.key === activeKey)
 
+  // `title` indefinido é "ainda não sei": a aba guarda o nome que tinha.
+  // A página reaproveitada entre dois documentos ainda segura o anterior
+  // enquanto o novo carrega — e, se o novo foi para a lixeira, para
+  // sempre: a aba dele ganhava o nome do item aberto antes.
   useEffect(() => {
     if (enabled && activeKey && jaExiste) {
-      patchTab(activeKey, { title: title || t('Sem título'), dirty: !!dirty })
+      patchTab(activeKey, title === undefined ? { dirty: !!dirty } : { title: title || t('Sem título'), dirty: !!dirty })
     }
   }, [enabled, activeKey, jaExiste, title, dirty, patchTab])
 
-  useEffect(() => {
-    // `enabled: false` é o painel lateral do split: a aba e o título da
-    // janela pertencem ao documento da esquerda, e deixar os dois lados
-    // escrevendo neles faria o nome piscar entre um e outro.
-    if (!enabled) return undefined
-    document.title = title ? `${title} — Notefy` : 'Notefy'
-    return () => {
-      document.title = 'Notefy'
-    }
-  }, [enabled, title])
+  // O título da janela sai da aba ativa (no `TabsProvider`). `enabled:
+  // false` é o painel lateral do split: a aba pertence ao documento da
+  // esquerda, e o painel não escreve nela.
 }

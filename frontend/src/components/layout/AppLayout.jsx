@@ -11,7 +11,7 @@ import Sidebar from './Sidebar'
 import TabBar from './TabBar'
 import SplitPane from './SplitPane'
 import AssistentePanel from '@/components/ai/AssistentePanel'
-import { conectarJanelas } from '@/lib/desktop'
+import { conectarJanelas, noDesktop } from '@/lib/desktop'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
@@ -70,7 +70,10 @@ export default function AppLayout() {
       }
       // Ctrl+. entra e sai do zen. Ponto porque nao colide com nenhum
       // atalho de edicao de texto, que e onde o zen mais e usado.
-      if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+      // F11 também, no desktop: o zen agora É a tela cheia, e o F11 é onde
+      // a mão vai para isso. No navegador o F11 é dele, e sair da tela cheia
+      // por ele já tira o zen (`fullscreenchange`, no UIContext).
+      if (((e.metaKey || e.ctrlKey) && e.key === '.') || (e.key === 'F11' && noDesktop())) {
         e.preventDefault()
         toggleZen()
       }
@@ -325,7 +328,12 @@ export default function AppLayout() {
                 atrapalha. */}
             <div
               data-assistente-alvo="main"
-              className="h-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+              // `scrollbar-gutter`: o espaço da barra de rolagem fica
+              // reservado. Sem ele a página mudava de largura quando a barra
+              // aparecia — o conteúdo pulava ao trocar de tela, e a grade do
+              // Início, que mede a altura dos blocos, podia não parar de
+              // se reajustar.
+              className="h-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]"
             >
               <Outlet />
             </div>

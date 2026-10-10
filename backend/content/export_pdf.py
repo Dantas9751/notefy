@@ -207,7 +207,8 @@ def _resolver_midia(uri, rel=None):
     aplicativo empacotado, onde não há porta para chamar.
 
     SÓ arquivos de dentro do `MEDIA_ROOT`. Qualquer outra coisa devolve
-    `None`, e o xhtml2pdf deixa um espaço em branco no lugar da imagem.
+    `None`, que `_so_da_midia` troca por um texto vazio: entregar o `None`
+    direto ao xhtml2pdf fazia ele buscar o endereço original.
 
     Isso fecha duas falhas que a versão anterior tinha, as duas
     alcançáveis por quem conseguisse escrever o `html` de uma nota —
@@ -262,16 +263,32 @@ def _resolver_midia(uri, rel=None):
 
 
 def render_pdf(document):
-    """Bytes do PDF. Levanta RuntimeError se a conversão falhar."""
+    """Bytes do PDF da nota. Levanta RuntimeError se a conversão falhar."""
+    return html_para_pdf(build_html(document))
+
+
+#: O que o xhtml2pdf recebe no lugar de um endereço recusado. `None` NÃO
+#: recusa: com `None` ele busca o endereço original (ver
+#: `xhtml2pdf.files.pisaFileObject`), por HTTP ou no disco. Um texto vazio
+#: bem formado serve para imagem, folha de estilo e fonte, sem erro.
+_RECUSADO = "data:text/plain;base64,IA=="
+
+
+def _so_da_midia(uri, rel=None):
+    return _resolver_midia(uri, rel) or _RECUSADO
+
+
+def html_para_pdf(html):
+    """Bytes do PDF de um HTML. Nada de fora da mídia entra, nem é buscado."""
     buffer = io.BytesIO()
     result = pisa.CreatePDF(
-        src=build_html(document),
+        src=html,
         dest=buffer,
         encoding="utf-8",
-        link_callback=_resolver_midia,
+        link_callback=_so_da_midia,
     )
     if result.err:
-        raise RuntimeError("Não foi possível gerar o PDF desta nota.")
+        raise RuntimeError(texto("Não foi possível gerar o PDF.", "Could not create the PDF."))
     return buffer.getvalue()
 
 

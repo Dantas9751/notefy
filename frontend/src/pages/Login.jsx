@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { extractError } from '@/lib/api'
-import { Button, Field, Input } from '@/components/ui'
+import { Button, ErrorState, Field, Input } from '@/components/ui'
 import { t } from '@/lib/i18n'
 
 export default function Login() {
@@ -49,11 +49,7 @@ export default function Login() {
           onSubmit={handleSubmit}
           className="space-y-4 rounded-xl border border-ink-200 bg-white p-6 shadow-subtle dark:border-ink-800 dark:bg-ink-900"
         >
-          {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
-              {error}
-            </p>
-          )}
+          {error && <ErrorState message={error} />}
 
           <Field label={t('Nome de usuário')}>
             <Input

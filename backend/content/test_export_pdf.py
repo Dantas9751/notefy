@@ -6,13 +6,15 @@ contra o mesmo processo que está gerando o PDF — e a exportação inteira
 voltava 500.
 """
 
+import http.server
+import threading
 from pathlib import Path
 
 from django.conf import settings
 from django.test import TestCase
 from PIL import Image
 
-from content.export_pdf import _resolver_midia, render_pdf
+from content.export_pdf import _resolver_midia, html_para_pdf, render_pdf
 from content.models import Document
 from core.testutils import make_category, make_document, make_folder, make_user
 
@@ -216,3 +218,54 @@ class MidiaConfinadaTests(TestCase):
         resolvido = _resolver_midia("/media/alvo-dentro.png")
         self.assertIsNotNone(resolvido)
         self.assertTrue(Path(resolvido).is_relative_to(self.raiz))
+
+
+class NadaDeForaEntraNoPdfTests(TestCase):
+    """O que o resolvedor recusa não pode ser buscado de outro jeito.
+
+    Os testes acima conferem que `_resolver_midia` devolve `None`. Mas o
+    xhtml2pdf, quando o `link_callback` devolve `None`, busca o endereço
+    ORIGINAL: a recusa não recusava nada. Uma nota (ou um HTML convertido)
+    com `<img src="http://10.0.0.1/...">` fazia o servidor pedir aquele
+    endereço, e um caminho do disco fora da mídia entrava no PDF.
+    """
+
+    def setUp(self):
+        self.pedidos = []
+        pedidos = self.pedidos
+
+        class Contador(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                pedidos.append(self.path)
+                self.send_response(404)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.servidor = http.server.HTTPServer(("127.0.0.1", 0), Contador)
+        threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
+        self.fora = Path(settings.MEDIA_ROOT).resolve().parent / "fora-da-midia.png"
+        Image.new("RGB", (4, 4), (0, 0, 200)).save(self.fora)
+        self.dentro = Path(settings.MEDIA_ROOT) / "dentro-da-midia.png"
+        Image.new("RGB", (4, 4), (0, 200, 0)).save(self.dentro)
+
+    def tearDown(self):
+        self.servidor.shutdown()
+        self.servidor.server_close()
+        self.fora.unlink(missing_ok=True)
+        self.dentro.unlink(missing_ok=True)
+
+    def test_url_de_fora_nao_vira_requisicao_nem_imagem(self):
+        url = f"http://127.0.0.1:{self.servidor.server_address[1]}"
+        pdf = html_para_pdf(
+            f'<img src="{url}/img.png"><link rel="stylesheet" href="{url}/estilo.css">'
+            f'<style>@import url("{url}/importado.css");</style>'
+            f'<img src="{self.fora}"><img src="{self.fora.as_uri()}"><p>texto</p>'
+        )
+        self.assertEqual(self.pedidos, [])
+        self.assertNotIn(b"/Subtype /Image", pdf)
+
+    def test_imagem_da_midia_continua_entrando(self):
+        pdf = html_para_pdf(f'<img src="{settings.MEDIA_URL}dentro-da-midia.png">')
+        self.assertIn(b"/Subtype /Image", pdf)

@@ -20,6 +20,7 @@ import {
   ListChecks,
   ListOrdered,
   MoreHorizontal,
+  PaintBucket,
   Quote,
   Redo2,
   RemoveFormatting,
@@ -110,7 +111,9 @@ function guardar(chave, valor) {
 
 const naoRoubaFoco = (event) => event.preventDefault()
 
-function Botao({ icon: Icon, rotulo, ativo = false, desligado = false, onClick, children, className }) {
+// As peças da barra são as mesmas na planilha (`BarraDaPlanilha`): as duas
+// barras têm de parecer a mesma ferramenta.
+export function Botao({ icon: Icon, rotulo, ativo = false, desligado = false, onClick, children, className }) {
   return (
     <button
       type="button"
@@ -135,11 +138,11 @@ function Botao({ icon: Icon, rotulo, ativo = false, desligado = false, onClick, 
   )
 }
 
-function Divisoria() {
-  return <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-ink-200 dark:bg-ink-700" />
+export function Divisoria() {
+  return <span aria-hidden className="mx-px h-5 w-px shrink-0 bg-ink-200 dark:bg-ink-700" />
 }
 
-function Escolha({ valor, opcoes, rotulo, desligado, onEscolher, onAntes, className }) {
+export function Escolha({ valor, opcoes, rotulo, desligado, onEscolher, onAntes, className }) {
   return (
     <select
       value={valor}
@@ -168,23 +171,29 @@ function Escolha({ valor, opcoes, rotulo, desligado, onEscolher, onAntes, classN
 }
 
 /**
- * Tamanho da fonte como no Word: escolhe da lista OU digita o número
- * (13, 15, 100...) e Enter. A lista é um `<datalist>` do próprio campo.
- * Fora do foco, o campo mostra o tamanho de onde está o cursor.
+ * Tamanho da fonte como no Word: digita o número (13, 15, 100...) e Enter,
+ * ou abre a lista pela setinha. Fora do foco, o campo mostra o tamanho de
+ * onde está o cursor.
+ *
+ * A lista é do app, e não um `<datalist>`: aquele filtrava pelo que já
+ * estava escrito (digitar "1" deixava só 10 a 18) e não tinha setinha —
+ * não havia como ver os tamanhos-padrão sem apagar o campo.
  */
 function TamanhoDaFonte({ tamanho, desligado, onAntes, onAplicar }) {
+  const ancora = useRef(null)
+  const [aberto, setAberto] = useState(false)
   const [rascunho, setRascunho] = useState(null)
   const aplicar = (valor) => {
     const n = Math.round(Number(String(valor).replace(',', '.')))
     setRascunho(null)
+    setAberto(false)
     if (n >= 1 && n <= 400 && n !== tamanho) onAplicar(n)
   }
   return (
-    <>
+    <div ref={ancora} className="flex shrink-0 items-center">
       <input
         type="text"
         inputMode="numeric"
-        list="notefy-tamanhos-de-fonte"
         value={rascunho ?? String(tamanho)}
         disabled={desligado}
         aria-label={t('Tamanho da fonte')}
@@ -194,32 +203,60 @@ function TamanhoDaFonte({ tamanho, desligado, onAntes, onAplicar }) {
           onAntes?.()
           e.currentTarget.select()
         }}
-        onChange={(e) => {
-          // Escolher da lista é "trocar o texto inteiro": aplica na hora.
-          if (e.nativeEvent.inputType === 'insertReplacementText' || !e.nativeEvent.inputType) aplicar(e.target.value)
-          else setRascunho(e.target.value.replace(/[^\d,.]/g, '').slice(0, 3))
-        }}
+        onChange={(e) => setRascunho(e.target.value.replace(/[^\d,.]/g, '').slice(0, 3))}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
             aplicar(e.currentTarget.value)
           } else if (e.key === 'Escape') {
             setRascunho(null)
+          } else if (e.key === 'ArrowDown' && e.altKey) {
+            e.preventDefault()
+            setAberto(true)
           }
         }}
         onBlur={(e) => rascunho !== null && aplicar(e.currentTarget.value)}
         className={cn(
-          'h-8 w-[3.25rem] shrink-0 rounded border-0 bg-transparent px-1.5 text-xs tabular-nums text-ink-600 transition',
+          'h-8 w-9 shrink-0 rounded-l border-0 bg-transparent px-1.5 text-xs tabular-nums text-ink-600 transition',
           'hover:bg-ink-100 focus:bg-white focus:ring-1 focus:ring-accent-400 disabled:opacity-35 dark:text-ink-300 dark:hover:bg-ink-800 dark:focus:bg-ink-900',
           '[@media(pointer:coarse)]:h-10',
         )}
       />
-      <datalist id="notefy-tamanhos-de-fonte">
-        {TAMANHOS.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
-    </>
+      <Botao
+        rotulo={t('Tamanhos da fonte')}
+        desligado={desligado}
+        ativo={aberto}
+        onClick={() => {
+          onAntes?.()
+          setAberto((v) => !v)
+        }}
+        className="min-w-5 rounded-l-none px-0.5 [@media(pointer:coarse)]:min-w-7"
+      >
+        <ChevronDown size={11} />
+      </Botao>
+      <Painel ancora={ancora} aberto={aberto} onFechar={() => setAberto(false)} largura={88}>
+        <div className="max-h-72 overflow-y-auto">
+          {TAMANHOS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              role="menuitemradio"
+              aria-checked={n === tamanho}
+              onMouseDown={naoRoubaFoco}
+              onClick={() => aplicar(n)}
+              className={cn(
+                'flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs tabular-nums text-ink-700 transition hover:bg-ink-100 dark:text-ink-200 dark:hover:bg-ink-800',
+                '[@media(pointer:coarse)]:py-2',
+                n === tamanho && 'font-semibold text-accent-700 dark:text-accent-300',
+              )}
+            >
+              {n}
+              {n === tamanho && <Check size={12} />}
+            </button>
+          ))}
+        </div>
+      </Painel>
+    </div>
   )
 }
 
@@ -230,7 +267,7 @@ function TamanhoDaFonte({ tamanho, desligado, onAntes, onAplicar }) {
  * (`overflow-x-auto`), e um painel `absolute` dentro dela seria cortado
  * pela própria barra.
  */
-function Painel({ ancora, aberto, onFechar, children, largura = 'auto' }) {
+export function Painel({ ancora, aberto, onFechar, children, largura = 'auto' }) {
   const ref = useRef(null)
   const [pos, setPos] = useState(null)
 
@@ -273,13 +310,44 @@ function Painel({ ancora, aberto, onFechar, children, largura = 'auto' }) {
  * "Automática" (volta à cor do tema) e o quadrado cromático para qualquer
  * outra cor, como o círculo das outras paletas do app.
  */
-function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
+const SELETORES_DE_COR = {
+  texto: {
+    chave: 'notefy.nota.corDoTexto',
+    padrao: '#C00000',
+    cores: CORES_DE_TEXTO,
+    get rotulo() { return t('Cor da letra') },
+    get mais() { return t('Mais cores de letra') },
+    get nenhuma() { return t('Automática') },
+  },
+  destaque: {
+    chave: 'notefy.nota.corDoDestaque',
+    padrao: '#FEF08A',
+    cores: CORES_DE_DESTAQUE,
+    icone: Highlighter,
+    get rotulo() { return t('Marca-texto') },
+    get mais() { return t('Mais cores de marca-texto') },
+    get nenhuma() { return t('Sem marca-texto') },
+  },
+  // O balde do Excel, para o fundo da célula. Tons claros, como os do
+  // marca-texto: a letra continua legível por cima nos dois temas.
+  preenchimento: {
+    chave: 'notefy.planilha.corDoPreenchimento',
+    padrao: '#FEF08A',
+    cores: CORES_DE_DESTAQUE,
+    icone: PaintBucket,
+    get rotulo() { return t('Cor de preenchimento') },
+    get mais() { return t('Mais cores de preenchimento') },
+    get nenhuma() { return t('Sem preenchimento') },
+  },
+}
+
+export function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
   const ancora = useRef(null)
   const [aberto, setAberto] = useState(false)
-  const chave = tipo === 'texto' ? 'notefy.nota.corDoTexto' : 'notefy.nota.corDoDestaque'
-  const [ultima, setUltima] = useState(() => lembrar(chave, tipo === 'texto' ? '#C00000' : '#FEF08A'))
-  const cores = tipo === 'texto' ? CORES_DE_TEXTO : CORES_DE_DESTAQUE
-  const rotulo = tipo === 'texto' ? t('Cor da letra') : t('Marca-texto')
+  const config = SELETORES_DE_COR[tipo]
+  const { chave, cores, icone: Icone } = config
+  const [ultima, setUltima] = useState(() => lembrar(chave, config.padrao))
+  const rotulo = config.rotulo
 
   const aplicar = (cor) => {
     if (cor) {
@@ -298,20 +366,13 @@ function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
         onClick={() => aplicar(ultima)}
         className="rounded-r-none pr-1"
       >
-        {tipo === 'texto' ? (
-          <span className="flex flex-col items-center leading-none">
-            <span className="text-[14px] font-semibold">A</span>
-            <span className="mt-0.5 h-[3px] w-4 rounded-full" style={{ backgroundColor: ultima }} />
-          </span>
-        ) : (
-          <span className="flex flex-col items-center leading-none">
-            <Highlighter size={14} />
-            <span className="mt-0.5 h-[3px] w-4 rounded-full" style={{ backgroundColor: ultima }} />
-          </span>
-        )}
+        <span className="flex flex-col items-center leading-none">
+          {Icone ? <Icone size={14} /> : <span className="text-[14px] font-semibold">A</span>}
+          <span className="mt-0.5 h-[3px] w-4 rounded-full" style={{ backgroundColor: ultima }} />
+        </span>
       </Botao>
       <Botao
-        rotulo={tipo === 'texto' ? t('Mais cores de letra') : t('Mais cores de marca-texto')}
+        rotulo={config.mais}
         desligado={desligado}
         ativo={aberto}
         onClick={() => {
@@ -337,7 +398,7 @@ function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
               tipo === 'texto' ? 'bg-ink-800 dark:bg-ink-100' : 'bg-[linear-gradient(45deg,transparent_45%,#ef4444_45%,#ef4444_55%,transparent_55%)]',
             )}
           />
-          {tipo === 'texto' ? t('Automática') : t('Sem marca-texto')}
+          {config.nenhuma}
         </button>
         {/* Qualquer outra cor: o quadrado cromático, como o círculo das
             outras paletas do app (e não um texto "Cor personalizada"). */}
@@ -345,7 +406,10 @@ function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
           quadrado
           value={/^#[0-9a-f]{6}$/i.test(ultima) ? ultima : undefined}
           selected={!cores.some((c) => c.toLowerCase() === ultima.toLowerCase())}
-          onChange={aplicar}
+          // Aplicar a cada movimento fechava a paleta (e o seletor junto) no
+          // primeiro toque: a cor escolhida de fato só entrava clicando no "A".
+          onChange={setUltima}
+          onConfirmar={aplicar}
           className="h-[22px] w-[22px] shrink-0"
         />
         </div>
@@ -376,18 +440,25 @@ function SeletorDeCor({ tipo, desligado, onAplicar, onAntes }) {
   )
 }
 
-/** Menu de um botão: alinhamento e "mais itens para inserir". */
-function MenuDaBarra({ icon, rotulo, itens, desligado }) {
+/**
+ * Menu de um botão: alinhamento e "mais itens para inserir".
+ *
+ * `{ separator: true }` na lista desenha uma divisória entre grupos.
+ */
+export function MenuDaBarra({ icon, rotulo, itens, desligado, ativo: ligado = false, largura = 220, className }) {
   const ancora = useRef(null)
   const [aberto, setAberto] = useState(false)
   return (
     <div ref={ancora} className="flex shrink-0">
-      <Botao rotulo={rotulo} ativo={aberto} desligado={desligado} onClick={() => setAberto((v) => !v)}>
+      <Botao rotulo={rotulo} ativo={aberto || ligado} desligado={desligado} onClick={() => setAberto((v) => !v)} className={className}>
         {icon}
-        <ChevronDown size={11} className="-ml-0.5" />
+        <ChevronDown size={11} className={icon ? '-ml-0.5' : undefined} />
       </Botao>
-      <Painel ancora={ancora} aberto={aberto} onFechar={() => setAberto(false)} largura={220}>
-        {itens.map(({ icon: Icon, label, atalho, ativo, onClick, disabled }) => (
+      <Painel ancora={ancora} aberto={aberto} onFechar={() => setAberto(false)} largura={largura}>
+        {itens.map(({ icon: Icon, label, atalho, ativo, onClick, disabled, separator }, i) =>
+          separator ? (
+            <div key={`sep-${i}`} role="separator" className="my-1 h-px bg-ink-100 dark:bg-ink-800" />
+          ) : (
           <button
             key={label}
             type="button"
@@ -404,11 +475,12 @@ function MenuDaBarra({ icon, rotulo, itens, desligado }) {
               ativo && 'text-accent-700 dark:text-accent-300',
             )}
           >
-            <Icon size={15} className="shrink-0 text-ink-400" />
+            {Icon ? <Icon size={15} className="shrink-0 text-ink-400" /> : <span className="w-[15px] shrink-0" aria-hidden />}
             <span className="flex-1">{label}</span>
             {atalho && <kbd className="text-[10px] text-ink-400 [@media(hover:none)]:hidden">{atalho}</kbd>}
           </button>
-        ))}
+          ),
+        )}
       </Painel>
     </div>
   )
@@ -427,7 +499,7 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
       role="toolbar"
       aria-label={t('Barra de funções da nota')}
       className={cn(
-        'flex items-center gap-0.5 px-2 py-1',
+        'flex items-center gap-px px-2 py-1',
         // Celular: uma fileira que rola de lado, como o teclado de
         // formatação dos apps de texto; quatro fileiras empilhadas comeriam
         // a tela inteira acima da folha.
@@ -446,7 +518,7 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
         desligado={semTexto}
         onAntes={acoes.guardarSelecao}
         onEscolher={(v) => acoes.comando('formatBlock', v)}
-        className="w-[7.25rem]"
+        className="w-[6.5rem]"
       />
       <Escolha
         valor={fonteAtual}
@@ -455,7 +527,7 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
         desligado={semTexto}
         onAntes={acoes.guardarSelecao}
         onEscolher={acoes.fonte}
-        className="w-[7.5rem]"
+        className="w-[6.5rem]"
       />
       <TamanhoDaFonte tamanho={tamanho} desligado={semTexto} onAntes={acoes.guardarSelecao} onAplicar={acoes.tamanho} />
 

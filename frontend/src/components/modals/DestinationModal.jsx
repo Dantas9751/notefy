@@ -127,7 +127,7 @@ export default function DestinationModal({
           description={t('Crie uma categoria e uma pasta antes de adicionar conteúdo.')}
         />
       ) : (
-        /* O SEGREDO ESTÁ AQUI: p-1 e pr-3 (padding-right) para afastar da parede do scroll */
+        /* `pr-3` afasta os itens da barra de rolagem. */
         <ul className="max-h-72 space-y-1 overflow-y-auto p-1 pr-3">
           {filtered.map((option) => {
             const isCurrent = option.id === currentFolderId

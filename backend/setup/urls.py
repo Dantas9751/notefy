@@ -11,6 +11,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from content.views import DocumentViewSet, FavoritesView, TemplateViewSet
+from core.entrada import AbrirCanalView, CanalView
 from core.servir_midia import servir_midia
 from core.trash import TrashItemView, TrashView
 from organization.views import CategoryViewSet, FolderViewSet
@@ -38,6 +39,9 @@ api_urlpatterns = [
     path("", include("search.urls")),
     path("ai/chat/", ChatView.as_view(), name="ai-chat"),
     path("ai/run/", RunView.as_view(), name="ai-run"),
+    # input() e prompt() do código que roda na nota (ver core/entrada.py).
+    path("entrada/", AbrirCanalView.as_view(), name="entrada"),
+    path("entrada/<str:canal>/", CanalView.as_view(), name="entrada-canal"),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
 ]

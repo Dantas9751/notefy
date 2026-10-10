@@ -66,3 +66,6 @@ secret.key
 # ---- Instaladores gerados pelo build do desktop ----
 *.msi
 *.exe
+
+# Pyodide copiado do node_modules no npm install (scripts/copiar-pyodide.mjs).
+frontend/public/pyodide/

@@ -5,31 +5,28 @@ import {
   CalendarDays,
   GanttChartSquare,
   Clock,
-  FolderPlus,
   Folder as FolderIcon,
   Kanban,
-  LayoutDashboard,
+  Home,
   LayoutTemplate,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
-  Pencil,
   Plus,
   Download,
   Search,
   Star,
   Settings,
-  Tag,
   Trash2,
   ExternalLink,
 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useUI } from '@/context/UIContext'
-import { useWorkspace } from '@/context/WorkspaceContext'
+import { flattenFolders, useWorkspace } from '@/context/WorkspaceContext'
 import { cn } from '@/lib/utils'
-import { useRenomear } from '@/hooks/useRenomear'
+import { useF2, useRenomear } from '@/hooks/useRenomear'
 import StudyTimer from '@/components/layout/StudyTimer'
 import FavoritosSidebar from '@/components/layout/FavoritosSidebar'
 import { ColorDot, Spinner } from '@/components/ui'
@@ -38,18 +35,22 @@ import { useTabs } from '@/context/TabsContext'
 import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import CategoryTree from './CategoryTree'
+import { itensDaCategoria, itensDaPasta } from '@/components/layout/menusDaArvore'
 import CreateMenu from './CreateMenu'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import DestinationModal from '@/components/modals/DestinationModal'
-import { useCascadeDelete } from '@/hooks/useCascadeDelete'
-import { exportBatchAsZip, exportFolderAsZip } from '@/components/ExportMenu'
+import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { emLote } from '@/lib/lote'
+import { parseKey } from '@/hooks/useMultiSelect'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
+import { exportarSelecao } from '@/components/ExportMenu'
 import { t } from '@/lib/i18n'
 import { semMouse } from '@/lib/desktop'
-import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 const NAV_ITEMS = [
-  { to: '/', get label() { return t('Início') }, icon: LayoutDashboard, end: true },
+  { to: '/', get label() { return t('Início') }, icon: Home, end: true },
   { to: '/recent', get label() { return t('Recentes') }, icon: Clock },
   // Favoritos não entra aqui: a seção mais abaixo JÁ É a lista, e um
   // item de navegação levaria a uma tela com os mesmos nomes que já
@@ -262,11 +263,9 @@ export default function Sidebar({ sempreAberta = false }) {
 
   const [folderModal, setFolderModal] = useState(null)
   const [categoryModal, setCategoryModal] = useState(null)
-  const [error, setError] = useState(null)
 
   // Estados de Multi-Seleção e Ações em Massa
   const [selectedIds, setSelectedIds] = useState([])
-  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
   const [moveModalOpen, setMoveModalOpen] = useState(false)
   
   // Tratamento da Rota Dinâmica
@@ -277,76 +276,30 @@ export default function Sidebar({ sempreAberta = false }) {
     item.to === '/' ? { ...item, to: homeRoute } : item
   )
 
-  // Função Timerzinho para erros (Desaparece em 4s)
-  const displayError = (msg) => {
-    setError(msg)
-    setTimeout(() => setError(null), 4000)
-  }
-
-  const { requestDelete, dialogs: deleteDialogs } = useCascadeDelete({
-    onDeleted: (target) => {
+  const { pedirExclusao, requestDelete, dialogs: deleteDialogs } = useExcluirSelecao({
+    selecionados: selectedIds,
+    itemDe: (chave) => flattenFolders(categories).find((pasta) => `folder:${pasta.id}` === chave),
+    // Quem estava dentro do que saiu volta para o início.
+    onExcluido: (alvo) => {
       setSelectedIds([])
       refresh()
-      if (location.pathname.includes(target.id)) {
-        navigate(homeRoute)
-      }
+      if (alvo && location.pathname.includes(alvo.id)) navigate(homeRoute)
     },
-    onError: displayError, // Conectado com o Timer
   })
 
   const collapsed = sidebarCollapsed && !sempreAberta
   const categoriaDoPainel = categories.find((c) => c.id === trilho.painel?.chave)
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setSelectedIds([])
-        return
-      }
-      // O menu de renomear da árvore MOSTRA "F2" ao lado do rótulo, e
-      // nada aqui escutava a tecla: o atalho era anunciado e não fazia
-      // nada. As telas de listagem já tinham o handler; a sidebar ficou
-      // de fora. Só com um item marcado — renomear vários não existe.
-      if (e.key === 'F2' && !renomear.editando && selectedIds.length === 1) {
-        const chave = String(selectedIds[0])
-        const separador = chave.indexOf(':')
-        const tipo = separador === -1 ? 'folder' : chave.slice(0, separador)
-        const id = separador === -1 ? chave : chave.slice(separador + 1)
-        if (tipo !== 'folder') return
-        e.preventDefault()
-        renomear.abrir(id)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedIds, renomear])
+  useListenerDeJanela('keydown', (e) => {
+    if (e.key === 'Escape') setSelectedIds([])
+  })
+  // O menu da árvore MOSTRA "F2" ao lado de "Renomear": a tecla precisa valer.
+  useF2(renomear, selectedIds, ['folder'])
 
-  useEffect(() => {
-    const onMoved = () => refresh()
-    window.addEventListener('notefy:moved', onMoved)
-    return () => window.removeEventListener('notefy:moved', onMoved)
-  }, [refresh])
-
-  // Filtro Blindado: Impede categorias de entrarem no Multi-select
-  const handleSelectIds = (ids) => {
-    const categoryIds = categories.map(c => String(c.id))
-    
-    const filtered = ids.filter((id) => {
-      const strId = String(id)
-      // Bloqueia se tiver o prefixo explícito
-      if (strId.startsWith('category:')) return false
-      // Bloqueia se o ID cru pertencer à tabela de categorias
-      if (categoryIds.includes(strId)) return false
-      
-      return true
-    })
-    
-    setSelectedIds(filtered)
-  }
+  useListenerDeJanela('notefy:moved', refresh)
 
   const handleDrop = useCallback(
     async (payload, target) => {
-      setError(null)
       try {
         if (payload.type === 'document') {
           await api.post(`/documents/${payload.id}/move/`, { folder: target.id })
@@ -358,211 +311,25 @@ export default function Sidebar({ sempreAberta = false }) {
         refresh()
         window.dispatchEvent(new CustomEvent('notefy:moved', { detail: { payload, target } }))
       } catch (err) {
-        displayError(extractError(err))
+        avisarErro(extractError(err))
       }
     },
     [refresh],
   )
 
-  const deleteOne = async (selectionKey) => {
-    const separatorIndex = selectionKey.indexOf(':')
-    const itemType = selectionKey.slice(0, separatorIndex)
-    const itemId = selectionKey.slice(separatorIndex + 1)
-    
-    let endpoint = `/documents/${itemId}/`
-    if (itemType === 'folder') endpoint = `/folders/${itemId}/`
-    else if (itemType === 'category') endpoint = `/categories/${itemId}/`
-
-    // Devolve o resultado em vez de lançar: lançar abortava o `for` do
-    // lote, e um item bloqueado por favorito virava parede — os seguintes
-    // nem eram tentados.
-    try {
-      await api.delete(endpoint)
-      return { ok: true }
-    } catch (err) {
-      const status = err.response?.status
-      if (status === 404) return { ok: true }
-      // 423 é o bloqueio por favorito: `?force=true` não derruba.
-      if (status === 423) return { ok: false, motivo: extractError(err) }
-
-      try {
-        await api.delete(`${endpoint}?force=true`)
-        return { ok: true }
-      } catch (forceErr) {
-        if (forceErr.response?.status === 404) return { ok: true }
-        return { ok: false, motivo: extractError(forceErr) }
-      }
-    }
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-    setError(null)
-
-    const total = selectedIds.length
-    const bloqueados = []
-
-    for (const selectionKey of selectedIds) {
-      const resultado = await deleteOne(selectionKey)
-      if (!resultado.ok) bloqueados.push(resultado.motivo)
-    }
-
-    setSelectedIds([])
-    setBulkDeleteModalOpen(false)
-
-    if (bloqueados.length) {
-      displayError(t('{falhas} de {total} não foram excluídos. {motivo}', { falhas: bloqueados.length, total, motivo: bloqueados[0] }))
-    }
-
-    await refresh()
-    window.dispatchEvent(new Event('notefy:moved'))
-  }
-
-  /**
-   * Baixa a seleção como um único ZIP.
-   *
-   * Os itens vêm da sidebar como `tipo:id` e sem conteúdo — a árvore
-   * carrega só nome e ícone. Cada documento precisa ser buscado inteiro
-   * antes de virar arquivo, e pastas entram pela rota de conteúdo, que
-   * devolve a subárvore já montada.
-   */
-  const handleBulkExport = async () => {
-    if (selectedIds.length === 0) return
-    setError(null)
-
-    const documentos = []
-    for (const selectionKey of selectedIds) {
-      const separatorIndex = selectionKey.indexOf(':')
-      const itemType = selectionKey.slice(0, separatorIndex)
-      const itemId = selectionKey.slice(separatorIndex + 1)
-
-      try {
-        if (itemType === 'document') {
-          const { data } = await api.get(`/documents/${itemId}/`)
-          documentos.push(data)
-        } else if (itemType === 'folder') {
-          // A pasta vira as suas folhas: um zip de "pasta + notas soltas"
-          // que ignorasse o conteúdo dela seria uma pasta vazia no lugar
-          // do que o usuário mandou baixar.
-          const { data } = await api.get(`/folders/${itemId}/contents/`)
-          for (const doc of data.documents ?? []) {
-            const completo = await api.get(`/documents/${doc.id}/`)
-            documentos.push(completo.data)
-          }
-        }
-      } catch {
-        // Item que falha não derruba o lote: melhor um zip com o que deu
-        // certo do que nenhum arquivo por causa de um item quebrado.
-      }
-    }
-
-    if (documentos.length === 0) {
-      displayError(t('Nada para exportar na seleção.'))
-      return
-    }
-
-    try {
-      await exportBatchAsZip(documentos)
-      setSelectedIds([])
-    } catch (err) {
-      displayError(extractError(err))
-    }
-  }
-
-  /** Baixa uma pasta inteira como ZIP, preservando a hierarquia. */
-  const handleFolderExport = async (folder) => {
-    setError(null)
-    try {
-      const { data } = await api.get(`/folders/${folder.id}/contents/`)
-
-      // `contents/` devolve um nível. Buscar o payload de cada documento é
-      // o que permite converter para .md/.csv em vez de gravar um JSON de
-      // metadados que ninguém consegue abrir.
-      const documentos = []
-      for (const doc of data.documents ?? []) {
-        try {
-          const completo = await api.get(`/documents/${doc.id}/`)
-          documentos.push(completo.data)
-        } catch {
-          /* item ignorado */
-        }
-      }
-
-      await exportFolderAsZip(
-        [{ name: folder.name, documents: documentos, children: [] }],
-      )
-    } catch (err) {
-      displayError(extractError(err))
-    }
-  }
-
-  /** Monta o nó de exportação de uma pasta e de toda a subárvore dela. */
-  const coletarSubarvore = async (folderId) => {
-    const { data } = await api.get(`/folders/${folderId}/contents/`)
-
-    const documentos = []
-    for (const doc of data.documents ?? []) {
-      try {
-        const completo = await api.get(`/documents/${doc.id}/`)
-        documentos.push(completo.data)
-      } catch {
-        /* item ignorado */
-      }
-    }
-
-    const children = []
-    for (const sub of data.subfolders ?? []) {
-      children.push(await coletarSubarvore(sub.id))
-    }
-
-    return { name: data.folder.name, documents: documentos, children }
-  }
-
-  /** Baixa a categoria inteira como ZIP, preservando a hierarquia. */
-  const handleCategoryExport = async (category) => {
-    setError(null)
-    try {
-      const { data } = await api.get(`/categories/${category.id}/contents/`)
-
-      const raizes = []
-      for (const pasta of data.folders ?? []) {
-        raizes.push(await coletarSubarvore(pasta.id))
-      }
-
-      if (!raizes.length) {
-        displayError(t('Nada para exportar nesta categoria.'))
-        return
-      }
-
-      await exportFolderAsZip(raizes)
-    } catch (err) {
-      displayError(extractError(err))
-    }
-  }
-
+  // A fila vai até o fim (`emLote`); o `notefy:moved` recarrega a árvore.
   const handleBulkMove = async (destinationFolderId) => {
     if (selectedIds.length === 0 || !destinationFolderId) return
-    setError(null)
-    try {
-      for (const selectionKey of selectedIds) {
-        const separatorIndex = selectionKey.indexOf(':')
-        const itemType = selectionKey.slice(0, separatorIndex)
-        const itemId = selectionKey.slice(separatorIndex + 1)
-
-        if (itemType === 'document') {
-          await api.post(`/documents/${itemId}/move/`, { folder: destinationFolderId })
-        } else if (itemType === 'folder') {
-          await api.post(`/folders/${itemId}/move/`, { parent: destinationFolderId })
-        }
-      }
-    } catch (err) {
-      displayError(extractError(err))
-    } finally {
-      setSelectedIds([])
-      setMoveModalOpen(false)
-      await refresh()
-      window.dispatchEvent(new Event('notefy:moved'))
-    }
+    const recusa = await emLote(selectedIds, (chave) => {
+      const { type, id } = parseKey(chave)
+      return type === 'folder'
+        ? api.post(`/folders/${id}/move/`, { parent: destinationFolderId })
+        : api.post(`/documents/${id}/move/`, { folder: destinationFolderId })
+    })
+    setSelectedIds([])
+    setMoveModalOpen(false)
+    window.dispatchEvent(new Event('notefy:moved'))
+    if (recusa) avisarErro(t('{falhas} de {total} não foram movidos. {motivo}', recusa))
   }
 
   const menuItems = () => {
@@ -579,14 +346,14 @@ export default function Sidebar({ sempreAberta = false }) {
         {
           label: t('Exportar ({length}) como .zip', { length: selectedIds.length }),
           icon: Download,
-          onClick: handleBulkExport,
+          onClick: () => exportarSelecao(selectedIds),
         },
         { separator: true },
         {
-          label: t('Excluir ({length})', { length: selectedIds.length }),
+          label: t('Excluir ({length} selecionadas)', { length: selectedIds.length }),
           icon: Trash2,
           danger: true,
-          onClick: () => setBulkDeleteModalOpen(true),
+          onClick: pedirExclusao,
         },
       ]
     }
@@ -629,97 +396,29 @@ export default function Sidebar({ sempreAberta = false }) {
 
     if (payload.type === 'category') {
       const category = payload.category
-      return [
-        {
-          label: t('Abrir'),
-          icon: Tag,
-          onClick: () => navigate(`/categories/${category.id}`),
-        },
-        {
-          label: t('Nova pasta aqui'),
-          icon: FolderPlus,
-          onClick: () => setFolderModal({ parent: null, categoryId: category.id }),
-        },
-        { separator: true },
-        {
-          label: t('Renomear'),
-          icon: Pencil,
-          atalho: 'F2',
-          onClick: () => renomear.abrir(category.id),
-        },
-        {
-          // O modal continua: ele edita cor e descrição, não só o nome.
-          label: t('Editar...'),
-          icon: Settings,
-          onClick: () => setCategoryModal({ category }),
-        },
-        {
-          label: t('Exportar como .zip'),
-          icon: Download,
-          onClick: () => handleCategoryExport(category),
-        },
-        {
-          label: t('Excluir'),
-          icon: Trash2,
-          danger: true,
-          onClick: () => {
-            setError(null)
-            requestDelete({ kind: 'category', id: category.id, name: category.name })
-          },
-        },
-        ...fimDoMenu('categoria', category.id),
-      ]
+      return itensDaCategoria(category, {
+        navigate,
+        novaPasta: () => setFolderModal({ parent: null, categoryId: category.id }),
+        renomear: () => renomear.abrir(category.id),
+        editar: () => setCategoryModal({ category }),
+        excluir: () => requestDelete({ kind: 'category', id: category.id, name: category.name }),
+        fimDoMenu,
+      })
     }
 
     const folder = payload.node
-    return [
-      { label: t('Abrir'), icon: FolderIcon, onClick: () => navigate(`/folders/${folder.id}`) },
-      {
-        label: t('Nova subpasta'),
-        icon: FolderPlus,
-        onClick: () => setFolderModal({ parent: folder, categoryId: payload.categoryId }),
+    return itensDaPasta(folder, {
+      navigate,
+      novaSubpasta: () => setFolderModal({ parent: folder, categoryId: payload.categoryId }),
+      moverPara: () => {
+        setSelectedIds([`folder:${folder.id}`])
+        setMoveModalOpen(true)
       },
-      {
-        label: t('Novo a partir de modelo...'),
-        icon: LayoutTemplate,
-        onClick: () => navigate(`/templates?folder=${folder.id}`),
-      },
-      {
-        label: t('Mover para...'),
-        icon: FolderIcon,
-        onClick: () => {
-          setSelectedIds([`folder:${folder.id}`])
-          setMoveModalOpen(true)
-        },
-      },
-      {
-        label: t('Exportar como .zip'),
-        icon: Download,
-        onClick: () => handleFolderExport(folder),
-      },
-      { separator: true },
-      {
-        label: t('Renomear'),
-        icon: Pencil,
-        atalho: 'F2',
-        onClick: () => renomear.abrir(folder.id),
-      },
-      {
-        label: t('Editar...'),
-        icon: Settings,
-        onClick: () => setFolderModal({ folder, categoryId: payload.categoryId }),
-      },
-      {
-        label: t('Excluir'),
-        icon: Trash2,
-        danger: true,
-        onClick: () => {
-          setError(null)
-          requestDelete({ kind: 'folder', id: folder.id, name: folder.name })
-        },
-      },
-      ...fimDoMenu('pasta', folder.id),
-    ]
+      renomear: () => renomear.abrir(folder.id),
+      editar: () => setFolderModal({ folder, categoryId: payload.categoryId }),
+      excluir: () => requestDelete({ kind: 'folder', id: folder.id, name: folder.name }),
+      fimDoMenu,
+    })
   }
 
   const handleLogout = async () => {
@@ -781,15 +480,6 @@ export default function Sidebar({ sempreAberta = false }) {
                 </button>
               </div>
 
-              {/* Mensagem de Erro Temporária */}
-              {error && (
-                <div className="mb-2 px-2">
-                  <p className="rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:bg-red-500/10 dark:text-red-400 shadow-sm border border-red-100 dark:border-red-900/50">
-                    {error}
-                  </p>
-                </div>
-              )}
-
               {loading ? (
                 <div className="flex justify-center py-4">
                   <Spinner size={15} />
@@ -798,7 +488,7 @@ export default function Sidebar({ sempreAberta = false }) {
                 <CategoryTree
                   categories={categories}
                   selectedIds={selectedIds}
-                  onSelectIds={handleSelectIds}
+                  onSelectIds={setSelectedIds}
                   actions={{
                     onDrop: handleDrop,
                     onContextMenu: openMenu,
@@ -1027,15 +717,6 @@ export default function Sidebar({ sempreAberta = false }) {
           setSelectedIds([])
         }}
         onPick={handleBulkMove}
-      />
-
-      <ConfirmDialog
-        open={bulkDeleteModalOpen}
-        onClose={() => setBulkDeleteModalOpen(false)}
-        title={t('Excluir itens selecionados')}
-        message={t('{n} itens vão para a lixeira, junto com o que houver dentro deles.', { n: selectedIds.length })}
-        confirmLabel={t('Excluir {n} itens', { n: selectedIds.length })}
-        onConfirm={handleBulkDelete}
       />
 
       {deleteDialogs}

@@ -61,6 +61,45 @@ class LayoutDoInicioTests(APITestCase):
             with self.subTest(ruim=ruim):
                 self.assertEqual(self.gravar(home_layout=ruim).status_code, 400)
 
+    def test_posicao_livre_fica_na_faixa(self):
+        blocos = [
+            {"id": "notas", "visivel": True, "largura": "metade", "x": 12.345, "y": 40.6, "w": 300, "h": 10},
+            # Posição pela metade não vale: o app arruma esse bloco sozinho.
+            {"id": "agenda", "visivel": True, "largura": "metade", "x": 10},
+        ]
+        resposta = self.gravar(home_layout={"blocos": blocos})
+        self.assertEqual(resposta.status_code, 200, resposta.content)
+        self.assertEqual(
+            resposta.json()["home_layout"]["blocos"],
+            [
+                {"id": "notas", "visivel": True, "largura": "metade", "x": 12.35, "y": 41, "w": 100.0, "h": 80},
+                {"id": "agenda", "visivel": True, "largura": "metade"},
+            ],
+        )
+        ruim = {"id": "notas", "x": "10", "y": 0, "w": 50, "h": 200}
+        self.assertEqual(self.gravar(home_layout={"blocos": [ruim]}).status_code, 400)
+
+    def test_tamanho_do_bloco_arrastado_fica_na_faixa(self):
+        blocos = [
+            {"id": "notas", "visivel": True, "largura": "metade", "colunas": 7, "altura": 333},
+            {"id": "agenda", "visivel": True, "largura": "inteira", "colunas": 40, "altura": 10},
+            {"id": "tarefas", "visivel": True, "largura": "metade", "altura": None},
+        ]
+        resposta = self.gravar(home_layout={"blocos": blocos})
+        self.assertEqual(resposta.status_code, 200, resposta.content)
+        self.assertEqual(
+            resposta.json()["home_layout"]["blocos"],
+            [
+                {"id": "notas", "visivel": True, "largura": "metade", "colunas": 7, "altura": 333},
+                {"id": "agenda", "visivel": True, "largura": "inteira", "colunas": 12, "altura": 80},
+                {"id": "tarefas", "visivel": True, "largura": "metade"},
+            ],
+        )
+        for ruim in ({"colunas": "6"}, {"colunas": True}, {"altura": "alta"}, {"altura": [300]}):
+            with self.subTest(ruim=ruim):
+                bloco = {"id": "notas", **ruim}
+                self.assertEqual(self.gravar(home_layout={"blocos": [bloco]}).status_code, 400)
+
     def test_capa_de_imagem_so_aceita_arquivo_de_midia(self):
         boa = {"capa": {"tipo": "imagem", "url": "http://127.0.0.1:8000/media/files/a/foto.png"}}
         self.assertEqual(self.gravar(home_layout=boa).status_code, 200)
@@ -179,3 +218,40 @@ class CapaDoInicioTests(APITestCase):
         self.enviar(_png())
         self.assertEqual(self.client.delete("/api/me/cover/").status_code, 204)
         self.assertFalse(UserPreferences.objects.get(user=self.user).home_cover)
+
+
+class FotosDoInicioTests(APITestCase):
+    """O papel de parede e a foto do relógio: o mesmo envio da capa, cada um no seu lugar."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.client.force_authenticate(self.user)
+
+    def enviar(self, para):
+        arquivo = io.BytesIO(_png())
+        arquivo.name = "foto.png"
+        return self.client.post(f"/api/me/cover/?para={para}", {"imagem": arquivo}, format="multipart")
+
+    def test_cada_foto_fica_no_seu_campo_e_uma_nao_apaga_a_outra(self):
+        for para in ("capa", "fundo", "foto"):
+            self.assertEqual(self.enviar(para).status_code, 201)
+        prefs = UserPreferences.objects.get(user=self.user)
+        self.assertTrue(prefs.home_cover and prefs.home_background and prefs.home_photo)
+        self.assertEqual(len({prefs.home_cover.name, prefs.home_background.name, prefs.home_photo.name}), 3)
+        self.assertEqual(self.client.delete("/api/me/cover/?para=fundo").status_code, 204)
+        prefs.refresh_from_db()
+        self.assertFalse(prefs.home_background)
+        self.assertTrue(prefs.home_cover and prefs.home_photo)
+
+    def test_destino_desconhecido_volta_400(self):
+        self.assertEqual(self.enviar("avatar").status_code, 400)
+
+    def test_layout_aceita_fundo_e_foto_e_recusa_material_na_foto(self):
+        url = self.enviar("fundo").json()["url"]
+        layout = {"fundo": {"tipo": "imagem", "url": url, "zoom": 9}, "foto": {"tipo": "imagem", "url": url}}
+        resposta = self.client.patch("/api/me/preferences/", {"home_layout": layout}, format="json")
+        self.assertEqual(resposta.status_code, 200, resposta.content)
+        self.assertEqual(resposta.json()["home_layout"]["fundo"]["zoom"], 3)
+        self.assertEqual(resposta.json()["home_layout"]["foto"]["url"], url)
+        for ruim in ({"foto": {"tipo": "gradiente", "id": "lousa"}}, {"fundo": {"tipo": "imagem", "url": "javascript:alert(1)"}}):
+            self.assertEqual(self.client.patch("/api/me/preferences/", {"home_layout": ruim}, format="json").status_code, 400, ruim)

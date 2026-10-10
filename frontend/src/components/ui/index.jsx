@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2, X } from 'lucide-react'
+import { Loader2, Trash2, X } from 'lucide-react'
 import { cn, readableTextColor } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -187,15 +187,57 @@ export function EmptyState({ icon: Icon, title, description, action }) {
   )
 }
 
+/**
+ * Erro que mora na tela: o de um formulário (junto dos campos) e o de uma
+ * tela que não carregou (com "Tentar novamente"). O resultado de uma ação
+ * vai para o aviso flutuante (`lib/avisoFlutuante.js`).
+ */
 export function ErrorState({ message, onRetry }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
+    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
       <p>{message}</p>
       {onRetry && (
-        <button onClick={onRetry} className="mt-2 font-medium underline underline-offset-2">
+        <button type="button" onClick={onRetry} className="mt-2 font-medium underline underline-offset-2">
           {t('Tentar novamente')}
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * Barra flutuante da seleção múltipla, a mesma em todas as listas.
+ * `children` entra antes de "Excluir" (a lixeira põe "Restaurar" ali).
+ * `rotulo` troca o "N selecionados" quando o item é feminino (pastas).
+ */
+export function BarraDeSelecao({ total, rotulo, onExcluir, onLimpar, children }) {
+  if (!total) return null
+  return (
+    // `w-max`: preso em `left-1/2`, a barra só tinha meia tela de largura e
+    // o "1 selecionado" quebrava em duas linhas no celular.
+    <div className="fixed bottom-6 left-1/2 z-40 flex w-max max-w-[calc(100vw-1.5rem)] -translate-x-1/2 animate-slide-up items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-white shadow-xl dark:bg-ink-800">
+      <span className="whitespace-nowrap text-xs font-medium">
+        {rotulo ?? t(total === 1 ? '1 selecionado' : '{n} selecionados', { n: total })}
+      </span>
+      <div className="h-4 w-px bg-ink-700" />
+      {children}
+      <button
+        type="button"
+        onClick={onExcluir}
+        className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-red-400 transition hover:bg-red-500/20"
+      >
+        <Trash2 size={14} />
+        {t('Excluir')}
+      </button>
+      <button
+        type="button"
+        onClick={onLimpar}
+        aria-label={t('Limpar seleção')}
+        title={t('Limpar seleção')}
+        className="rounded p-1 text-ink-400 transition hover:text-white"
+      >
+        <X size={14} />
+      </button>
     </div>
   )
 }

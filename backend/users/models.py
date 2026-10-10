@@ -138,6 +138,10 @@ class UserPreferences(models.Model):
     #: Foto enviada do computador para a capa do Início. Uma só por conta:
     #: enviar outra apaga a anterior (`CapaDoInicioView`).
     home_cover = models.ImageField("capa do início", upload_to=capa_upload_path, blank=True, null=True)
+    #: Papel de parede do Início (atrás dos blocos) e a foto do bloco do
+    #: relógio. Mesma regra da capa: uma de cada, a nova apaga a anterior.
+    home_background = models.ImageField("fundo do início", upload_to=capa_upload_path, blank=True, null=True)
+    home_photo = models.ImageField("foto do relógio", upload_to=capa_upload_path, blank=True, null=True)
 
     # ------------------------------------------------------------------
     # Inteligência Artificial — configurada pelo usuário nas Configurações.

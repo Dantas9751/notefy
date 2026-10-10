@@ -1,25 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BoxSelect,
-  Brush,
-  Circle,
   Copy,
   Eraser,
-  Highlighter,
   Maximize,
   Minus,
   Moon,
   MousePointer2,
   Palette,
-  PenLine,
   Plus,
   Redo2,
   Shapes,
-  Slash,
-  Square,
   Sun,
   Trash2,
-  Triangle,
   Type,
   Undo2,
   X,
@@ -41,15 +34,14 @@ import {
   rectBetween,
   strokePath,
   toWorld,
-  uid,
 } from '@/lib/graph'
 import api, { extractError } from '@/lib/api'
 import { hasItemPayload, limparDragPayload, readDragPayload } from '@/lib/dnd'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
-import { cn } from '@/lib/utils'
+import { cn, uid } from '@/lib/utils'
 import { atalhoDe } from '@/lib/history'
-import ColorWheel from '@/components/ui/ColorWheel'
 import GraphNode from './GraphNode'
+import BarraDoQuadro from './BarraDoQuadro'
 import { t } from '@/lib/i18n'
 import { semMouse } from '@/lib/desktop'
 
@@ -607,7 +599,13 @@ export default function GraphEditor({
   }
 
   const handleCanvasPointerDown = (event) => {
-    if (event.target !== svgRef.current && !event.target.dataset.canvasBackground) return
+    // Na seleção, o clique num objeto é dele (os handlers do nó, da aresta e
+    // do traço já pararam o evento). Com caneta, borracha, texto ou forma o
+    // quadro inteiro é papel: começar em cima de um post-it também desenha.
+    // Antes só o fundo vazio aceitava, e pintar DENTRO de uma forma era
+    // impossível — o traço só nascia fora dela.
+    const noFundo = event.target === svgRef.current || event.target.dataset.canvasBackground
+    if (!noFundo && (tool === 'select' || tool === 'select-area')) return
     setPaletaAberta(false)
 
     const comCtrl = event.ctrlKey || event.metaKey
@@ -1105,7 +1103,7 @@ export default function GraphEditor({
     // Quadro novo ainda não existe no servidor: a imagem não tem a quem
     // se anexar. Avisar em vez de engolir o Ctrl+V em silêncio.
     if (!documentId) {
-      onError?.('Clique em Criar para salvar o quadro e depois cole a imagem.')
+      onError?.(t('Clique em Criar para salvar o quadro e depois cole a imagem.'))
       return
     }
     try {
@@ -1209,7 +1207,7 @@ export default function GraphEditor({
           'w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800',
           'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-30 max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
           !paletaAberta && 'max-sm:hidden',
-          somenteLeitura && 'hidden',
+          (somenteLeitura || isCanvas) && 'hidden',
         )}
       >
         {/* O diagrama também ganha ferramentas, só que duas: selecionar e
@@ -1221,27 +1219,12 @@ export default function GraphEditor({
           <p className="px-1 pb-1.5 secao">
             {t('Ferramentas')}
           </p>
-          <div className={cn('grid gap-1', isCanvas ? 'grid-cols-5' : 'grid-cols-2')}>
-            {(isCanvas
-              ? [
-                  { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
-                  { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
-                  { id: 'pen', icon: PenLine, title: t('Caneta (P)') },
-                  { id: 'marker', icon: Brush, title: t('Marcador (M)') },
-                  { id: 'highlighter', icon: Highlighter, title: t('Marca-texto (H)') },
-                  { id: 'eraser', icon: Eraser, title: t('Borracha (E)') },
-                  { id: 'text', icon: Type, title: t('Texto (T): clique para escrever') },
-                  { id: 'rect', icon: Square, title: t('Retângulo (R): arraste para desenhar') },
-                  { id: 'ellipse', icon: Circle, title: t('Elipse (O): arraste para desenhar') },
-                  { id: 'triangle', icon: Triangle, title: t('Triângulo: arraste para desenhar') },
-                  { id: 'line_shape', icon: Slash, title: t('Linha (L): arraste para desenhar') },
-                ]
-              : [
-                  { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
-                  { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
-                  { id: 'text', icon: Type, title: t('Texto livre (T): clique para escrever') },
-                ]
-            ).map((item) => (
+          <div className="grid grid-cols-2 gap-1">
+            {[
+              { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
+              { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
+              { id: 'text', icon: Type, title: t('Texto livre (T): clique para escrever') },
+            ].map((item) => (
               <button
                 key={item.id}
                 title={item.title}
@@ -1258,93 +1241,6 @@ export default function GraphEditor({
             ))}
           </div>
         </>
-
-        {isCanvas && (
-          <>
-            <div className="mt-2 flex flex-wrap items-center gap-1">
-              {CORES_TINTA.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setInkColor(color)}
-                  style={{ backgroundColor: color }}
-                  aria-label={t('Tinta {color}', { color })}
-                  className={cn(
-                    'h-5 w-5 rounded-full border-2 transition',
-                    inkColor === color ? 'border-accent-500' : 'border-transparent',
-                  )}
-                />
-              ))}
-              <ColorWheel
-                value={inkColor}
-                onChange={setInkColor}
-                selected={!CORES_TINTA.includes(inkColor)}
-                className="h-5 w-5"
-                title={t('Tinta personalizada')}
-              />
-            </div>
-
-            {/* Espessura vale para as três ferramentas de traço, cada uma
-                com o próprio valor. A borracha não tem espessura: ela tem
-                raio, logo abaixo. */}
-            {['pen', 'marker', 'highlighter'].includes(tool) && (
-              <div className="mt-2 flex items-center gap-1.5 px-1">
-                <span className="text-[10px] text-ink-400">{t('Espessura')}</span>
-                {STROKE_WIDTHS.map((width) => (
-                  <button
-                    key={width}
-                    onClick={() => setInkWidths((atual) => ({ ...atual, [tool]: width }))}
-                    aria-label={t('Espessura {width}', { width })}
-                    className={cn(
-                      'flex h-5 w-5 items-center justify-center rounded transition',
-                      inkWidths[tool] === width ? 'bg-accent-100 dark:bg-accent-500/25' : 'hover:bg-ink-100 dark:hover:bg-ink-800',
-                    )}
-                  >
-                    <span
-                      className="rounded-full bg-ink-600 dark:bg-ink-300"
-                      style={{ width: Math.min(width, 12), height: Math.min(width, 12) }}
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {tool === 'highlighter' && (
-              <label className="mt-2 flex items-center gap-2 px-1">
-                <span className="shrink-0 text-[10px] text-ink-400">{t('Opacidade')}</span>
-                <input
-                  type="range"
-                  min={10}
-                  max={80}
-                  value={inkOpacity}
-                  onChange={(e) => setInkOpacity(Number(e.target.value))}
-                  aria-label={t('Opacidade do marca-texto')}
-                  className="h-1 flex-1 accent-accent-600"
-                />
-                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
-                  {inkOpacity}%
-                </span>
-              </label>
-            )}
-
-            {tool === 'eraser' && (
-              <label className="mt-2 flex items-center gap-2 px-1">
-                <span className="shrink-0 text-[10px] text-ink-400">{t('Raio')}</span>
-                <input
-                  type="range"
-                  min={10}
-                  max={80}
-                  value={eraserRadius}
-                  onChange={(e) => setEraserRadius(Number(e.target.value))}
-                  aria-label={t('Raio da borracha')}
-                  className="h-1 flex-1 accent-accent-600"
-                />
-                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
-                  {eraserRadius}px
-                </span>
-              </label>
-            )}
-          </>
-        )}
 
         <p className="px-1 pb-1.5 pt-4 secao">
           {t('Formas')}
@@ -1413,9 +1309,7 @@ export default function GraphEditor({
         ))}
 
         <p className="mt-3 rounded bg-ink-50 p-2 text-[10px] leading-relaxed text-ink-400 dark:bg-ink-800/60">
-          {isCanvas
-            ? t('Caneta desenha à mão livre. Forma: arraste para definir o tamanho. Texto: clique e escreva. No modo seleção, arraste para mover, puxe a bolinha para conectar e o quadradinho para redimensionar.')
-            : t('Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.')}{' '}
+          {t('Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.')}{' '}
           {semMouse()
             ? t('Toque e segure um objeto para duplicar ou excluir. Os botões no canto dão zoom e desfazem.')
             : t('Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Delete apaga, Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.')}
@@ -1784,7 +1678,29 @@ export default function GraphEditor({
           )}
         </svg>
 
-        {/* A paleta no celular: sem este botão ela não teria como abrir. */}
+        {isCanvas && !somenteLeitura && (
+          <BarraDoQuadro
+            tool={tool}
+            onTool={setTool}
+            cores={CORES_TINTA}
+            espessuras={STROKE_WIDTHS}
+            tinta={inkColor}
+            onTinta={setInkColor}
+            larguras={inkWidths}
+            onLarguras={setInkWidths}
+            opacidade={inkOpacity}
+            onOpacidade={setInkOpacity}
+            raio={eraserRadius}
+            onRaio={setEraserRadius}
+            palette={palette}
+            onAdicionar={addNode}
+            conector={edgeType}
+            onConector={setEdgeType}
+          />
+        )}
+
+        {/* A paleta do diagrama no celular: sem este botão ela não teria como abrir. */}
+        {!isCanvas && !somenteLeitura && (
         <button
           onClick={() => setPaletaAberta((aberta) => !aberta)}
           aria-expanded={paletaAberta}
@@ -1793,6 +1709,7 @@ export default function GraphEditor({
           <Shapes size={13} />
           {t('Ferramentas')}
         </button>
+        )}
 
         {/* Controles de zoom */}
         <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-md border border-ink-200 bg-white/95 p-0.5 shadow-subtle backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
@@ -1845,7 +1762,7 @@ export default function GraphEditor({
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <p className="text-sm text-ink-400">
               {isCanvas
-                ? t('Escolha uma caneta para desenhar ou uma forma na lateral.')
+                ? t('Escolha uma caneta para desenhar ou uma forma na barra de cima.')
                 : t('Escolha uma forma na lateral para começar.')}
             </p>
           </div>

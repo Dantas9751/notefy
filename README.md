@@ -31,7 +31,7 @@ notefy/
 | **Planilha** | `/sheets` | 14 tipos de coluna, fórmulas com condicionais e texto, resumo por coluna, ordenação e filtros. |
 | **Diagrama** | `/diagrams` | Classes, casos de uso, sequência, atividade, estado, ER e fluxograma — 40+ formas e 20+ conectores. |
 | **Canvas** | `/canvas` | Quadro branco: caneta, marcador, marca-texto, borracha, post-its, formas livres e conectores. |
-| **Arquivo** | `/files` | Upload de PDF, imagem, áudio, vídeo e documentos, com pré-visualização. |
+| **Arquivo** | `/files` | Upload de PDF, imagem, áudio, vídeo e documentos, com pré-visualização. Botão direito → Converter para: imagens entre PNG, JPG, WEBP, GIF, BMP e TIFF, e imagem, TXT, MD e HTML para PDF. |
 
 ### Nota
 
@@ -44,6 +44,13 @@ já seleciona a linguagem sozinho.
 O editor é um `<textarea>` transparente sobre o HTML colorido: o usuário digita
 num campo comum — com seleção, desfazer e Tab indentando — e enxerga as cores
 por baixo.
+
+Blocos em **JavaScript e Python executam** (▶ no canto do bloco ou Ctrl+Enter),
+com a saída embaixo. O código roda num Web Worker — um laço infinito não trava
+a tela, e Parar encerra o worker. O Python é o Pyodide, que vai junto com o app
+(`npm install` copia o núcleo para `public/pyodide`; pacotes como numpy não
+vêm). `input()` e `prompt()` funcionam: o worker espera a resposta com uma
+requisição síncrona a `/api/entrada/` (ver `backend/core/entrada.py`).
 
 **Exportar em PDF** (`/documents/{id}/pdf/`) tem duas saídas: `GET` baixa o
 arquivo, `POST` salva o PDF como um item na mesma pasta da nota, com categoria
@@ -202,10 +209,10 @@ sincronia.
 **Busca pelo conteúdo, não só pelo título.** O texto extraído de dentro do
 payload entra em `search_text`, então uma planilha é encontrável por uma célula
 e um diagrama pelo nome de uma classe. Nome de arquivo também entra quebrado em
-palavras, para que buscar "relatorio" ache `relatorio_final.pdf`. A ordenação
-usa um `CASE WHEN` sobre onde o termo bateu — título exato, começo do título,
-título, corpo —, de modo que a nota chamada "Prova" venha antes da que só cita
-a palavra.
+palavras, para que buscar "relatorio" ache `relatorio_final.pdf`. Os
+documentos saem na ordem do bm25, com o título pesando mais, de modo que a nota
+chamada "Prova" venha antes da que só cita a palavra; pastas e tarefas, que não
+estão no índice, usam um `CASE WHEN` sobre onde o termo bateu.
 
 **Fórmulas sem `eval()`.** O avaliador da planilha é um parser recursivo
 descendente próprio (`frontend/src/lib/formula.js`). Um `eval()` executaria
@@ -225,14 +232,15 @@ model, `CheckConstraint` no banco contra auto-referência direta, e um teto de
 `MAX_FOLDER_DEPTH = 12` níveis. Ao mover uma pasta, `_rebuild_subtree()`
 reescreve o `path` dos descendentes.
 
-**Apagar pasta não apaga conteúdo.** `Document.folder` usa `SET_NULL`: o item
-volta para a raiz em vez de sumir junto com a pasta. `Folder.parent` usa
-`CASCADE` (subpastas acompanham a pasta pai), mas o conteúdo sobrevive.
+**Apagar pasta leva o conteúdo junto para a lixeira.** `Folder.delete()` manda
+a subárvore inteira (subpastas e documentos) para a lixeira, de onde tudo volta
+por 30 dias. Com conteúdo dentro, a API responde 409 com `requires_confirmation`
+e só exclui com `?force=true`, depois que o usuário confirma.
 
-**Busca em duas velocidades.** `Document` mantém uma coluna `search_vector`
-(tsvector com índice GIN), atualizada por signal em `transaction.on_commit`.
-A busca tenta full-text primeiro — título com peso A, conteúdo com peso B — e
-cai para `icontains` quando o termo ainda não casa com nenhum lexema, o que
+**Busca por índice de texto completo.** O FTS5 do SQLite indexa título e
+conteúdo (`content/migrations/0007_document_fts.py`), mantido por gatilhos no
+próprio banco e recriado depois de todo `migrate`. O ranking é bm25, com o
+título pesando dez vezes o corpo, e a última palavra vale como prefixo, o que
 mantém resultados enquanto o usuário digita.
 
 **Isolamento por usuário em duas camadas.** `OwnedModelViewSet` filtra todo
@@ -280,6 +288,8 @@ filtram o resto.
 | `POST /documents/{id}/move/` | Move o item para outra pasta |
 | `POST /documents/{id}/duplicate/` | Duplica o item |
 | `POST /documents/{id}/reset/` | Esvazia o payload de um editor visual |
+| `POST /documents/{id}/convert/` | Converte um arquivo importado (`{"para": "pdf"}`); os formatos possíveis vêm em `conversoes` |
+| `POST /entrada/` · `GET/POST/DELETE /entrada/{canal}/` | Resposta do `input()`/`prompt()` do código que roda na nota |
 | `GET /tasks/calendar/?start=&end=` | Eventos no formato do calendário |
 | `GET /tasks/board/` | Tarefas agrupadas por coluna do Kanban |
 | `POST /tasks/{id}/move/` | Drag-and-drop: muda status e/ou posição |
@@ -296,7 +306,7 @@ renderiza um resultado sem saber de qual tabela ele veio.
 ## Frontend
 
 - **Um lugar para cada tipo, uma mecânica só.** Cada formato tem sua rota e
-  seu ícone, mas todas as listas usam o mesmo `Library` e todos os editores a
+  seu ícone, mas todas as listas usam o mesmo `DocumentCard` e todos os editores a
   mesma casca (`DocumentEditor`): título, salvar, propriedades, anexos,
   excluir. Trocar de tipo não exige reaprender a interface.
 - **A pasta funciona como Drive.** Os cinco tipos aparecem na mesma grade,
@@ -319,6 +329,21 @@ renderiza um resultado sem saber de qual tabela ele veio.
   requisições que tomaram 401 e dispara **um** refresh para todas — sem a fila,
   com `ROTATE_REFRESH_TOKENS` ligado, o primeiro refresh invalidaria os demais
   e derrubaria a sessão sem motivo.
+- **Um jeito só para cada gesto, em toda lista.** Selecionar (clique, Ctrl,
+  Shift, Esc, toque) é `useMultiSelect`; renomear (F2, duplo clique no item
+  selecionado, "Renomear" no menu) é `useRenomear` com `CampoDeRenomear`; o
+  menu de botão direito de pasta e de categoria sai de `menusDaArvore.js`;
+  excluir a seleção é `useExcluirSelecao`: pasta ou categoria sozinha pergunta
+  só se tiver conteúdo, o resto pergunta uma vez, e tudo vai para a lixeira.
+- **Lote vai até o fim.** Excluir, mover e restaurar vários passam por
+  `lib/lote.js`: um item recusado não impede os seguintes, e o aviso diz
+  quantos ficaram e por quê. O .zip (`exportarSelecao`) segue a mesma regra e
+  leva cada pasta com as subpastas.
+- **Cada erro no seu lugar.** Formulário mostra o erro junto dos campos; tela
+  que não carregou mostra `ErrorState` com "Tentar novamente"; o resultado de
+  uma ação (lote recusado, download, mover, a IA trabalhando) vai para o aviso
+  flutuante (`lib/avisoFlutuante.js`), o mesmo cartão dos avisos de prazo, no
+  canto de baixo.
 - **Estados de carregamento** em toda tela (skeletons que preservam o layout),
   modais para criação rápida e navegação sem reload.
 - **Tema claro/escuro** com opção de seguir o sistema.

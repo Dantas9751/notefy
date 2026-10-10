@@ -280,8 +280,6 @@ export const STICKY_COLORS = [
 /* Geometria                                                            */
 /* -------------------------------------------------------------------- */
 
-export const uid = (prefix) => `${prefix}${Math.random().toString(36).slice(2, 9)}`
-
 export const nodeRect = (node, palette) => {
   const preset = palette[node.type] ?? { w: 160, h: 90 }
   return {

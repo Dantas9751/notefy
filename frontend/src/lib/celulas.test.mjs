@@ -7,9 +7,12 @@ import {
   dentro,
   dentroDeAlguma,
   deTSV,
+  estilizar,
   limpar,
   paraTSV,
+  preencher,
   retangulo,
+  transbordos,
   uniao,
   valorDaCelula,
 } from './celulas.js'
@@ -274,4 +277,105 @@ test('valorDaCelula preserva número e booleano sem virar texto', () => {
   const linha = { id: 'r1', cells: { c1: 0, c2: false } }
   assert.equal(valorDaCelula(linha, columns[0]), 0)
   assert.equal(valorDaCelula(linha, columns[1]), false)
+})
+
+/* -------------------------------------------------------------------- */
+/* preencher (alça de preenchimento)                                    */
+/* -------------------------------------------------------------------- */
+
+const umaColuna = [{ id: 'a', name: 'A' }]
+const linhasCom = (...valores) => valores.map((v, i) => ({ id: `r${i}`, cells: v === undefined ? {} : { a: v } }))
+const area = (linhaInicio, linhaFim) => ({ linhaInicio, linhaFim, colunaInicio: 0, colunaFim: 0 })
+
+test('preencher para baixo copia a fórmula andando com a linha', () => {
+  const linhas = preencher(area(0, 0), area(0, 2), linhasCom('=B1*2', undefined, undefined), umaColuna)
+  assert.deepEqual(linhas.map((r) => r.cells.a), ['=B1*2', '=B2*2', '=B3*2'])
+})
+
+test('preencher respeita o $ e a posição gravada da linha', () => {
+  // Visão ordenada: a 2ª linha da tela é a 5ª gravada.
+  const reais = [0, 4]
+  const linhas = preencher(area(0, 0), area(0, 1), linhasCom('=$B$1+B1', undefined), umaColuna, (i) => reais[i])
+  assert.equal(linhas[1].cells.a, '=$B$1+B5')
+})
+
+test('dois números viram uma série; um número só se repete', () => {
+  const serie = preencher(area(0, 1), area(0, 4), linhasCom('1', '3', undefined, undefined, undefined), umaColuna)
+  assert.deepEqual(serie.map((r) => r.cells.a), ['1', '3', 5, 7, 9])
+  const copia = preencher(area(0, 0), area(0, 2), linhasCom('5', undefined, undefined), umaColuna)
+  assert.deepEqual(copia.map((r) => r.cells.a), ['5', '5', '5'])
+})
+
+test('texto terminado em número conta; texto comum se repete em ciclo', () => {
+  const aulas = preencher(area(0, 0), area(0, 2), linhasCom('Aula 1', undefined, undefined), umaColuna)
+  assert.deepEqual(aulas.map((r) => r.cells.a), ['Aula 1', 'Aula 2', 'Aula 3'])
+  const ciclo = preencher(area(0, 1), area(0, 4), linhasCom('sim', 'não', undefined, undefined, undefined), umaColuna)
+  assert.deepEqual(ciclo.map((r) => r.cells.a), ['sim', 'não', 'sim', 'não', 'sim'])
+})
+
+test('preencher para cima continua a série para trás', () => {
+  const linhas = preencher(area(2, 3), area(0, 3), linhasCom(undefined, undefined, '10', '20'), umaColuna)
+  assert.deepEqual(linhas.map((r) => r.cells.a), [-10, 0, '10', '20'])
+})
+
+test('preencher para a direita anda a fórmula de coluna', () => {
+  const tres = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const linhas = preencher(
+    { linhaInicio: 0, linhaFim: 0, colunaInicio: 0, colunaFim: 0 },
+    { linhaInicio: 0, linhaFim: 0, colunaInicio: 0, colunaFim: 2 },
+    [{ id: 'r0', cells: { a: '=A2' } }],
+    tres,
+  )
+  assert.deepEqual(linhas[0].cells, { a: '=A2', b: '=B2', c: '=C2' })
+})
+
+test('colar passa cada valor pela transformação de quem cola', () => {
+  const novas = colar([['=A1']], rows(), columns, { linha: 1, coluna: 0 }, (v, dl, dc) => `${v}|${dl}${dc}`)
+  assert.equal(novas[1].cells.c1, '=A1|00')
+})
+
+test('estilizar liga e desliga sem deixar lixo no payload', () => {
+  const rows = [
+    { id: 'r1', cells: { a: 'x' } },
+    { id: 'r2', cells: { a: 'y' }, styles: { b: { italic: true } } },
+  ]
+  const alvos = new Map([['r1', new Set(['a'])], ['r2', new Set(['a', 'b'])]])
+  const negrito = estilizar(rows, alvos, (e) => ({ ...e, bold: true }))
+  assert.deepEqual(negrito[0].styles, { a: { bold: true } })
+  assert.deepEqual(negrito[1].styles, { a: { bold: true }, b: { italic: true, bold: true } })
+  // Linha fora dos alvos volta a MESMA, sem cópia.
+  assert.equal(estilizar(rows, new Map(), (e) => e)[0], rows[0])
+
+  const semNegrito = estilizar(negrito, alvos, (e) => ({ ...e, bold: false }))
+  assert.equal('styles' in semNegrito[0], false)
+  assert.deepEqual(semNegrito[1].styles, { b: { italic: true } })
+  assert.deepEqual(estilizar(semNegrito, alvos, () => ({}))[1].cells, { a: 'y' })
+  assert.equal('styles' in estilizar(semNegrito, alvos, () => ({}))[1], false)
+})
+
+test('texto comprido transborda só pelas vizinhas vazias', () => {
+  const larguras = [100, 100, 100, 100]
+  // A pede 250px: cobre B inteira e metade de C; D não é tocada.
+  let r = transbordos(larguras, [false, true, true, true], [250, 0, 0, 0])
+  assert.deepEqual(r.estende, [150, 0, 0, 0])
+  assert.deepEqual(r.semBorda, [true, true, false, false])
+
+  // B escrita: A não passa.
+  r = transbordos(larguras, [false, false, true, true], [250, 0, 0, 0])
+  assert.deepEqual(r.estende, [0, 0, 0, 0])
+
+  // Cabe na própria coluna: nada muda.
+  r = transbordos(larguras, [false, true, true, true], [80, 0, 0, 0])
+  assert.deepEqual(r.estende, [0, 0, 0, 0])
+
+  // Pede mais do que há: vai até a última vazia.
+  r = transbordos(larguras, [false, true, true, true], [900, 0, 0, 0])
+  assert.deepEqual(r.estende, [300, 0, 0, 0])
+  assert.deepEqual(r.semBorda, [true, true, true, false])
+
+  // Coluna congelada não transborda; a primeira que rola, sim.
+  r = transbordos(larguras, [false, true, true, true], [250, 0, 0, 0], 1)
+  assert.deepEqual(r.estende, [0, 0, 0, 0])
+  r = transbordos(larguras, [false, false, true, true], [0, 180, 0, 0], 1)
+  assert.deepEqual(r.estende, [0, 80, 0, 0])
 })

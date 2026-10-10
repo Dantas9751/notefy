@@ -9,6 +9,7 @@ import DestinationModal from '@/components/modals/DestinationModal'
 import FolderFormModal from '@/components/modals/FolderFormModal'
 import { useUploadComConflitos } from '@/components/modals/UploadConflictModal'
 import { t } from '@/lib/i18n'
+import { avisarErro } from '@/lib/avisoFlutuante'
 
 /**
  * O único lugar de onde nasce conteúdo.
@@ -30,7 +31,6 @@ export default function CreateMenu({
   const [open, setOpen] = useState(false)
   const [destination, setDestination] = useState(null)
   const [folderModal, setFolderModal] = useState(null)
-  const [error, setError] = useState(null)
   const [uploading, setUploading] = useState(false)
 
   //: O aviso de nome duplicado também vale aqui: o envio pode partir do
@@ -40,7 +40,7 @@ export default function CreateMenu({
       refresh()
       navigate(`/folders/${pasta}`)
     },
-    onErro: setError,
+    onErro: avisarErro,
   })
 
   const start = (kind) => {
@@ -67,7 +67,6 @@ export default function CreateMenu({
 
   const uploadTo = async (folderId, files) => {
     setUploading(true)
-    setError(null)
 
     // O conflito de nomes é decidido pelo próprio hook (busca a pasta
     // de destino quando precisa); o spinner daqui cobre o processo.
@@ -242,12 +241,6 @@ export default function CreateMenu({
           }
         }}
       />
-
-      {error && (
-        <p className="mt-1.5 rounded bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-500/10 dark:text-red-400">
-          {error}
-        </p>
-      )}
 
       {ModalDeConflito}
 

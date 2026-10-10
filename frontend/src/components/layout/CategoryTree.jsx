@@ -11,7 +11,7 @@ import { ColorDot } from '@/components/ui'
 import { canDrop, hasItemPayload, limparDragPayload, readDragPayload, setDragPayload } from '@/lib/dnd'
 import { cn } from '@/lib/utils'
 import { usePersistedSet } from '@/hooks/usePersistedSet'
-import { propsDoCampo } from '@/hooks/useRenomear'
+import { CampoDeRenomear } from '@/hooks/useRenomear'
 import { t } from '@/lib/i18n'
 
 const EXPANDED_KEY = 'notefy.expanded'
@@ -154,7 +154,8 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
         <NavLink
           to={`/folders/${node.id}`}
           onMouseDown={(e) => {
-            // AQUI ESTÁ A MÁGICA: Impede o highlight azul ANTES dele nascer
+            // Shift/Ctrl+clique seleciona: o mousedown não pode começar a
+            // seleção de texto do navegador, que pintava a linha de azul.
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
               e.preventDefault()
             }
@@ -180,15 +181,11 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             // Campo no lugar do nome, dentro da própria linha da árvore.
             // O modal de pasta continua existindo para cor e descrição —
             // trocar só o nome não merece um formulário inteiro.
-            <input
-              {...propsDoCampo({
-                valorAtual: node.name,
-                endpoint: `/folders/${node.id}/`,
-                campo: 'name',
-                gravar: actions.renomear.gravar,
-                fechar: actions.renomear.fechar,
-              })}
-              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+            <CampoDeRenomear
+              renomear={actions.renomear}
+              valorAtual={node.name}
+              endpoint={`/folders/${node.id}/`}
+              className="text-sm"
             />
           ) : (
             <span className="truncate">{node.name}</span>
@@ -279,7 +276,7 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
         <NavLink
           to={`/categories/${category.id}`}
           onMouseDown={(e) => {
-            // AQUI TAMBÉM: Mata o highlight fantasma na Categoria
+            // O mesmo da linha de pasta.
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
               e.preventDefault()
             }
@@ -302,15 +299,11 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
         >
           <ColorDot color={category.color} size={9} />
           {actions.renomear?.estaEditando(category.id) ? (
-            <input
-              {...propsDoCampo({
-                valorAtual: category.name,
-                endpoint: `/categories/${category.id}/`,
-                campo: 'name',
-                gravar: actions.renomear.gravar,
-                fechar: actions.renomear.fechar,
-              })}
-              className="min-w-0 flex-1 rounded-sm bg-accent-50 px-1 text-sm font-medium outline-none ring-1 ring-accent-400 dark:bg-accent-500/15"
+            <CampoDeRenomear
+              renomear={actions.renomear}
+              valorAtual={category.name}
+              endpoint={`/categories/${category.id}/`}
+              className="text-sm font-medium"
             />
           ) : (
             <span className="truncate font-medium">{category.name}</span>

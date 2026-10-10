@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarRange, Check, Eye, EyeOff } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CalendarRange, Check, Eye, EyeOff, Plus } from 'lucide-react'
 import { useFetch } from '@/hooks/useFetch'
 import { useTaskActions } from '@/hooks/useTaskActions'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
@@ -9,6 +9,7 @@ import TaskFormModal from '@/components/modals/TaskFormModal'
 import TaskScheduler from '@/components/TaskScheduler'
 import { TASK_STATUS, cn, formatDate } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 const DIA = 24 * 60 * 60 * 1000
 
@@ -63,15 +64,8 @@ export default function Roadmap() {
 
   // Mudar o status no quadro muda o que o roadmap deve mostrar. Sem isto,
   // voltar para cá exibiria a tarefa concluída até um recarregamento.
-  useEffect(() => {
-    const aoMudar = () => refetch()
-    window.addEventListener('notefy:task-changed', aoMudar)
-    window.addEventListener('notefy:moved', aoMudar)
-    return () => {
-      window.removeEventListener('notefy:task-changed', aoMudar)
-      window.removeEventListener('notefy:moved', aoMudar)
-    }
-  }, [refetch])
+  useListenerDeJanela('notefy:task-changed', refetch)
+  useListenerDeJanela('notefy:moved', refetch)
 
   const { buildMenu, dialogs } = useTaskActions({
     onChanged: refetch,
@@ -210,6 +204,10 @@ export default function Roadmap() {
                 ))}
               </Select>
             </div>
+            {/* O mesmo "Nova tarefa" do Quadro e do Calendário. */}
+            <Button size="sm" icon={Plus} onClick={() => setModal({ date: new Date() })}>
+              {t('Nova tarefa')}
+            </Button>
           </div>
         }
       />
@@ -352,6 +350,7 @@ export default function Roadmap() {
       <TaskFormModal
         open={!!modal}
         task={modal?.task}
+        defaultDate={modal?.date}
         onClose={() => setModal(null)}
         onSaved={() => {
           setModal(null)

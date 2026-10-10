@@ -1,6 +1,6 @@
 [package]
 name = "notefy"
-version = "1.0.0"
+version = "1.2.0"
 description = "Notefy — notas, arquivos, planilhas, diagramas e planner"
 authors = ["Notefy"]
 license = ""
@@ -34,3 +34,12 @@ tauri-plugin-dialog = "2"
 # nuvem (ver `tauri.android.conf.json`).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-shell = "2"
+# Uma janela só: abrir o atalho de novo traz a que já está aberta. Duas
+# instâncias disputavam a porta do backend, e fechar a primeira matava o
+# backend que a segunda estava usando.
+tauri-plugin-single-instance = "2"
+
+# O controle de mídia do sistema (o que está tocando, tocar/pausar), para o
+# bloco do relógio no Início. A mesma versão que o Tauri já compila.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Media_Control", "Foundation"] }

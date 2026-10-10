@@ -57,7 +57,7 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
         except DjangoValidationError as erro:
             raise serializers.ValidationError(erro.messages)
 
-    def get_ai_key_set(self, obj):
+    def get_ai_key_set(self, obj) -> bool:
         return bool(obj.ai_key)
 
     class Meta:

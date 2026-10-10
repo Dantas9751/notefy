@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import api, { extractError } from '@/lib/api'
+import api from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { PageBody, PageHeader } from '@/components/layout/AppLayout'
 import { Badge, Button, ErrorState, Spinner } from '@/components/ui'
@@ -26,6 +26,9 @@ import { idDeInstancia, semMouse } from '@/lib/desktop'
 import { descrever as descreverRecorrencia } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS, cn, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { avisarErro } from '@/lib/avisoFlutuante'
+import { emLote, ignorar404 } from '@/lib/lote'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 /** MIME próprio: soltar uma tarefa não pode ser confundido com soltar texto. */
 const TASK_MIME = 'application/x-notefy-task'
@@ -131,7 +134,6 @@ export default function Board() {
   const [scheduling, setScheduling] = useState(null)
   const [draggingIds, setDraggingIds] = useState([])
   const [overColumn, setOverColumn] = useState(null)
-  const [error, setError] = useState(null)
 
   const [boardId, setBoardId] = useState('')
   const [boardModal, setBoardModal] = useState(null)
@@ -174,14 +176,9 @@ export default function Board() {
   // uma tarefa em outra tela) recarrega o quadro. O aviso que este quadro
   // mesmo emitiu é ignorado: ele já chamou `refetch` na hora, e reagir ao
   // próprio evento dobrava toda requisição de tarefa.
-  useEffect(() => {
-    const aoMudar = (evento) => {
-      if (evento.detail?.origem === instanciaRef.current) return
-      refetch()
-    }
-    window.addEventListener('notefy:task-changed', aoMudar)
-    return () => window.removeEventListener('notefy:task-changed', aoMudar)
-  }, [refetch])
+  useListenerDeJanela('notefy:task-changed', (evento) => {
+    if (evento.detail?.origem !== instanciaRef.current) refetch()
+  })
 
   useEffect(() => {
     const limpar = () => setDraggingIds([])
@@ -355,61 +352,37 @@ export default function Board() {
   }
 
   /**
-   * Exclui a seleção inteira.
-   *
-   * `allSettled` e não `all`: com `all` a primeira falha abandona as
-   * outras promessas já em voo, e o quadro ficaria mostrando um estado que
-   * ninguém sabe qual é — parte apagada, parte não. Aqui todas terminam e
-   * o relatório diz quantas escaparam. Um `DELETE` por tarefa em vez de
-   * uma rota em lote: são poucas dezenas de cartões, e o endpoint novo
-   * seria uma migração de API para economizar requisições que o usuário
-   * não sente.
+   * Excluir e mover vários cartões: a fila vai até o fim (`emLote`), e o
+   * quadro recarrega mesmo quando parte falhou, senão ficaria mostrando um
+   * estado que ninguém sabe qual é. Um pedido por tarefa em vez de uma rota
+   * em lote: são poucas dezenas de cartões.
    */
-  const deleteMany = async (ids) => {
-    setError(null)
-    const resultados = await Promise.allSettled(
-      ids.map((taskId) => api.delete(`/tasks/${taskId}/`)),
-    )
-    // 404 é sucesso: a tarefa já não está lá, que é exatamente o pedido.
-    const falhas = resultados.filter(
-      (r) => r.status === 'rejected' && r.reason?.response?.status !== 404,
-    )
-
+  const aplicarEmLote = async (ids, operacao, mensagem, status) => {
+    const recusa = await emLote(ids, operacao)
     limparSelecao()
+    // Recarregar em vez de mover otimista: o servidor é a verdade sobre a
+    // ordem e sobre `completed_at`, que muda junto com o status.
     refetch()
     boards.refetch()
-    notificarTarefa({ taskIds: ids })
-
-    if (falhas.length) {
-      setError(
-        t('{falhas} de {total} não foram excluídas. {motivo}', {
-          falhas: falhas.length,
-          total: ids.length,
-          motivo: extractError(falhas[0].reason),
-        }),
-      )
-    }
+    // O roadmap e o calendário recarregam pelo evento assim que reaparecem.
+    notificarTarefa({ taskIds: ids, status })
+    if (recusa) avisarErro(mensagem(recusa))
   }
 
-  const moveTo = async (ids, status) => {
-    setError(null)
-    try {
-      for (const taskId of ids) {
-        await api.post(`/tasks/${taskId}/move/`, { status })
-      }
-      limparSelecao()
-      // Recarregar em vez de mover otimista: o servidor é a verdade sobre
-      // a ordem e sobre `completed_at`, que muda junto com o status.
-      refetch()
-      // Concluir uma tarefa aqui a tira do roadmap e muda a cor dela no
-      // calendário. Essas telas não estão montadas agora, mas o evento
-      // faz qualquer uma delas recarregar assim que reaparecer — e evita
-      // que o usuário veja no roadmap um estado que o quadro já mudou.
-      notificarTarefa({ taskIds: ids, status })
-    } catch (err) {
-      setError(extractError(err))
-    }
-  }
+  const deleteMany = (ids) =>
+    aplicarEmLote(
+      ids,
+      (taskId) => api.delete(`/tasks/${taskId}/`).catch(ignorar404),
+      (recusa) => t('{falhas} de {total} não foram excluídas. {motivo}', recusa),
+    )
+
+  const moveTo = (ids, status) =>
+    aplicarEmLote(
+      ids,
+      (taskId) => api.post(`/tasks/${taskId}/move/`, { status }),
+      (recusa) => t('{falhas} de {total} não foram movidas. {motivo}', recusa),
+      status,
+    )
 
   return (
     <>
@@ -488,9 +461,7 @@ export default function Board() {
         className="min-h-full"
         onContextMenu={(event) => openMenu(event, { type: 'page' })}
       >
-        {(error || rest.error) && (
-          <ErrorState message={error || rest.error} onRetry={refetch} />
-        )}
+        {rest.error && <ErrorState message={rest.error} onRetry={refetch} />}
 
         {loading && !data ? (
           <div className="flex h-48 items-center justify-center">

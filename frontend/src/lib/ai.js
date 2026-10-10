@@ -4,6 +4,9 @@ import { idioma, t, traduzirMensagem } from './i18n.js'
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
+/** A resposta do chat que pede edição do item aberto (`MARCA_EDITAR` em `backend/ai/tarefas.py`). */
+export const MARCA_EDITAR = '<<EDITAR>>'
+
 export class ErroIA extends Error {
   constructor(mensagem, status = 0) {
     super(mensagem)
@@ -57,6 +60,7 @@ export async function runIA({
   folderId,
   title,
   kind,
+  messages,
   signal,
 }) {
   try {
@@ -71,6 +75,7 @@ export async function runIA({
         folder_id: folderId,
         title,
         kind,
+        messages,
       },
       { signal },
     )
@@ -86,7 +91,8 @@ export async function runIA({
 
     return resposta.json()
   } catch (erro) {
-    if (erro instanceof ErroIA) throw erro
+    // "Parar" não é falha: quem chamou distingue pelo nome e não mostra erro.
+    if (erro instanceof ErroIA || erro.name === 'AbortError') throw erro
     throw new ErroIA(erro.message || t('Falha na chamada de IA.'), 0)
   }
 }

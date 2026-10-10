@@ -3,10 +3,11 @@ import {
   Clock,
   FileText,
   Folder,
+  GanttChartSquare,
   Home,
   Kanban,
   LayoutDashboard,
-  Map,
+  LayoutTemplate,
   Paperclip,
   Table2,
   Tag,
@@ -38,7 +39,7 @@ export const DOCUMENT_KINDS = {
     icon: Table2,
     route: '/sheets',
     accent: '#10B981',
-    get description() { return t('Tabela com colunas tipadas e fórmulas.') },
+    get description() { return t('Tabela com fórmulas e formatação, como no Excel.') },
   },
   diagram: {
     get label() { return t('Diagrama') },
@@ -121,9 +122,21 @@ export const PAGE_KINDS = {
   },
   roadmap: {
     get label() { return t('Roadmap') },
-    icon: Map,
+    icon: GanttChartSquare,
     route: '/roadmap',
     accent: '#8B5CF6',
+  },
+  files: {
+    get label() { return t('Arquivos') },
+    icon: Paperclip,
+    route: '/files',
+    accent: '#64748B',
+  },
+  templates: {
+    get label() { return t('Modelos') },
+    icon: LayoutTemplate,
+    route: '/templates',
+    accent: '#0EA5E9',
   },
 }
 

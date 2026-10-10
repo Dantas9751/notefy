@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Check, ChevronsDownUp, ChevronsUpDown, Copy, Trash2 } from 'lucide-react'
+import { Check, ChevronsDownUp, ChevronsUpDown, Copy, Play, Square, Trash2 } from 'lucide-react'
 import {
   CODE_LANGUAGES,
   detectLanguage,
@@ -7,6 +7,8 @@ import {
   renameForLanguage,
 } from '@/lib/highlight'
 import { copiarTexto } from '@/lib/desktop'
+import { podeExecutar, useExecucao } from '@/hooks/useExecucao'
+import SaidaDoCodigo from './SaidaDoCodigo'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -39,12 +41,19 @@ const CodeSection = forwardRef(function CodeSection(
 ) {
   const textareaRef = useRef(null)
   const preRef = useRef(null)
+  const playRef = useRef(null)
   const [copied, setCopied] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
 
   const code = section.code ?? ''
   const language = section.language ?? 'plaintext'
   const lineCount = code ? code.split('\n').length : 1
+  const execucao = useExecucao()
+  const executavel = podeExecutar(language)
+  const executando = execucao.estado !== 'parado'
+  // Parar vale mesmo se a linguagem mudou no meio da execução.
+  const clicavel = executavel || executando
+  const alternarExecucao = () => (executando ? execucao.parar() : execucao.rodar(language, code))
 
   // O <pre> rola junto com o textarea; sem isso o código colorido fica
   // parado enquanto o cursor desce.
@@ -82,6 +91,12 @@ const CodeSection = forwardRef(function CodeSection(
   const handleKeyDown = (event) => {
     const el = event.target
     const { selectionStart: inicio, selectionEnd: fim } = el
+    // Em JavaScript e Python, Ctrl+Enter executa, como num notebook.
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && clicavel) {
+      event.preventDefault()
+      alternarExecucao()
+      return
+    }
     // Saídas do bloco, para a página continuar sem o mouse: Ctrl+Enter ou
     // Esc descem para o texto, e a seta só sai quando já está na ponta —
     // no meio do código ela anda entre as linhas, como em qualquer editor.
@@ -148,7 +163,9 @@ const CodeSection = forwardRef(function CodeSection(
 
   return (
     <div className="group overflow-hidden rounded-lg border border-ink-200 dark:border-ink-700">
-      <div className="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-2 py-1.5 dark:border-ink-700 dark:bg-ink-900">
+      {/* No celular o nome do arquivo desce para uma linha própria: na mesma
+          linha da linguagem e dos botões ele ficava com um caractere. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-ink-200 bg-ink-50 px-2 py-1.5 dark:border-ink-700 dark:bg-ink-900">
         {readOnly ? (
           <span className="text-[11px] font-medium uppercase tracking-wide text-ink-500">
             {CODE_LANGUAGES.find((l) => l.value === language)?.label ?? language}
@@ -173,14 +190,14 @@ const CodeSection = forwardRef(function CodeSection(
             value={section.title ?? ''}
             onChange={(e) => onChange({ title: e.target.value })}
             placeholder={t('nome do arquivo (opcional)')}
-            className="h-6 min-w-0 flex-1 border-0 bg-transparent px-1 text-[11px] text-ink-500 placeholder:text-ink-300 focus:ring-0 dark:text-ink-400"
+            className="order-last h-6 min-w-0 basis-full border-0 bg-transparent px-1 text-[11px] text-ink-500 placeholder:text-ink-300 focus:ring-0 dark:text-ink-400 sm:order-none sm:basis-auto sm:flex-1"
           />
         )}
         {readOnly && section.title && (
-          <span className="flex-1 truncate text-[11px] text-ink-500">{section.title}</span>
+          <span className="order-last basis-full truncate text-[11px] text-ink-500 sm:order-none sm:basis-auto sm:flex-1">{section.title}</span>
         )}
 
-        <span className="shrink-0 text-[10px] tabular-nums text-ink-400">
+        <span className="shrink-0 text-[10px] tabular-nums text-ink-400 max-sm:ml-auto">
           {lineCount === 1 ? t('1 linha') : t('{n} linhas', { n: lineCount })}
         </span>
 
@@ -201,12 +218,34 @@ const CodeSection = forwardRef(function CodeSection(
         {!readOnly && (
           <button
             onClick={onDelete}
+            aria-label={t('Excluir bloco')}
             title={t('Excluir bloco')}
             className="shrink-0 rounded p-1 text-ink-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-500/10"
           >
             <Trash2 size={12} />
           </button>
         )}
+        {/* aria-disabled e não disabled: botão desabilitado não mostra o
+            title, e é o title que explica por que ele está cinza. */}
+        <button
+          ref={playRef}
+          onClick={() => clicavel && alternarExecucao()}
+          aria-disabled={!clicavel}
+          aria-label={executando ? t('Parar') : t('Executar')}
+          title={
+            !clicavel
+              ? t('Só dá para executar JavaScript e Python')
+              : executando ? t('Parar') : t('Executar (Ctrl+Enter)')
+          }
+          className={cn(
+            'shrink-0 rounded p-1 transition',
+            clicavel
+              ? 'text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-500/10'
+              : 'cursor-not-allowed text-ink-300 dark:text-ink-600',
+          )}
+        >
+          {executando ? <Square size={12} className="fill-current" /> : <Play size={12} className="fill-current" />}
+        </button>
       </div>
 
       {!collapsed && (
@@ -242,6 +281,20 @@ const CodeSection = forwardRef(function CodeSection(
             />
           )}
         </div>
+      )}
+      {(executando || execucao.saida) && (
+        <SaidaDoCodigo
+          estado={execucao.estado}
+          saida={execucao.saida ?? []}
+          // Responder desmonta o campo: o foco vai para o ▶/■, e não se
+          // perde no <body>. Se o código perguntar de novo, o campo volta
+          // e pega o foco outra vez.
+          onResponder={(valor) => {
+            execucao.responder(valor)
+            playRef.current?.focus()
+          }}
+          onFechar={execucao.limpar}
+        />
       )}
     </div>
   )
