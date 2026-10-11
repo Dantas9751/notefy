@@ -407,27 +407,37 @@ async function documentoInteiro(doc) {
   return falta ? (await api.get(`/documents/${doc.id}/`)).data : doc
 }
 
+/** Tipos desenhados: a imagem do formato padrão não se edita, então o .json do desenho vai junto. */
+const COM_JSON_EDITAVEL = new Set(['diagram', 'canvas', 'design'])
+
+/** Design sem nada visível não tem imagem para gerar; isso não é falha, o .json basta. */
+const designVazio = (doc) => doc.kind === 'design' && !doc.data?.pages?.[0]?.children?.some((c) => c.visible !== false)
+
 /**
  * Grava um documento no formato padrão do tipo, dentro de `pasta` ('' é a
  * raiz), pelo MESMO gerador do "Baixar como": antes o .zip tinha o seu
- * próprio, e diagrama, canvas e design entravam como .json, o .csv sem a
- * marca que faz o Excel ler acento, e o arquivo enviado sem extensão.
- * Dois itens de mesmo nome na mesma pasta não se sobrescrevem: o segundo
- * vira "Nome (2).md".
+ * próprio, e o .csv saía sem a marca que faz o Excel ler acento e o arquivo
+ * enviado, sem extensão. Diagrama, canvas e design levam também o .json,
+ * que é o que dá para reabrir e editar. Dois itens de mesmo nome na mesma
+ * pasta não se sobrescrevem: o segundo vira "Nome (2).md".
  */
 async function gravarNoZip(zip, pasta, resumo) {
   const doc = await documentoInteiro(resumo)
   const formato = (FORMATS[doc.kind] ?? FORMATS.file).find((f) => f.default)
   const title = sanitizarNome(doc.title)
-  const nome = formato.ext === null ? sanitizarNome(doc.original_name || doc.title, t('arquivo')) : `${title}.${formato.ext}`
-  const gerado = await gerarArquivo(doc, formato.ext, title, nome)
-  let caminho = pasta ? `${pasta}/${nome}` : nome
-  for (let n = 2; zip.file(caminho); n += 1) {
-    const ponto = nome.lastIndexOf('.')
-    const versao = ponto > 0 ? `${nome.slice(0, ponto)} (${n})${nome.slice(ponto)}` : `${nome} (${n})`
-    caminho = pasta ? `${pasta}/${versao}` : versao
+  const formatos = COM_JSON_EDITAVEL.has(doc.kind) ? [formato.ext, 'json'] : [formato.ext]
+  for (const ext of formatos) {
+    if (ext !== 'json' && designVazio(doc)) continue
+    const nome = ext === null ? sanitizarNome(doc.original_name || doc.title, t('arquivo')) : `${title}.${ext}`
+    const gerado = await gerarArquivo(doc, ext, title, nome)
+    let caminho = pasta ? `${pasta}/${nome}` : nome
+    for (let n = 2; zip.file(caminho); n += 1) {
+      const ponto = nome.lastIndexOf('.')
+      const versao = ponto > 0 ? `${nome.slice(0, ponto)} (${n})${nome.slice(ponto)}` : `${nome} (${n})`
+      caminho = pasta ? `${pasta}/${versao}` : versao
+    }
+    zip.file(caminho, gerado instanceof Blob ? gerado : gerado.blob)
   }
-  zip.file(caminho, gerado instanceof Blob ? gerado : gerado.blob)
 }
 
 /** Uma pasta e toda a subárvore, como o .zip espera: `{ name, documents, children }`. */

@@ -1,6 +1,7 @@
 """Conversão de arquivos importados pelo botão direito."""
 
 import io
+import time
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -117,6 +118,17 @@ class Converter(SimpleTestCase):
         texto = PdfReader(io.BytesIO(converter(arquivo, "a.html", "pdf"))).pages[0].extract_text()
         self.assertIn("    a\n    b", texto)
         self.assertNotIn("     a", texto)
+
+    def test_pre_sem_fechamento_nao_trava_a_conversao(self):
+        # Era uma regex preguiçosa: cada `<pre>` solto relia o resto do arquivo (50 s com 40 mil).
+        hostil = ("<pre>" * 40000).encode()
+        inicio = time.monotonic()
+        html = _texto_como_html(hostil, "html")
+        self.assertLess(time.monotonic() - inicio, 2)
+        self.assertEqual(html.count("<pre>"), 40000)
+        # Fechado vale o recuo; o aberto sem par fica como veio.
+        html = _texto_como_html(b"<pre>\n  a\n  b</pre><pre>solto", "html")
+        self.assertIn("\n&nbsp;  b</pre><pre>solto", html)
 
     def test_linha_longa_quebra_na_margem_com_o_mesmo_recuo(self):
         longa = "    " + "palavra " * 40
