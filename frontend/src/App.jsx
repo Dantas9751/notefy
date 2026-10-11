@@ -8,6 +8,7 @@ import { SplitProvider } from '@/context/SplitContext'
 import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
+import { FaixaDaJanela } from '@/components/layout/ControlesDaJanela'
 import { ligarToqueLongo } from '@/lib/toqueLongo'
 import { idioma } from '@/lib/i18n'
 
@@ -51,6 +52,7 @@ const EDITOR_ROUTES = [
 function FullScreenLoader() {
   return (
     <div className="flex h-screen items-center justify-center bg-white dark:bg-ink-950">
+      <FaixaDaJanela />
       <Spinner size={22} />
     </div>
   )
@@ -71,7 +73,12 @@ function PublicOnlyRoute({ children }) {
   const { isAuthenticated, booting } = useAuth()
   if (booting) return <FullScreenLoader />
   if (isAuthenticated) return <Navigate to="/" replace />
-  return children
+  return (
+    <>
+      <FaixaDaJanela />
+      {children}
+    </>
+  )
 }
 
 function AppRoutes() {
@@ -149,7 +156,15 @@ function AppRoutes() {
         <Route path="roadmap" element={<Roadmap />} />
       </Route>
 
-      <Route path="*" element={<NotFound />} />
+      <Route
+        path="*"
+        element={
+          <>
+            <FaixaDaJanela />
+            <NotFound />
+          </>
+        }
+      />
     </Routes>
   )
 }

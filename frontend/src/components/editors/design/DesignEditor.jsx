@@ -25,6 +25,7 @@ import { baixar, copiarTexto } from '@/lib/desktop'
 import { atalhoDe } from '@/lib/history'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import AlcaDeLargura, { useLarguraDoPainel } from '@/components/ui/AlcaDeLargura'
 import {
   acharCamada,
   agrupar,
@@ -96,6 +97,9 @@ const BARRA = 64
  * Camadas (240) + propriedades (256) + um quadro que ainda dê para desenhar.
  */
 const LARGURA_PARA_PAINEIS = 880
+const LARGURA_DAS_PROPRIEDADES = 256
+/** O mínimo de quadro que alargar as camadas deixa sobrar. */
+const QUADRO_MIN = 320
 const ATALHOS_DE_FERRAMENTA = { v: 'move', h: 'hand', f: 'frame', a: 'frame', r: 'rect', o: 'ellipse', l: 'line', t: 'text' }
 const ALINHAR_POR_TECLA = { KeyA: 'esquerda', KeyD: 'direita', KeyW: 'topo', KeyS: 'base', KeyH: 'centroH', KeyV: 'centroV' }
 
@@ -163,6 +167,15 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   const commitAdiadoRef = useRef(null)
   const imagemRef = useRef(null)
   const trocaDeImagemRef = useRef(null)
+
+  const painelDeCamadas = useLarguraDoPainel('notefy.design.larguraDasCamadas', {
+    padrao: 240,
+    min: 180,
+    max: () => {
+      const largura = raizRef.current?.clientWidth ?? 0
+      return compacto ? largura * 0.85 : Math.min(520, largura - LARGURA_DAS_PROPRIEDADES - QUADRO_MIN)
+    },
+  })
 
   useLayoutEffect(() => {
     const raiz = raizRef.current
@@ -1529,11 +1542,14 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
 
   return (
     <div ref={raizRef} className="relative flex min-h-0 flex-1">
-      {/* Camadas: coluna fixa no computador, gaveta no celular. */}
+      {/* Camadas: coluna no computador, gaveta no celular; nos dois, a borda direita ajusta a largura. */}
       <aside
+        ref={painelDeCamadas.painelRef}
+        style={{ width: painelDeCamadas.largura, maxWidth: compacto ? '85%' : `calc(100% - ${LARGURA_DAS_PROPRIEDADES + QUADRO_MIN}px)` }}
         className={cn(
-          'z-20 w-60 shrink-0 border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950',
-          compacto && (painel === 'camadas' ? 'absolute inset-y-0 left-0 shadow-pop' : 'hidden'),
+          'z-20 shrink-0 border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950',
+          // `relative` só fora da gaveta: o `cn` não desfaz conflito, e no CSS o `relative` vence o `absolute`.
+          compacto ? (painel === 'camadas' ? 'absolute inset-y-0 left-0 shadow-pop' : 'hidden') : 'relative',
         )}
       >
         <PainelDeCamadas
@@ -1564,6 +1580,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
           }
           somenteLeitura={somenteLeitura}
         />
+        <AlcaDeLargura painel={painelDeCamadas} />
       </aside>
 
       <div

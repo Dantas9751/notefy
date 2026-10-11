@@ -7,7 +7,7 @@
  * anunciado que não funciona é pior que atalho nenhum.
  *
  * Onde mora cada um:
- * - Geral e abas: `AppLayout.jsx` e `TabBar.jsx`
+ * - Geral e abas: `AppLayout.jsx`, `TabBar.jsx` e `RelogioFlutuante.jsx` (Alt+R)
  * - Editor: `DocumentEditor.jsx` e `lib/history.js`
  * - Nota: `NoteEditor.jsx` e os blocos (`ChecklistSection`, `TableSection`, `CodeSection`)
  * - Canvas e diagrama: `GraphEditor.jsx`
@@ -26,6 +26,7 @@ export const GRUPOS_DE_ATALHOS = [
       [['Ctrl', 'J'], t('Abrir o Laviel')],
       [['Ctrl', '.'], t('Modo zen (tela cheia; no app, F11 também)')],
       [['Ctrl', '\\'], t('Fechar o painel ao lado')],
+      [['Alt', 'R'], t('Relógio flutuante (abre e fecha)')],
       [['Ctrl', '/'], t('Esta lista')],
     ] },
   },

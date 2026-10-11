@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
-import { buildNoteHtml, buildNoteMarkdown } from '@/lib/exportNota'
+import { buildNoteHtml, buildNoteMarkdown, embutirImagensDaNota } from '@/lib/exportNota'
 import { avisarErro } from '@/lib/avisoFlutuante'
 import { baixar } from '@/lib/desktop'
-import { valorParaExportar } from '@/lib/formula'
+import { formatoDoCsv, planilhaEmCsv } from '@/lib/csv'
 import { buscarArquivo } from '@/lib/fileMedia'
 import { useMenuSuspenso } from '@/hooks/useMenuSuspenso'
 import { parseKey } from '@/hooks/useMultiSelect'
 import { cn } from '@/lib/utils'
-import { t } from '@/lib/i18n'
+import { idioma, t } from '@/lib/i18n'
 
 /**
  * Formatos de exportação por tipo de documento.
@@ -79,10 +79,10 @@ function exportDocument(doc, ext) {
 
 async function gerarArquivo(doc, ext, title, nome) {
   if (ext === 'pdf') {
+    // O nome do arquivo é o mesmo dos outros formatos ("Minha nota.pdf"), e
+    // não o do servidor, que trocava os espaços por hífen.
     const response = await api.get(`/documents/${doc.id}/pdf/`, { responseType: 'blob' })
-    const disposition = response.headers['content-disposition'] ?? ''
-    const match = /filename="?([^"]+)"?/.exec(disposition)
-    return { blob: response.data, nome: match?.[1] ?? nome }
+    return response.data
   }
 
   // Formato original de arquivos importados.
@@ -94,14 +94,18 @@ async function gerarArquivo(doc, ext, title, nome) {
   }
 
   if (doc.kind === 'note') {
+    const nota = await embutirImagensDaNota(doc, imagemComoDataUrl)
     return ext === 'html'
-      ? new Blob([buildNoteHtml(doc)], { type: 'text/html' })
-      : new Blob([buildNoteMarkdown(doc)], { type: 'text/markdown' })
+      ? new Blob([buildNoteHtml(nota)], { type: 'text/html' })
+      : new Blob([buildNoteMarkdown(nota)], { type: 'text/markdown' })
   }
   if (doc.kind === 'spreadsheet') {
     // O BOM é o que faz o Excel reconhecer UTF-8 ao abrir um .csv; sem
     // ele, acento vira caractere quebrado no Windows.
-    if (ext === 'csv') return new Blob(['﻿', buildSpreadsheetCsv(doc)], { type: 'text/csv;charset=utf-8' })
+    if (ext === 'csv') {
+      const csv = planilhaEmCsv(doc.data?.columns ?? [], doc.data?.rows ?? [], formatoDoCsv(idioma))
+      return new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' })
+    }
     if (ext === 'xlsx') {
       const { buildXlsx } = await import('@/lib/xlsx')
       return buildXlsx(doc.data?.columns ?? [], doc.data?.rows ?? [], doc.title, { congeladas: doc.data?.frozen_columns ?? 0 })
@@ -122,6 +126,17 @@ async function gerarArquivo(doc, ext, title, nome) {
 /* ------------------------------------------------------------------ */
 /* Conversores client-side                                             */
 /* ------------------------------------------------------------------ */
+
+/** Uma imagem da conta como data URL, para ir dentro do .html e do .md exportados. */
+async function imagemComoDataUrl(endereco) {
+  const { data } = await buscarArquivo(endereco, 'blob')
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader()
+    leitor.onload = () => resolve(leitor.result)
+    leitor.onerror = reject
+    leitor.readAsDataURL(data)
+  })
+}
 
 /**
  * Desenha o quadro fora da vista e fotografa o `<svg>`.
@@ -306,23 +321,6 @@ function svgParaPng({ texto, corDeFundo, largura, altura }) {
   })
 }
 
-function buildSpreadsheetCsv(doc) {
-  const columns = doc.data?.columns ?? []
-  const rows = doc.data?.rows ?? []
-  const sep = (v) => {
-    const s = String(v ?? '')
-    return s.includes(',') || s.includes('"') || s.includes('\n')
-      ? `"${s.replace(/"/g, '""')}"`
-      : s
-  }
-  const header = columns.map((c) => sep(c.name)).join(',')
-  const body = rows
-    // O valor calculado, e não o texto da fórmula: `=B1*2` no .csv não
-    // significa nada fora daqui.
-    .map((row) => columns.map((c) => sep(valorParaExportar(c, row, columns, rows))).join(','))
-    .join('\n')
-  return `${header}\n${body}`
-}
 
 /**
  * Menu de exportação unificado.
@@ -409,21 +407,27 @@ async function documentoInteiro(doc) {
   return falta ? (await api.get(`/documents/${doc.id}/`)).data : doc
 }
 
-/** Grava um documento no formato padrão do tipo, dentro de `pasta` ('' é a raiz). */
+/**
+ * Grava um documento no formato padrão do tipo, dentro de `pasta` ('' é a
+ * raiz), pelo MESMO gerador do "Baixar como": antes o .zip tinha o seu
+ * próprio, e diagrama, canvas e design entravam como .json, o .csv sem a
+ * marca que faz o Excel ler acento, e o arquivo enviado sem extensão.
+ * Dois itens de mesmo nome na mesma pasta não se sobrescrevem: o segundo
+ * vira "Nome (2).md".
+ */
 async function gravarNoZip(zip, pasta, resumo) {
   const doc = await documentoInteiro(resumo)
-  const caminho = (nome) => (pasta ? `${pasta}/${nome}` : nome)
+  const formato = (FORMATS[doc.kind] ?? FORMATS.file).find((f) => f.default)
   const title = sanitizarNome(doc.title)
-  if (doc.kind === 'note') {
-    zip.file(caminho(`${title}.md`), buildNoteMarkdown(doc))
-  } else if (doc.kind === 'spreadsheet') {
-    zip.file(caminho(`${title}.csv`), buildSpreadsheetCsv(doc))
-  } else if (doc.kind === 'file' && doc.file_url) {
-    const response = await buscarArquivo(doc.file_url, 'arraybuffer')
-    zip.file(caminho(doc.title || t('arquivo')), response.data)
-  } else {
-    zip.file(caminho(`${title}.json`), JSON.stringify(doc.data ?? {}, null, 2))
+  const nome = formato.ext === null ? sanitizarNome(doc.original_name || doc.title, t('arquivo')) : `${title}.${formato.ext}`
+  const gerado = await gerarArquivo(doc, formato.ext, title, nome)
+  let caminho = pasta ? `${pasta}/${nome}` : nome
+  for (let n = 2; zip.file(caminho); n += 1) {
+    const ponto = nome.lastIndexOf('.')
+    const versao = ponto > 0 ? `${nome.slice(0, ponto)} (${n})${nome.slice(ponto)}` : `${nome} (${n})`
+    caminho = pasta ? `${pasta}/${versao}` : versao
   }
+  zip.file(caminho, gerado instanceof Blob ? gerado : gerado.blob)
 }
 
 /** Uma pasta e toda a subárvore, como o .zip espera: `{ name, documents, children }`. */

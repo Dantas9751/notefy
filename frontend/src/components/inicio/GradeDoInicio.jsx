@@ -1,7 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
 import { EyeOff, LayoutGrid, Plus } from 'lucide-react'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
-import { ALTURA_MAX, ALTURA_MIN, BLOCOS, LARGURA_MIN, alinhar, posicionar } from '@/lib/inicio'
+import { ALTURA_MAX, ALTURA_MIN, BLOCOS, LARGURA_MIN, alinhar, alternarBlocos, posicionar } from '@/lib/inicio'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -338,14 +338,8 @@ export default function GradeDoInicio({ blocos, renderizar, onMudar }) {
     gravar(id, { ...emPx(bloco), h: prender(alturaNatural(el), ALTURA_MIN, ALTURA_MAX) })
   }
 
-  const esconder = (id) => onMudar(comPosicao.map((b) => (b.id === id ? { ...b, visivel: false } : b)))
-
-  /** Bloco escondido volta embaixo de tudo, onde se vê que ele chegou. */
-  const mostrar = (ids) => {
-    const voltando = new Set(ids)
-    const semPosicao = ({ x: _x, y: _y, w: _w, h: _h, ...resto }) => resto
-    onMudar(comPosicao.map((b) => (voltando.has(b.id) ? { ...semPosicao(b), visivel: true } : b)))
-  }
+  const esconder = (id) => onMudar(alternarBlocos(comPosicao, [id], false))
+  const mostrar = (ids) => onMudar(alternarBlocos(comPosicao, ids, true))
 
   /**
    * Arrumar: os blocos voltam a encaixar um ao lado do outro, sem buraco

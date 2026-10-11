@@ -200,7 +200,7 @@ export const CANVAS_GROUPS = [
       diamond: { get label() { return t('Losango') }, w: 140, h: 120, shape: 'diamond' },
       star: { get label() { return t('Estrela') }, w: 130, h: 130, shape: 'star' },
       arrow_shape: { get label() { return t('Seta') }, w: 160, h: 70, shape: 'arrow-shape' },
-      line_shape: { get label() { return t('Linha@@traço') }, w: 180, h: 10, shape: 'bar' },
+      line_shape: { get label() { return t('Linha@@traço') }, w: 180, h: 0, shape: 'line' },
     },
   },
 ]
@@ -238,6 +238,29 @@ export const STROKE_WIDTHS = [1, 2, 3, 5, 8, 12, 20]
 export const DRAWABLE_SHAPES = [
   'rect', 'rounded', 'ellipse', 'triangle', 'diamond', 'star', 'arrow_shape', 'line_shape',
 ]
+
+/**
+ * A linha desenhada arrastando de `origem` a `fim` (no mundo): a caixa que
+ * a contém e o sentido — `desce` (↘ ou ↖) ou `sobe` (↗ ou ↙). A caixa pode
+ * ter altura ou largura zero: é a linha horizontal ou a vertical.
+ */
+export function linhaEntre(origem, fim) {
+  const caixa = rectBetween(origem, fim)
+  return {
+    x: Math.round(caixa.x),
+    y: Math.round(caixa.y),
+    w: Math.round(caixa.w),
+    h: Math.round(caixa.h),
+    dir: (fim.x - origem.x) * (fim.y - origem.y) < 0 ? 'sobe' : 'desce',
+  }
+}
+
+/** As pontas da linha dentro da própria caixa (sem `dir`, as antigas: horizontal no meio). */
+export function pontasDaLinha(node, rect) {
+  if (node.dir === 'sobe') return [0, rect.h, rect.w, 0]
+  if (node.dir === 'desce') return [0, 0, rect.w, rect.h]
+  return [0, rect.h / 2, rect.w, rect.h / 2]
+}
 
 /** Retângulo normalizado entre dois pontos, em qualquer direção de arraste. */
 export function rectBetween(a, b) {

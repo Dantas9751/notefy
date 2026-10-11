@@ -9,6 +9,8 @@ import { useAssistente } from '@/context/AssistenteContext'
 import { cn } from '@/lib/utils'
 import Sidebar from './Sidebar'
 import TabBar from './TabBar'
+import RelogioFlutuante from './RelogioFlutuante'
+import ControlesDaJanela from './ControlesDaJanela'
 import SplitPane from './SplitPane'
 import AssistentePanel from '@/components/ai/AssistentePanel'
 import { conectarJanelas, noDesktop } from '@/lib/desktop'
@@ -268,8 +270,10 @@ export default function AppLayout() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Barra superior só existe no mobile */}
-        <header className="app-topbar flex h-14 shrink-0 items-center gap-3 border-b border-ink-200 px-4 lg:hidden dark:border-ink-800">
+        {/* Barra superior só existe no mobile (e na janela estreita do app,
+            onde ela é também a barra de título: arrasta a janela e leva os
+            botões de minimizar, maximizar e fechar). */}
+        <header data-tauri-drag-region className="app-topbar flex h-14 shrink-0 items-center gap-3 border-b border-ink-200 pl-4 lg:hidden dark:border-ink-800">
           <button
             onClick={() => setMobileSidebarOpen(true)}
             aria-label={t('Abrir menu')}
@@ -277,7 +281,7 @@ export default function AppLayout() {
           >
             <Menu size={18} />
           </button>
-          <span className="text-[15px] font-semibold tracking-tight">{t('Notefy')}</span>
+          <span data-tauri-drag-region className="text-[15px] font-semibold tracking-tight">{t('Notefy')}</span>
           <div className="ml-auto flex items-stretch self-stretch">
             <button
               onClick={() => navigate('/search')}
@@ -288,6 +292,7 @@ export default function AppLayout() {
             </button>
             <BotaoLaviel onClick={abrirLaviel} />
             <CentralDeNotificacoes />
+            <ControlesDaJanela className="border-l border-ink-200 dark:border-ink-800" />
           </div>
         </header>
 
@@ -311,14 +316,18 @@ export default function AppLayout() {
 
         {/* A faixa de abas e o sino dividem a mesma linha. O sino fica
             FORA da fileira rolável: com muitas abas abertas ele rolaria
-            junto e sumiria do canto. */}
+            junto e sumiria do canto. No app do computador ela é também a
+            barra de título: o vão depois das abas arrasta a janela (duplo
+            clique maximiza) e os botões da janela fecham a linha. */}
         <div className="app-tabs flex shrink-0 items-stretch border-b border-ink-200 bg-ink-50/60 dark:border-ink-800 dark:bg-ink-900/40">
           <TabBar />
+          <div data-tauri-drag-region className="min-w-12 flex-1" />
           {/* Laviel e sino ficam sempre no canto superior direito. No
               mobile a barra de cima é o cabeçalho, e eles vão para lá. */}
-          <div className="ml-auto hidden shrink-0 items-stretch lg:flex">
+          <div className="hidden shrink-0 items-stretch lg:flex">
             <BotaoLaviel onClick={abrirLaviel} />
             <CentralDeNotificacoes />
+            <ControlesDaJanela className="border-l border-ink-200 dark:border-ink-800" />
           </div>
         </div>
 
@@ -382,6 +391,7 @@ export default function AppLayout() {
       <AtalhosModal open={atalhosAbertos} onClose={() => setAtalhosAbertos(false)} />
 
       <AvisosFlutuantes />
+      <RelogioFlutuante />
     </div>
     </PropriedadesProvider>
     </NotificacoesProvider>

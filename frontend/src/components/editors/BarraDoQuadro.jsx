@@ -8,6 +8,7 @@ import {
   Eraser,
   Highlighter,
   MousePointer2,
+  PanelLeft,
   PenLine,
   Shapes,
   Slash,
@@ -21,12 +22,12 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
 /**
- * A barra do quadro branco: flutua no alto do próprio quadro, como nos
- * editores de whiteboard, em vez da coluna lateral que o canvas dividia com
- * o diagrama. Lá ela empilhava ferramentas, cores, uma lista comprida de
- * formas e conectores, roubava a largura do desenho e repetia o título
- * ("Conector / Conectores"). O diagrama continua com a lateral: lá ela é o
- * catálogo das notações (UML, ER...), e o catálogo precisa de espaço.
+ * A barra do quadro: flutua no alto do próprio quadro, como nos editores de
+ * whiteboard. É uma das duas formas de mostrar as ferramentas — a outra é a
+ * coluna lateral (`PaletaLateral`) — e cada pessoa escolhe a sua, no Canvas
+ * e no Diagrama. Por padrão o canvas vem com a barra (o desenho fica com a
+ * largura toda) e o diagrama com a lateral (o catálogo das notações, UML,
+ * ER..., lê melhor em coluna).
  *
  * O que só vale para uma ferramenta (espessura, opacidade, raio) aparece
  * numa segunda faixa logo abaixo, só enquanto ela está escolhida.
@@ -51,6 +52,27 @@ const GRUPOS_DE_FERRAMENTAS = [
     { id: 'line_shape', icon: Slash, get titulo() { return t('Linha (L): arraste para desenhar') } },
   ],
 ]
+
+/**
+ * As ferramentas de cada editor. O diagrama não desenha à mão livre nem
+ * forma solta: lá as formas são as da notação, inseridas pelo catálogo.
+ */
+export const ferramentasDo = (isCanvas) =>
+  isCanvas
+    ? GRUPOS_DE_FERRAMENTAS
+    : [GRUPOS_DE_FERRAMENTAS[0], GRUPOS_DE_FERRAMENTAS[2].filter((f) => f.id === 'text')]
+
+export const ehFerramentaDeTraco = (tool) => ['pen', 'marker', 'highlighter'].includes(tool)
+
+/**
+ * A amostra de uma cor de tinta. A primeira da lista é a tinta padrão, que
+ * acompanha o tema (escura no claro, clara no escuro), e a amostra mostra
+ * isso em vez de um preto fixo.
+ */
+export const amostraDaTinta = (cor, cores) =>
+  cor === cores[0]
+    ? { className: 'bg-ink-900 dark:bg-ink-50', rotulo: t('Tinta padrão (acompanha o tema)') }
+    : { style: { backgroundColor: cor }, rotulo: t('Tinta {color}', { color: cor }) }
 
 const ESTILO_DA_BARRA =
   'pointer-events-auto flex items-center gap-0.5 rounded-lg border border-ink-200 bg-white/95 p-1 shadow-pop backdrop-blur dark:border-ink-700 dark:bg-ink-900/95'
@@ -129,7 +151,7 @@ function ItemDoMenu({ ativo, onClick, children }) {
   )
 }
 
-function Faixa({ rotulo, min, max, valor, sufixo, onMudar }) {
+export function Faixa({ rotulo, min, max, valor, sufixo, onMudar, className = 'w-24' }) {
   return (
     <label className="flex items-center gap-2 px-1.5">
       <span className="shrink-0 text-[10px] text-ink-400">{rotulo}</span>
@@ -140,7 +162,7 @@ function Faixa({ rotulo, min, max, valor, sufixo, onMudar }) {
         value={valor}
         onChange={(e) => onMudar(Number(e.target.value))}
         aria-label={rotulo}
-        className="h-1 w-24 accent-accent-600"
+        className={cn('h-1 min-w-0 accent-accent-600', className)}
       />
       <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-ink-400">
         {valor}
@@ -151,6 +173,7 @@ function Faixa({ rotulo, min, max, valor, sufixo, onMudar }) {
 }
 
 export default function BarraDoQuadro({
+  isCanvas,
   tool,
   onTool,
   cores,
@@ -167,17 +190,18 @@ export default function BarraDoQuadro({
   onAdicionar,
   conector,
   onConector,
+  onParaLateral,
 }) {
   //: Qual lista está aberta: 'formas', 'conector', 'cor' ou nenhuma.
   const [aberto, setAberto] = useState(null)
   const alternar = (qual) => setAberto((atual) => (atual === qual ? null : qual))
   const fechar = useCallback(() => setAberto(null), [])
-  const ehTraco = ['pen', 'marker', 'highlighter'].includes(tool)
+  const ehTraco = ehFerramentaDeTraco(tool)
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-col items-center gap-1.5">
       <div role="toolbar" aria-label={t('Ferramentas do quadro')} className={cn(ESTILO_DA_BARRA, 'max-w-full flex-wrap justify-center')}>
-        {GRUPOS_DE_FERRAMENTAS.map((grupo, i) => (
+        {ferramentasDo(isCanvas).map((grupo, i) => (
           <div key={i} className="flex items-center gap-0.5">
             {i > 0 && <Divisoria />}
             {grupo.map((item) => (
@@ -190,24 +214,27 @@ export default function BarraDoQuadro({
 
         <Divisoria />
 
-        <Menu titulo={t('Cor da tinta')} rotulo={<span className="h-4 w-4 rounded-full border border-black/10 dark:border-white/20" style={{ backgroundColor: tinta }} />} aberto={aberto === 'cor'} onAlternar={() => alternar('cor')} onFechar={fechar}>
-          <div className="grid grid-cols-5 gap-1.5 p-1.5">
-            {cores.map((cor) => (
-              <button
-                key={cor}
-                type="button"
-                onClick={() => {
-                  onTinta(cor)
-                  setAberto(null)
-                }}
-                style={{ backgroundColor: cor }}
-                aria-label={t('Tinta {color}', { color: cor })}
-                className={cn('h-7 w-7 rounded-full border-2 transition hover:scale-110', tinta === cor ? 'border-accent-500' : 'border-transparent')}
-              />
-            ))}
-            <ColorWheel value={tinta} onChange={onTinta} selected={!cores.includes(tinta)} className="h-7 w-7" title={t('Tinta personalizada')} />
-          </div>
-        </Menu>
+        {isCanvas && (
+          <Menu titulo={t('Cor da tinta')} rotulo={<span className={cn('h-4 w-4 rounded-full border border-black/10 dark:border-white/20', amostraDaTinta(tinta, cores).className)} style={amostraDaTinta(tinta, cores).style} />} aberto={aberto === 'cor'} onAlternar={() => alternar('cor')} onFechar={fechar}>
+            <div className="grid grid-cols-5 gap-1.5 p-1.5">
+              {cores.map((cor) => (
+                <button
+                  key={cor}
+                  type="button"
+                  onClick={() => {
+                    onTinta(cor)
+                    setAberto(null)
+                  }}
+                  style={amostraDaTinta(cor, cores).style}
+                  aria-label={amostraDaTinta(cor, cores).rotulo}
+                  title={amostraDaTinta(cor, cores).rotulo}
+                  className={cn('h-7 w-7 rounded-full border-2 transition hover:scale-110', amostraDaTinta(cor, cores).className, tinta === cor ? 'border-accent-500' : 'border-transparent')}
+                />
+              ))}
+              <ColorWheel value={tinta} onChange={onTinta} selected={!cores.includes(tinta)} className="h-7 w-7" title={t('Tinta personalizada')} />
+            </div>
+          </Menu>
+        )}
 
         <Menu titulo={t('Inserir forma')} rotulo={<Shapes size={15} />} aberto={aberto === 'formas'} onAlternar={() => alternar('formas')} onFechar={fechar}>
           {palette.groups.map((grupo) => (
@@ -232,21 +259,30 @@ export default function BarraDoQuadro({
           <p className="px-2 pb-1 pt-1 text-[10px] leading-snug text-ink-400">
             {t('Vale para as próximas ligações: puxe a bolinha de um objeto até outro.')}
           </p>
-          {palette.edgeGroups.flatMap((grupo) =>
-            Object.entries(grupo.types).map(([tipo, preset]) => (
-              <ItemDoMenu
-                key={tipo}
-                ativo={conector === tipo}
-                onClick={() => {
-                  onConector(tipo)
-                  setAberto(null)
-                }}
-              >
-                {preset.label}
-              </ItemDoMenu>
-            )),
-          )}
+          {palette.edgeGroups.map((grupo) => (
+            <div key={grupo.label} className="mb-1 last:mb-0">
+              {/* O diagrama separa os conectores por notação; o canvas tem um grupo só. */}
+              {palette.edgeGroups.length > 1 && <p className="px-2 pb-0.5 pt-1.5 secao">{grupo.label}</p>}
+              {Object.entries(grupo.types).map(([tipo, preset]) => (
+                <ItemDoMenu
+                  key={tipo}
+                  ativo={conector === tipo}
+                  onClick={() => {
+                    onConector(tipo)
+                    setAberto(null)
+                  }}
+                >
+                  {preset.label}
+                </ItemDoMenu>
+              ))}
+            </div>
+          ))}
         </Menu>
+
+        <Divisoria />
+        <Botao titulo={t('Ferramentas na lateral')} onClick={onParaLateral}>
+          <PanelLeft size={15} />
+        </Botao>
       </div>
 
       {/* O que só existe para a ferramenta escolhida. */}

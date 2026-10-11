@@ -8,6 +8,7 @@ no instalador.
 
 import io
 import os
+import re
 import textwrap
 from html import escape
 
@@ -15,7 +16,7 @@ from PIL import Image, ImageOps
 
 from core.idioma import texto
 
-from .export_pdf import PAGE_CSS, html_para_pdf
+from .export_pdf import PAGE_CSS, html_para_pdf, manter_recuo_do_pre
 
 #: Extensão -> formato do Pillow. Sinônimos (jpeg, tif) entram, não saem.
 FORMATOS_DE_IMAGEM = {
@@ -26,6 +27,8 @@ SAIDAS_DE_IMAGEM = ("pdf", "png", "jpg", "webp", "gif", "bmp", "tiff")
 TEXTOS = ("txt", "md", "html", "htm")
 #: Formatos sem canal de transparência: o fundo transparente vira branco.
 SEM_TRANSPARENCIA = {"JPEG", "BMP", "PDF"}
+#: Transparência de liga e desliga: o pixel some inteiro ou aparece inteiro.
+TRANSPARENCIA_BINARIA = {"GIF"}
 
 _FORMATO_DE_SAIDA = {**FORMATOS_DE_IMAGEM, "pdf": "PDF"}
 
@@ -112,10 +115,17 @@ def _no_modo_de(imagem, formato):
     if not imagem.has_transparency_data:
         return imagem.convert("RGB")
     rgba = imagem.convert("RGBA")
-    if formato not in SEM_TRANSPARENCIA:
+    if formato not in SEM_TRANSPARENCIA | TRANSPARENCIA_BINARIA:
         return rgba
     fundo = Image.new("RGB", rgba.size, "white")
     fundo.paste(rgba, mask=rgba.getchannel("A"))
+    if formato in SEM_TRANSPARENCIA:
+        return fundo
+    # O GIF ignorava o alfa parcial: a sombra a 20% e a borda suavizada
+    # saíam com a cor crua a 100%, mais escuras que o original. O
+    # meio-transparente vai sobre o branco (como fica numa página) e o quase
+    # invisível some.
+    fundo.putalpha(rgba.getchannel("A").point(lambda a: 255 if a >= 128 else 0))
     return fundo
 
 
@@ -125,7 +135,7 @@ def _texto_como_html(dados, origem):
     except UnicodeDecodeError:
         conteudo = dados.decode("cp1252", errors="replace")
     if origem in ("html", "htm"):
-        return conteudo
+        return _com_estilo_base(_PRE_RE.sub(lambda m: m[1] + manter_recuo_do_pre(m[2]) + m[3], conteudo))
     # Markdown sai como o texto que é, sem renderizar: renderizar pediria
     # outra biblioteca só para isso.
     #
@@ -136,8 +146,29 @@ def _texto_como_html(dados, origem):
     return (
         f'<html><head><meta charset="utf-8" /><style>{PAGE_CSS}</style></head><body>'
         '<pre style="font-family: Courier; font-size: 9.5pt">'
-        f"{escape(_quebrar_em_colunas(conteudo))}</pre></body></html>"
+        f"{manter_recuo_do_pre(escape(_quebrar_em_colunas(conteudo)))}</pre></body></html>"
     )
+
+
+#: O mínimo para um HTML qualquer sair legível: sem isso o xhtml2pdf usa
+#: letra de 7 pt e a tabela sem espaço nenhum, com o texto em cima da borda.
+_CSS_DO_HTML = PAGE_CSS + """
+table { border-collapse: collapse; margin: 0 0 10pt 0; }
+td, th { padding: 4pt 6pt; vertical-align: top; }
+pre, code { font-family: Courier, monospace; font-size: 9pt; }
+"""
+
+_PRE_RE = re.compile(r"(<pre\b[^>]*>)(.*?)(</pre>)", re.I | re.S)
+#: Onde o estilo base entra: logo no começo do `head`, ou depois do doctype.
+_INICIO_DO_HTML = re.compile(r"<head\b[^>]*>|^\s*<!doctype[^>]*>", re.I)
+
+
+def _com_estilo_base(html):
+    """O estilo base antes de tudo, para o do próprio arquivo continuar mandando."""
+    estilo = f"<style>{_CSS_DO_HTML}</style>"
+    achado = _INICIO_DO_HTML.search(html)
+    fim = achado.end() if achado else 0
+    return html[:fim] + estilo + html[fim:]
 
 
 #: Courier 9,5 pt tem 5,7 pt por caractere; a área útil da A4 (595 pt menos as

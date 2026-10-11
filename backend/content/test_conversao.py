@@ -63,6 +63,20 @@ class Converter(SimpleTestCase):
         webp = abrir(converter(imagem(), "a.png", "webp"))
         self.assertEqual(webp.getpixel((0, 0))[3], 0)
 
+    def test_gif_poe_o_meio_transparente_sobre_o_branco(self):
+        # Três pixels: invisível, vermelho a 85% e quase invisível.
+        origem = Image.new("RGBA", (3, 1))
+        origem.putdata([(0, 0, 0, 0), (220, 38, 38, 217), (220, 38, 38, 40)])
+        saida = io.BytesIO()
+        origem.save(saida, "PNG")
+        gif = abrir(converter(saida.getvalue(), "a.png", "gif")).convert("RGBA")
+        self.assertEqual(gif.getpixel((0, 0))[3], 0)
+        # Como fica numa página branca, e não o vermelho cru a 100%.
+        r, g, b, a = gif.getpixel((1, 0))
+        self.assertEqual(a, 255)
+        self.assertGreater(g, 55)
+        self.assertEqual(gif.getpixel((2, 0))[3], 0)
+
     def test_imagem_para_pdf(self):
         self.assertTrue(converter(imagem("JPEG", "RGB", "blue"), "a.jpg", "pdf").startswith(b"%PDF"))
 
@@ -84,7 +98,25 @@ class Converter(SimpleTestCase):
         html = _texto_como_html("Linha 1\n    recuada\n\nLinha 4".encode(), "txt")
         self.assertNotIn("pre-wrap", html)
         self.assertIn("<pre", html)
-        self.assertIn("Linha 1\n    recuada\n\nLinha 4", html)
+        # No PDF, cada linha com o recuo inteiro: os 4 espaços saíam 3.
+        pdf = converter("Linha 1\n    recuada\n\tcom tab\n\nLinha 5".encode(), "a.txt", "pdf")
+        texto = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("Linha 1\n    recuada\n    com tab", texto)
+
+    def test_html_ganha_estilo_base_sem_perder_o_proprio(self):
+        arquivo = (
+            b'<!doctype html><html><head><style>td { padding: 0 }</style></head>'
+            b'<body><table><tr><td>a</td></tr></table><pre class="x y">\n    a\n    b</pre></body></html>'
+        )
+        html = _texto_como_html(arquivo, "html")
+        # A base vem antes, e o estilo do arquivo continua mandando.
+        self.assertLess(html.index("font-size: 10.5pt"), html.index("td { padding: 0 }"))
+        self.assertTrue(html.startswith("<!doctype html>"))
+        self.assertIn('<pre class="x y">', html)
+        # A quebra logo depois do `<pre>` não conta; o recuo das duas linhas chega igual.
+        texto = PdfReader(io.BytesIO(converter(arquivo, "a.html", "pdf"))).pages[0].extract_text()
+        self.assertIn("    a\n    b", texto)
+        self.assertNotIn("     a", texto)
 
     def test_linha_longa_quebra_na_margem_com_o_mesmo_recuo(self):
         longa = "    " + "palavra " * 40

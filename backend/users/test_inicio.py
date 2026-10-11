@@ -246,12 +246,45 @@ class FotosDoInicioTests(APITestCase):
     def test_destino_desconhecido_volta_400(self):
         self.assertEqual(self.enviar("avatar").status_code, 400)
 
-    def test_layout_aceita_fundo_e_foto_e_recusa_material_na_foto(self):
+    def test_layout_aceita_fundo_e_foto_e_recusa_endereco_de_fora(self):
         url = self.enviar("fundo").json()["url"]
         layout = {"fundo": {"tipo": "imagem", "url": url, "zoom": 9}, "foto": {"tipo": "imagem", "url": url}}
         resposta = self.client.patch("/api/me/preferences/", {"home_layout": layout}, format="json")
         self.assertEqual(resposta.status_code, 200, resposta.content)
         self.assertEqual(resposta.json()["home_layout"]["fundo"]["zoom"], 3)
         self.assertEqual(resposta.json()["home_layout"]["foto"]["url"], url)
-        for ruim in ({"foto": {"tipo": "gradiente", "id": "lousa"}}, {"fundo": {"tipo": "imagem", "url": "javascript:alert(1)"}}):
-            self.assertEqual(self.client.patch("/api/me/preferences/", {"home_layout": ruim}, format="json").status_code, 400, ruim)
+        ruim = {"fundo": {"tipo": "imagem", "url": "javascript:alert(1)"}}
+        self.assertEqual(self.client.patch("/api/me/preferences/", {"home_layout": ruim}, format="json").status_code, 400)
+
+    def test_relogio_aceita_material_e_nada(self):
+        for foto in ({"tipo": "gradiente", "id": "lousa"}, {"tipo": "nenhuma"}):
+            resposta = self.client.patch("/api/me/preferences/", {"home_layout": {"foto": foto}}, format="json")
+            self.assertEqual(resposta.status_code, 200, resposta.content)
+            self.assertEqual(resposta.json()["home_layout"]["foto"], foto)
+
+
+class AparenciaDosBlocosTests(APITestCase):
+    """A opacidade do fundo e os títulos dos blocos."""
+
+    def setUp(self):
+        self.client.force_authenticate(make_user())
+
+    def gravar(self, layout):
+        return self.client.patch("/api/me/preferences/", {"home_layout": layout}, format="json")
+
+    def test_fica_na_faixa_e_null_e_a_do_tema(self):
+        for enviada, guardada in ((140, 100), (-5, 0), (42.6, 43)):
+            with self.subTest(enviada=enviada):
+                self.assertEqual(self.gravar({"opacidade": enviada}).json()["home_layout"]["opacidade"], guardada)
+        self.assertNotIn("opacidade", self.gravar({"opacidade": None}).json()["home_layout"])
+
+    def test_o_que_nao_e_numero_volta_400(self):
+        for ruim in ("50", True, [50]):
+            with self.subTest(ruim=ruim):
+                self.assertEqual(self.gravar({"opacidade": ruim}).status_code, 400)
+
+    def test_titulos_dos_blocos_so_aceita_verdadeiro_ou_falso(self):
+        self.assertIs(self.gravar({"titulos": False}).json()["home_layout"]["titulos"], False)
+        for ruim in ("nao", 0, None):
+            with self.subTest(ruim=ruim):
+                self.assertEqual(self.gravar({"titulos": ruim}).status_code, 400)

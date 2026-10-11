@@ -7,12 +7,15 @@ voltava 500.
 """
 
 import http.server
+import io
 import threading
 from pathlib import Path
 
 from django.conf import settings
 from django.test import TestCase
 from PIL import Image
+from pypdf import PdfReader
+from pypdf.generic import ContentStream
 
 from content.export_pdf import _resolver_midia, html_para_pdf, render_pdf
 from content.models import Document
@@ -157,6 +160,56 @@ class SecoesNoPdfTests(TestCase):
             "rows": [["<script>x</script>"], ["ok"]],
         }))
         self.assertNotIn("<script>", html)
+
+    def test_recuo_do_codigo_sai_em_espaco_duro(self):
+        """O xhtml2pdf juntava os espaços de span em span e o recuo saía torto."""
+        from content.export_pdf import build_html
+
+        html = build_html(self.nota({
+            "id": "s1",
+            "type": "code",
+            "language": "python",
+            "code": "def f():\n    # nota\n\treturn 1",
+        }))
+        corpo = html.split('class="code-body">')[1]
+        # Quatro espaços (e o tab, como quatro) antes do comentário e do return.
+        self.assertEqual(corpo.count("&nbsp;&nbsp;&nbsp;&nbsp;"), 2)
+        # Os atributos das tags continuam com espaço normal.
+        self.assertIn('<span style="', corpo)
+
+    def test_recuo_do_codigo_chega_inteiro_no_pdf(self):
+        """O ReportLab come o primeiro espaço de cada linha depois de uma quebra."""
+        pdf = render_pdf(self.nota({
+            "id": "s1",
+            "type": "code",
+            "language": "python",
+            "code": "def f():\n    if x:\n        return 1",
+        }))
+        texto = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("def f():\n    if x:\n        return 1", texto)
+
+    def test_faixa_da_linguagem_encosta_no_codigo(self):
+        """O xhtml2pdf descolava a faixa do código com margens que o CSS não pediu."""
+        leitor = PdfReader(io.BytesIO(render_pdf(self.nota(
+            {"id": "s1", "type": "table", "rows": [["a"], ["b"]]},
+            {"id": "s2", "type": "code", "language": "python", "code": "x = 1"},
+        ))))
+        # Os fundos largos (a tabela não tem fundo no corpo): a faixa e o corpo do código.
+        pilha, ctm, caixas = [], (1, 0, 0, 1, 0, 0), []
+        for args, op in ContentStream(leitor.pages[0].get_contents(), leitor).operations:
+            if op == b"q":
+                pilha.append(ctm)
+            elif op == b"Q":
+                ctm = pilha.pop()
+            elif op == b"cm":
+                a, b, c, d, e, f = (float(v) for v in args)
+                A, B, C, D, E, F = ctm
+                ctm = (a * A + b * C, a * B + b * D, c * A + d * C, c * B + d * D, e * A + f * C + E, e * B + f * D + F)
+            elif op == b"re" and float(args[2]) > 300:
+                y, altura = ctm[5] + float(args[1]), float(args[3])
+                caixas.append((round(y, 1), round(y + altura, 1)))
+        faixa, corpo = caixas[-2], caixas[-1]
+        self.assertEqual(corpo[1], faixa[0])
 
     def test_pdf_com_as_tres_secoes_e_gerado(self):
         pdf = render_pdf(self.nota(

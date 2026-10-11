@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react'
 import { GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -13,44 +14,67 @@ import { useBlocoDaGrade } from './GradeDoInicio'
  * qualquer ponto livre dele; no toque, segurando até o bloco subir, como
  * um ícone no celular; no teclado, pela alça à esquerda. O corpo rola
  * quando o conteúdo passa da altura escolhida.
+ *
+ * Com os títulos escondidos (Personalizar), o nome sai e fica só o que o
+ * cabeçalho tem de útil: as ações, se houver. Sem nenhuma, o cabeçalho vira
+ * uma faixa invisível no alto do bloco — ainda é por ela que ele se arrasta.
  */
+export const TitulosDosBlocos = createContext(true)
+
 export default function Bloco({ id, titulo, icon: Icon, acoes, children, className, corpoClassName }) {
   const grade = useBlocoDaGrade()
+  const comTitulo = useContext(TitulosDosBlocos)
+  const soFaixa = !comTitulo && !acoes
 
   return (
-    <section id={id} className={cn('flex h-full min-w-0 flex-col rounded-lg border border-ink-150 bg-white dark:border-ink-800 dark:bg-ink-900/50', className)}>
+    // A opacidade do fundo vem do Início (`--opacidade-dos-blocos`, de 0 a 1);
+    // sem ela, a do tema: cheio no claro, meio no escuro.
+    <section
+      id={id}
+      className={cn(
+        'relative flex h-full min-w-0 flex-col rounded-lg border border-ink-150 bg-[rgb(255_255_255/var(--opacidade-dos-blocos,1))] dark:border-ink-800 dark:bg-[rgb(var(--ink-900)/var(--opacidade-dos-blocos,0.5))]',
+        className,
+      )}
+    >
       {/* Quebra de linha no celular: título e controles não cabem lado a
           lado, e espremer o título até "C..." apagava o nome do bloco. */}
-      <header
-        onPointerDown={grade?.apertarCabecalho}
-        onContextMenu={grade ? (e) => e.preventDefault() : undefined}
-        className={cn(
-          'relative flex min-h-[42px] flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-ink-100 px-4 py-1.5 dark:border-ink-800',
-          grade && 'select-none [-webkit-touch-callout:none] [@media(pointer:fine)]:cursor-grab',
-        )}
-      >
-        {grade && (
-          // A alça mora no respiro à esquerda do título: aparecer e sumir
-          // com o mouse não empurra nada do cabeçalho.
-          <button
-            type="button"
-            data-alca-do-bloco
-            onKeyDown={grade.teclarNaAlca}
-            aria-label={t('Mover {nome}', { nome: titulo })}
-            title={t('Arraste para mover · setas mudam a ordem · Shift+setas mudam o tamanho')}
-            className="absolute left-0 top-1/2 flex h-6 w-4 -translate-y-1/2 cursor-grab touch-none items-center justify-center rounded text-ink-300 opacity-0 transition hover:text-ink-600 focus-visible:opacity-100 group-hover/bloco:opacity-100 dark:text-ink-600 dark:hover:text-ink-300 [@media(hover:none)]:opacity-100"
-          >
-            <GripVertical size={12} />
-          </button>
-        )}
-        {Icon && <Icon size={13} className="shrink-0 text-ink-400" />}
-        <h2 className="secao shrink-0">{titulo}</h2>
-        {acoes && <div className="ml-auto flex shrink-0 items-center gap-1">{acoes}</div>}
-      </header>
+      {(grade || !soFaixa) && (
+        <header
+          onPointerDown={grade?.apertarCabecalho}
+          onContextMenu={grade ? (e) => e.preventDefault() : undefined}
+          className={cn(
+            soFaixa
+              ? // Da altura do respiro do corpo: não cobre o conteúdo.
+              'absolute inset-x-0 top-0 z-10 h-4'
+              : 'relative flex min-h-[42px] flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-ink-100 px-4 py-1.5 dark:border-ink-800',
+            grade && 'select-none [-webkit-touch-callout:none] [@media(pointer:fine)]:cursor-grab',
+          )}
+        >
+          {grade && (
+            // A alça mora no respiro à esquerda do título: aparecer e sumir
+            // com o mouse não empurra nada do cabeçalho.
+            <button
+              type="button"
+              data-alca-do-bloco
+              onKeyDown={grade.teclarNaAlca}
+              aria-label={t('Mover {nome}', { nome: titulo })}
+              title={t('Arraste para mover · setas mudam a ordem · Shift+setas mudam o tamanho')}
+              className="absolute left-0 top-1/2 flex h-6 w-4 -translate-y-1/2 cursor-grab touch-none items-center justify-center rounded text-ink-300 opacity-0 transition hover:text-ink-600 focus-visible:opacity-100 group-hover/bloco:opacity-100 dark:text-ink-600 dark:hover:text-ink-300 [@media(hover:none)]:opacity-100"
+            >
+              <GripVertical size={12} />
+            </button>
+          )}
+          {comTitulo && Icon && <Icon size={13} className="shrink-0 text-ink-400" />}
+          {/* Escondido, o nome continua para leitor de tela. */}
+          <h2 className={comTitulo ? 'secao shrink-0' : 'sr-only'}>{titulo}</h2>
+          {acoes && <div className="ml-auto flex shrink-0 items-center gap-1">{acoes}</div>}
+        </header>
+      )}
       {/* `corpoClassName` substitui o respiro de 16px em vez de somar: o `cn`
           só junta classes, e com `p-4` e `p-0` juntos quem vencia era o p-4
-          (vem depois no CSS) — o "sem margem" dos blocos não valia. */}
-      <div className={cn('min-h-0 flex-1 overflow-auto', corpoClassName ?? 'p-4')}>{children}</div>
+          (vem depois no CSS) — o "sem margem" dos blocos não valia. Os cantos
+          arredondados são para a foto do relógio, que encosta na borda. */}
+      <div className={cn('min-h-0 flex-1 overflow-auto rounded-b-lg', soFaixa && 'rounded-t-lg', corpoClassName ?? 'p-4')}>{children}</div>
     </section>
   )
 }

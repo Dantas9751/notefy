@@ -26,6 +26,8 @@ LAYOUTS_DE_ITENS = ("cartoes", "pilha", "lista")
 ABAS_DE_NOTAS = ("recentes", "favoritos")
 ABAS_DE_ARQUIVOS = ("imagens", "documentos", "todos")
 MAX_BLOCOS = 20
+#: Opacidade do fundo dos blocos, em %: 0 deixa o papel de parede aparecer inteiro.
+OPACIDADE_MIN, OPACIDADE_MAX = 0, 100
 #: Teto do rascunho do Início: é um post-it, não um documento.
 MAX_RASCUNHO = 20000
 
@@ -53,12 +55,12 @@ def _inteiro(valor, minimo, maximo):
     return int(min(maximo, max(minimo, round(valor))))
 
 
-def _imagem_ou_material(capa, materiais):
-    """`{tipo: nenhuma}`, `{tipo: gradiente, id}` (se `materiais`) ou `{tipo: imagem, url, x?, y?, zoom?}`."""
+def _imagem_ou_material(capa):
+    """`{tipo: nenhuma}`, `{tipo: gradiente, id}` ou `{tipo: imagem, url, x?, y?, zoom?}`."""
     tipo = capa.get("tipo")
     if tipo == "nenhuma":
         return {"tipo": "nenhuma"}
-    if materiais and tipo == "gradiente" and isinstance(capa.get("id"), str) and _SLUG.match(capa["id"]):
+    if tipo == "gradiente" and isinstance(capa.get("id"), str) and _SLUG.match(capa["id"]):
         return {"tipo": "gradiente", "id": capa["id"]}
     if tipo == "imagem" and isinstance(capa.get("url"), str) and _URL_DE_MIDIA.match(capa["url"]):
         limpo = {"tipo": "imagem", "url": capa["url"]}
@@ -79,11 +81,20 @@ def limpar_inicio(valor):
 
     limpo = {}
 
-    # A capa e o papel de parede: um material, uma foto ou nada. A foto do
-    # relógio é só foto (ou nada).
-    for chave, materiais in (("capa", True), ("fundo", True), ("foto", False)):
+    # A capa, o papel de parede e o fundo do relógio: um material, uma foto ou nada.
+    for chave in ("capa", "fundo", "foto"):
         if isinstance(valor.get(chave), dict):
-            limpo[chave] = _imagem_ou_material(valor[chave], materiais)
+            limpo[chave] = _imagem_ou_material(valor[chave])
+
+    # `null` é "a do tema": o app manda o layout inteiro, e quem nunca mexeu não tem número.
+    if valor.get("opacidade") is not None:
+        limpo["opacidade"] = _inteiro(valor["opacidade"], OPACIDADE_MIN, OPACIDADE_MAX)
+
+    # O nome no alto de cada bloco: à mostra ou escondido.
+    if "titulos" in valor:
+        if not isinstance(valor["titulos"], bool):
+            raise _erro()
+        limpo["titulos"] = valor["titulos"]
 
     blocos = valor.get("blocos")
     if blocos is not None:

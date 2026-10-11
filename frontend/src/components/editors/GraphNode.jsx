@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { nodeRect } from '@/lib/graph'
+import { nodeRect, pontasDaLinha } from '@/lib/graph'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { urlDeMedia } from '@/lib/fileMedia'
@@ -342,9 +342,14 @@ export default function GraphNode({
   editing,
   onCommitText,
   onCancelText,
+  //: Sem texto, a forma mostra o nome dela ("Retângulo") como exemplo. No
+  //: canvas as formas de desenho não aceitam texto, e o exemplo parecia
+  //: conteúdo que a pessoa não escreveu e não conseguia apagar.
+  rotuloDeExemplo = true,
 }) {
   const rect = nodeRect(node, palette)
   const preset = palette[node.type] ?? { shape: 'rect' }
+  const rotulo = (exemplo) => node.text || (rotuloDeExemplo ? exemplo : '')
   const accent = node.color || '#6366F1'
   const fill = node.fill
 
@@ -395,7 +400,7 @@ export default function GraphNode({
         return (
           <>
             <ellipse cx={rect.w / 2} cy={rect.h / 2} rx={rect.w / 2 - 1} ry={rect.h / 2 - 1} {...surface()} />
-            <CenteredLabel text={node.text || preset.label} rect={rect} className="fill-ink-800 text-[11px] font-medium dark:fill-ink-100" />
+            <CenteredLabel text={rotulo(preset.label)} rect={rect} className="fill-ink-800 text-[11px] font-medium dark:fill-ink-100" />
           </>
         )
 
@@ -414,7 +419,7 @@ export default function GraphNode({
               points={`${rect.w / 2},1 ${rect.w - 1},${rect.h / 2} ${rect.w / 2},${rect.h - 1} 1,${rect.h / 2}`}
               {...surface()}
             />
-            <CenteredLabel text={node.text || preset.label} rect={rect} className="fill-ink-800 text-[10px] dark:fill-ink-100" />
+            <CenteredLabel text={rotulo(preset.label)} rect={rect} className="fill-ink-800 text-[10px] dark:fill-ink-100" />
           </>
         )
 
@@ -422,7 +427,7 @@ export default function GraphNode({
         return (
           <>
             <rect width={rect.w} height={rect.h} rx={Math.min(18, rect.h / 3)} {...surface()} />
-            <CenteredLabel text={node.text || preset.label} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={rotulo(preset.label)} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -430,7 +435,7 @@ export default function GraphNode({
         return (
           <>
             <rect width={rect.w} height={rect.h} rx={rect.h / 2} {...surface()} />
-            <CenteredLabel text={node.text || preset.label} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
+            <CenteredLabel text={rotulo(preset.label)} rect={rect} className="fill-ink-800 text-[11px] dark:fill-ink-100" />
           </>
         )
 
@@ -563,6 +568,18 @@ export default function GraphNode({
 
       case 'bar':
         return <rect width={rect.w} height={rect.h} rx={rect.h / 2} fill={accent} />
+
+      // A linha do canvas: de ponta a ponta da caixa, no sentido em que foi
+      // arrastada. O traço largo e invisível é o alvo de clique.
+      case 'line': {
+        const [x1, y1, x2, y2] = pontasDaLinha(node, rect)
+        return (
+          <>
+            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={16} strokeLinecap="round" />
+            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={accent} strokeWidth={3} strokeLinecap="round" />
+          </>
+        )
+      }
 
       case 'filled-circle':
         return <circle cx={rect.w / 2} cy={rect.h / 2} r={Math.min(rect.w, rect.h) / 2 - 2} fill={accent} />
@@ -717,7 +734,7 @@ export default function GraphNode({
               </>
             ) : (
               <TextBlock
-                text={node.text || preset.label || ''}
+                text={rotulo(preset.label ?? '')}
                 rect={rect}
                 className="fill-ink-700 text-[11px] dark:fill-ink-200"
                 startY={24}
