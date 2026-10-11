@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ACCENT_PADRAO, ACCENT_PADRAO_ANTIGO, aplicarAccent, corValida } from '@/lib/accent'
 import { idioma } from '@/lib/i18n'
 import { telaCheia } from '@/lib/desktop'
@@ -35,7 +35,10 @@ export function UIProvider({ children }) {
   const [fonteApp, setFonteApp] = useState(() => localStorage.getItem(FONTE_APP_KEY) || 'padrao')
   const [fonteNota, setFonteNota] = useState(() => localStorage.getItem(FONTE_NOTA_KEY) || 'app')
 
-  useEffect(() => {
+  // Fontes, tema e destaque em efeitos de LAYOUT: valem antes do primeiro quadro.
+  // Com o efeito comum, o app abria um quadro no claro e só depois escurecia, e
+  // a abertura (que mede as letras na fonte em uso) via a fonte de fábrica.
+  useLayoutEffect(() => {
     localStorage.setItem(FONTE_APP_KEY, fonteApp)
     localStorage.setItem(FONTE_NOTA_KEY, fonteNota)
     const raiz = document.documentElement.style
@@ -55,7 +58,7 @@ export function UIProvider({ children }) {
     if (theme.startsWith('custom-') && !temaPorId(theme)) setTheme('system')
   }, [theme, versaoDosTemas])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     localStorage.setItem(THEME_KEY, theme)
     const media = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -76,7 +79,7 @@ export function UIProvider({ children }) {
     return () => media.removeEventListener('change', apply)
   }, [theme, versaoDosTemas])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     localStorage.setItem(ACCENT_KEY, accent)
     aplicarAccent(accent)
   }, [accent])

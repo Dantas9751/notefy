@@ -371,6 +371,11 @@ renderiza um resultado sem saber de qual tabela ele veio.
   código e **temas próprios** (Configurações → Aparência → Criar tema): sete
   cores escolhidas uma a uma, num seletor livre, com prévia ao vivo. Escuros
   ou claros; ficam neste aparelho (`lib/temas.js`).
+- **Abertura** ao abrir o app (`components/Abertura.jsx`, `lib/abertura.js`): "Note"
+  na serifada dos títulos e uma caneta que escreve "fy" na fonte do sistema, num
+  tom frio tirado das cores do tema (vale para os temas personalizados). Passa
+  uma vez por abertura, some sozinha em ~3,5 s, pula com qualquer clique ou
+  tecla, e com movimento reduzido vira só um fade do nome.
 - `Ctrl/Cmd+K` abre a busca global; `Ctrl/Cmd+S` salva a nota aberta;
   `Ctrl/Cmd+/` lista todos os atalhos. **Todos trocam** em Configurações →
   Atalhos (rascunho até o Salvar; redefine um ou todos); o registro único

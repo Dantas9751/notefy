@@ -8,6 +8,8 @@ import { SplitProvider } from '@/context/SplitContext'
 import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
+import Abertura from '@/components/Abertura'
+import { aberturaJaVista, marcarAberturaVista } from '@/lib/abertura'
 import { FaixaDaJanela } from '@/components/layout/ControlesDaJanela'
 import { ligarToqueLongo } from '@/lib/toqueLongo'
 import { idioma } from '@/lib/i18n'
@@ -199,11 +201,19 @@ export default function App() {
     return () => window.removeEventListener('notefy:idioma', trocou)
   }, [])
 
+  // A abertura passa uma vez por abertura do app: recarregar ou navegar não repete.
+  // (O `main.jsx` marca como vista nas janelas destacadas, que não são o app abrindo.)
+  const [abertura, setAbertura] = useState(() => !aberturaJaVista())
+  useEffect(() => {
+    if (abertura) marcarAberturaVista()
+  }, [abertura])
+
   return (
     <UIProvider>
       <AuthProvider>
         <AppRoutes key={lingua} />
       </AuthProvider>
+      {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </UIProvider>
   )
 }
