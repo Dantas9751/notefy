@@ -1,8 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ACCENT_PADRAO, ACCENT_PADRAO_ANTIGO, aplicarAccent, corValida } from '@/lib/accent'
 import { idioma } from '@/lib/i18n'
 import { telaCheia } from '@/lib/desktop'
-import { aplicarTema } from '@/lib/temas'
+import { aplicarTema, assinarTemas, baseDoTema, temaPorId, versaoDeTemas } from '@/lib/temas'
 import { FONTES_DA_NOTA, FONTES_DO_APP, pilha } from '@/lib/fontes'
 
 const UIContext = createContext(null)
@@ -35,7 +35,10 @@ export function UIProvider({ children }) {
   const [fonteApp, setFonteApp] = useState(() => localStorage.getItem(FONTE_APP_KEY) || 'padrao')
   const [fonteNota, setFonteNota] = useState(() => localStorage.getItem(FONTE_NOTA_KEY) || 'app')
 
-  useEffect(() => {
+  // Fontes, tema e destaque em efeitos de LAYOUT: valem antes do primeiro quadro.
+  // Com o efeito comum, o app abria um quadro no claro e só depois escurecia, e
+  // a abertura (que mede as letras na fonte em uso) via a fonte de fábrica.
+  useLayoutEffect(() => {
     localStorage.setItem(FONTE_APP_KEY, fonteApp)
     localStorage.setItem(FONTE_NOTA_KEY, fonteNota)
     const raiz = document.documentElement.style
@@ -47,15 +50,24 @@ export function UIProvider({ children }) {
     localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
+  // Criar, editar ou apagar um tema personalizado refaz a aplicação do tema em uso.
+  const versaoDosTemas = useSyncExternalStore(assinarTemas, versaoDeTemas)
+
   useEffect(() => {
+    // O tema personalizado em uso foi apagado: volta a seguir o sistema.
+    if (theme.startsWith('custom-') && !temaPorId(theme)) setTheme('system')
+  }, [theme, versaoDosTemas])
+
+  useLayoutEffect(() => {
     localStorage.setItem(THEME_KEY, theme)
     const media = window.matchMedia('(prefers-color-scheme: dark)')
 
-    // Tema de cor (Midnight, Dracula...): troca a escala de cinzas e é
-    // sempre escuro. Claro, escuro e sistema limpam a escala.
+    // Tema de cor (Midnight, Dracula, um seu...): troca a escala de cinzas.
+    // Os de fábrica são sempre escuros; um personalizado diz se é claro ou
+    // escuro. Claro, escuro e sistema limpam a escala.
     const colorido = aplicarTema(theme)
     const apply = () => {
-      const dark = colorido || theme === 'dark' || (theme === 'system' && media.matches)
+      const dark = colorido ? baseDoTema(colorido) === 'dark' : theme === 'dark' || (theme === 'system' && media.matches)
       document.documentElement.classList.toggle('dark', dark)
     }
     apply()
@@ -65,9 +77,9 @@ export function UIProvider({ children }) {
     if (theme !== 'system') return undefined
     media.addEventListener('change', apply)
     return () => media.removeEventListener('change', apply)
-  }, [theme])
+  }, [theme, versaoDosTemas])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     localStorage.setItem(ACCENT_KEY, accent)
     aplicarAccent(accent)
   }, [accent])

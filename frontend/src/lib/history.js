@@ -13,6 +13,8 @@
  * de não ter essa classe de bug.
  */
 
+import { casa } from './atalhos.js'
+
 /** Teto de passos. Além disto o mais antigo cai. */
 export const LIMITE = 40
 
@@ -78,9 +80,7 @@ export function refazer(pilha) {
  * aceitar ambos custa uma linha e evita a tecla que "não faz nada".
  */
 export function atalhoDe(event) {
-  if (!event.ctrlKey && !event.metaKey) return null
-  const tecla = event.key.toLowerCase()
-  if (tecla === 'z') return event.shiftKey ? 'redo' : 'undo'
-  if (tecla === 'y') return 'redo'
+  if (casa(event, 'desfazer')) return 'undo'
+  if (casa(event, 'refazer')) return 'redo'
   return null
 }

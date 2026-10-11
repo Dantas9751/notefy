@@ -40,6 +40,9 @@
     --ink-900: 26 24 22;
     --ink-950: 15 14 13;
 
+    /* O branco do app: só um tema claro personalizado o troca (lib/temas.js). */
+    --white: 255 255 255;
+
     /* Fontes: as escolhidas em Aparência sobrescrevem no <html>
        (UIContext). Stack de sistema, sem requisição de rede. */
     --fonte-app: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;

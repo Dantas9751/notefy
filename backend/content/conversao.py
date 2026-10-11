@@ -135,7 +135,7 @@ def _texto_como_html(dados, origem):
     except UnicodeDecodeError:
         conteudo = dados.decode("cp1252", errors="replace")
     if origem in ("html", "htm"):
-        return _com_estilo_base(_PRE_RE.sub(lambda m: m[1] + manter_recuo_do_pre(m[2]) + m[3], conteudo))
+        return _com_estilo_base(_manter_recuo_nos_pre(conteudo))
     # Markdown sai como o texto que é, sem renderizar: renderizar pediria
     # outra biblioteca só para isso.
     #
@@ -158,9 +158,31 @@ td, th { padding: 4pt 6pt; vertical-align: top; }
 pre, code { font-family: Courier, monospace; font-size: 9pt; }
 """
 
-_PRE_RE = re.compile(r"(<pre\b[^>]*>)(.*?)(</pre>)", re.I | re.S)
+#: Abertura ou fechamento de `<pre>`. O `{0,1000}` limita o quanto uma abertura sem `>` varre:
+#: sem ele, milhares de `<pre ` seguidos faziam o arquivo ser relido a cada um (tempo quadrático).
+_TAG_PRE = re.compile(r"<pre\b[^>]{0,1000}>|</pre>", re.I)
 #: Onde o estilo base entra: logo no começo do `head`, ou depois do doctype.
 _INICIO_DO_HTML = re.compile(r"<head\b[^>]*>|^\s*<!doctype[^>]*>", re.I)
+
+
+def _manter_recuo_nos_pre(html):
+    """O recuo de cada `<pre>` fechado, numa passada só pelo arquivo.
+
+    Casar `<pre>(.*?)</pre>` por regex relê o resto do arquivo a cada abertura sem
+    fechamento: 40 mil `<pre>` soltos levavam uns 50 s. Aqui as tags são achadas uma
+    vez e pareadas na mão. Abertura sem fechamento fica como veio, e `<pre>` dentro de
+    `<pre>` é conteúdo, como antes.
+    """
+    partes, copiado, aberta = [], 0, None
+    for tag in _TAG_PRE.finditer(html):
+        if tag[0][1] != "/":
+            aberta = aberta or tag
+        elif aberta:
+            partes.append(html[copiado : aberta.end()])
+            partes.append(manter_recuo_do_pre(html[aberta.end() : tag.start()]))
+            copiado, aberta = tag.start(), None
+    partes.append(html[copiado:])
+    return "".join(partes)
 
 
 def _com_estilo_base(html):

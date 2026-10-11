@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
-import { Bell, Database, Palette, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
+import { Bell, Database, Keyboard, Palette, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useFetch, useMutation } from '@/hooks/useFetch'
@@ -19,6 +19,7 @@ import { t } from '@/lib/i18n'
  */
 export const ABAS = [
   { rota: 'aparencia', get label() { return t('Aparência') }, icon: Palette },
+  { rota: 'atalhos', get label() { return t('Atalhos') }, icon: Keyboard },
   { rota: 'conta', get label() { return t('Conta') }, icon: UserRound },
   { rota: 'notificacoes', get label() { return t('Notificações') }, icon: Bell },
   { rota: 'laviel', get label() { return t('Laviel') }, icon: Sparkles },
@@ -57,13 +58,13 @@ export default function Settings() {
       <PageHeader title={t('Configurações')} subtitle={t('Como o Notefy se comporta neste computador.')} />
 
       <PageBody className="max-w-4xl">
-        {/* Coluna no desktop, duas fileiras no celular. Seis abas não
+        {/* Coluna no desktop, duas fileiras no celular. Sete abas não
             cabem em 375px de largura, e a primeira ideia foi deixar a
             fila rolar de lado: o resultado era um item ativo fora da
             vista (abrir /settings/laviel mostrava "Aparência, Conta,
             Lembretes" e nada indicando onde você estava) mais uma barra
             de rolagem atravessada embaixo. Quebrar a linha mostra as
-            seis de uma vez, que é o ponto de ter abas. */}
+            sete de uma vez, que é o ponto de ter abas. */}
         <div className="flex flex-col gap-6 md:flex-row md:gap-8">
           <nav
             aria-label={t('Seções das configurações')}

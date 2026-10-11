@@ -9,6 +9,7 @@ import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { casa, numeroDaSerie } from '@/lib/atalhos'
 
 /** Segue a convenção de `lib/dnd.js`: cada arraste tem o seu MIME. */
 const TAB_MIME = 'application/x-notefy-tab'
@@ -90,29 +91,24 @@ export default function TabBar() {
       // do layout do teclado (alguns mapeiam Alt+W para a seta de cima,
       // e o navegador engole o Alt antes da página). Ctrl+Q fica livre
       // no Chrome e no Edge.
-      if (e.ctrlKey && !e.altKey && !e.metaKey) {
-        const tecla = (e.key || '').toLowerCase()
-        if (tecla === 'q' || e.code === 'KeyQ') {
-          e.preventDefault()
-          // `chaveEmFoco` e não `activeKey`: em rota não-abrível (ajustes,
-          // busca, rota com query) o `activeKey` é null e o atalho só
-          // piscava o realce da aba sem fechar coisa alguma.
-          const ativa = tabs.find((t) => t.key === chaveEmFoco)
-          if (ativa) aoFechar(ativa)
-        }
+      if (casa(e, 'fecharAba')) {
+        e.preventDefault()
+        // `chaveEmFoco` e não `activeKey`: em rota não-abrível (ajustes,
+        // busca, rota com query) o `activeKey` é null e o atalho só
+        // piscava o realce da aba sem fechar coisa alguma.
+        const ativa = tabs.find((t) => t.key === chaveEmFoco)
+        if (ativa) aoFechar(ativa)
         return
       }
 
       // Alt+número ativa a n-ésima aba. Alt não é Ctrl: Ctrl+Tab é do
       // navegador, e Alt+seta é o voltar/avançar do histórico — só o
       // número fica livre nos dois lugares.
-      if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        const numero = Number(e.key)
-        if (numero >= 1 && numero <= 9 && tabs[numero - 1]) {
-          e.preventDefault()
-          ativar(tabs[numero - 1].key)
-          navigate(tabs[numero - 1].path)
-        }
+      const numero = numeroDaSerie(e, 'irParaAba')
+      if (numero && tabs[numero - 1]) {
+        e.preventDefault()
+        ativar(tabs[numero - 1].key)
+        navigate(tabs[numero - 1].path)
       }
     }
     window.addEventListener('keydown', aoTeclar)

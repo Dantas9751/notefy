@@ -23,6 +23,7 @@ import {
 import api, { extractError } from '@/lib/api'
 import { baixar, copiarTexto } from '@/lib/desktop'
 import { atalhoDe } from '@/lib/history'
+import { casa } from '@/lib/atalhos'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import AlcaDeLargura, { useLarguraDoPainel } from '@/components/ui/AlcaDeLargura'
@@ -100,8 +101,29 @@ const LARGURA_PARA_PAINEIS = 880
 const LARGURA_DAS_PROPRIEDADES = 256
 /** O mínimo de quadro que alargar as camadas deixa sobrar. */
 const QUADRO_MIN = 320
-const ATALHOS_DE_FERRAMENTA = { v: 'move', h: 'hand', f: 'frame', a: 'frame', r: 'rect', o: 'ellipse', l: 'line', t: 'text' }
-const ALINHAR_POR_TECLA = { KeyA: 'esquerda', KeyD: 'direita', KeyW: 'topo', KeyS: 'base', KeyH: 'centroH', KeyV: 'centroV' }
+/** Atalho de cada ferramenta (ids em `lib/atalhos.js`) e a ferramenta que ele liga. */
+const ATALHOS_DE_FERRAMENTA = [
+  ['design.mover', 'move'],
+  ['design.mao', 'hand'],
+  ['design.frame', 'frame'],
+  ['design.retangulo', 'rect'],
+  ['design.elipse', 'ellipse'],
+  ['design.linha', 'line'],
+  ['design.texto', 'text'],
+]
+const ATALHOS_DE_ALINHAR = [
+  ['design.alinharEsquerda', 'esquerda'],
+  ['design.alinharDireita', 'direita'],
+  ['design.alinharTopo', 'topo'],
+  ['design.alinharBase', 'base'],
+  ['design.centralizarH', 'centroH'],
+  ['design.centralizarV', 'centroV'],
+]
+const ATALHOS_DE_ENQUADRE = [
+  ['design.enquadrarTudo', 'tudo'],
+  ['design.enquadrarSelecao', 'selecao'],
+  ['design.zoom100', 1],
+]
 
 const prender = (n, min, max) => Math.min(max, Math.max(min, n))
 const digitando = (alvo) => !!alvo?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]')
@@ -830,9 +852,10 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       return
     }
     // Zoom e enquadramento valem também no somente leitura.
-    if (e.shiftKey && !mod && ['Digit1', 'Digit2', 'Digit0'].includes(e.code)) {
+    const enquadre = ATALHOS_DE_ENQUADRE.find(([id]) => casa(e, id))
+    if (enquadre) {
       e.preventDefault()
-      return zoomPara({ Digit1: 'tudo', Digit2: 'selecao', Digit0: 1 }[e.code])
+      return zoomPara(enquadre[1])
     }
     if (['=', '+', '-', '_'].includes(e.key)) {
       e.preventDefault()
@@ -856,10 +879,11 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       if (proxima) setSelecao([proxima.id])
       return
     }
-    if (e.key === 'Enter' && !emControle && selecao.length === 1) {
+    const paraOPai = casa(e, 'design.pai')
+    if ((paraOPai || casa(e, 'design.entrar')) && !emControle && selecao.length === 1) {
       e.preventDefault()
       const c = acharCamada(camadas, selecao[0])
-      if (e.shiftKey) {
+      if (paraOPai) {
         const pai = paiDe(camadas, c.id)
         if (pai) setSelecao([pai.id])
       } else if (c.type === 'text' && !somenteLeitura && !c.locked) setEditando(c.id)
@@ -868,14 +892,16 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
     }
     if (somenteLeitura) return
 
-    if (!mod && !e.altKey && !e.shiftKey && ATALHOS_DE_FERRAMENTA[tecla]) return setFerramenta(ATALHOS_DE_FERRAMENTA[tecla])
-    if (e.shiftKey && !mod && e.code === 'KeyA') {
+    const ferramentaDoAtalho = ATALHOS_DE_FERRAMENTA.find(([id]) => casa(e, id))
+    if (ferramentaDoAtalho) return setFerramenta(ferramentaDoAtalho[1])
+    if (casa(e, 'design.autoLayout')) {
       e.preventDefault()
       return adicionarAutoLayout()
     }
-    if (e.altKey && !mod && ALINHAR_POR_TECLA[e.code]) {
+    const alinhamento = ATALHOS_DE_ALINHAR.find(([id]) => casa(e, id))
+    if (alinhamento) {
       e.preventDefault()
-      return alinharSelecao(ALINHAR_POR_TECLA[e.code])
+      return alinharSelecao(alinhamento[1])
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault()
@@ -888,30 +914,33 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       const [dx, dy] = { ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo] }[e.key]
       return empurrar(dx, dy)
     }
-    if (!mod) return
-    if (tecla === 'd') {
+    if (casa(e, 'design.duplicar')) {
       e.preventDefault()
       return duplicarSelecao()
     }
-    if (tecla === 'g') {
+    if (casa(e, 'design.desagrupar')) {
       e.preventDefault()
-      if (e.shiftKey) return desagruparSelecao()
-      return agruparSelecao(e.altKey ? 'frame' : 'group')
+      return desagruparSelecao()
     }
-    if (e.code === 'BracketRight' || e.code === 'BracketLeft') {
+    const agrupamento = casa(e, 'design.agrupar') ? 'group' : casa(e, 'design.frameComSelecao') ? 'frame' : null
+    if (agrupamento) {
       e.preventDefault()
-      const frente = e.code === 'BracketRight'
-      return mudarCamadas((l) => reordenar(l, selecao, e.shiftKey ? (frente ? 'topo' : 'fundo') : frente ? 'frente' : 'tras'), { commit: true })
+      return agruparSelecao(agrupamento)
     }
-    if (e.shiftKey && tecla === 'h') {
+    const ordem = [['design.frente', 'frente'], ['design.topo', 'topo'], ['design.tras', 'tras'], ['design.fundo', 'fundo']].find(([id]) => casa(e, id))
+    if (ordem) {
+      e.preventDefault()
+      return mudarCamadas((l) => reordenar(l, selecao, ordem[1]), { commit: true })
+    }
+    if (casa(e, 'design.ocultar')) {
       e.preventDefault()
       return alternar(selecao, 'visible')
     }
-    if (e.shiftKey && tecla === 'l') {
+    if (casa(e, 'design.travar')) {
       e.preventDefault()
       return alternar(selecao, 'locked')
     }
-    if (tecla === 'r' && selecao.length === 1) {
+    if (mod && !e.shiftKey && !e.altKey && tecla === 'r' && selecao.length === 1) {
       e.preventDefault()
       setPainel('camadas')
       return setRenomeando(selecao[0])

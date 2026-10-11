@@ -43,6 +43,7 @@ import BarraDoQuadro from './BarraDoQuadro'
 import PaletaLateral from './PaletaLateral'
 import AlcaDeLargura, { useLarguraDoPainel } from '@/components/ui/AlcaDeLargura'
 import { t } from '@/lib/i18n'
+import { casa } from '@/lib/atalhos'
 
 /**
  * Motor de nós e setas, compartilhado por Diagrama e Canvas.
@@ -54,6 +55,18 @@ import { t } from '@/lib/i18n'
  */
 
 const GRID = 20
+/** Atalho de cada ferramenta (id em `lib/atalhos.js`) e a ferramenta que ele liga. */
+const FERRAMENTAS_DO_DIAGRAMA = [['canvas.selecionar', 'select'], ['canvas.texto', 'text'], ['canvas.area', 'select-area']]
+const FERRAMENTAS_DO_CANVAS = [
+  ...FERRAMENTAS_DO_DIAGRAMA,
+  ['canvas.caneta', 'pen'],
+  ['canvas.marcador', 'marker'],
+  ['canvas.destaque', 'highlighter'],
+  ['canvas.borracha', 'eraser'],
+  ['canvas.retangulo', 'rect'],
+  ['canvas.elipse', 'ellipse'],
+  ['canvas.linha', 'line_shape'],
+]
 /** Formato próprio dos nós na área de transferência (convenção de `lib/dnd.js`). */
 const MIME_NOS = 'application/x-notefy-nos'
 const ERASER_TOLERANCE = 10
@@ -1045,10 +1058,7 @@ export default function GraphEditor({
     // evento `paste`, e era por isso que colar imagem nunca funcionava.
     // Nós, imagem e texto entram todos pelo handler de `paste` abaixo.
 
-    if (
-      (event.key === 'Delete' || event.key === 'Backspace') &&
-      (selecionados.length || strokesSelecionados.length)
-    ) {
+    if (casa(event, 'canvas.apagar') && (selecionados.length || strokesSelecionados.length)) {
       event.preventDefault()
       // O apagarSelecao faz um update sozinho — precisa commitar esse
       // snapshot pra que Ctrl+Z volte os nós apagados inteiros.
@@ -1067,14 +1077,8 @@ export default function GraphEditor({
       // No diagrama valem só os atalhos das ferramentas que ele
       // tem; deixar 'p' de caneta ativo ali colocaria o editor num
       // estado sem botão correspondente na barra.
-      const shortcuts = isCanvas
-        ? {
-            v: 'select', p: 'pen', m: 'marker', h: 'highlighter',
-            e: 'eraser', t: 'text', r: 'rect', o: 'ellipse', l: 'line_shape',
-            a: 'select-area',
-          }
-        : { v: 'select', t: 'text', a: 'select-area' }
-      if (shortcuts[tecla]) setTool(shortcuts[tecla])
+      const ferramenta = (isCanvas ? FERRAMENTAS_DO_CANVAS : FERRAMENTAS_DO_DIAGRAMA).find(([id]) => casa(event, id))
+      if (ferramenta) setTool(ferramenta[1])
     }
   })
 

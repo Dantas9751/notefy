@@ -12,9 +12,16 @@ import { valorParaExportar } from './formula.js'
 export const formatoDoCsv = (lingua) =>
   /^pt/i.test(lingua ?? '') ? { separador: ';', decimal: ',' } : { separador: ',', decimal: '.' }
 
+/**
+ * Texto que o Excel leria como fórmula ao abrir o .csv (`=cmd|...`, `@SUM(...)`): vai com um
+ * apóstrofo na frente. Número escrito como texto ("-5", "+3,2") fica como está.
+ */
+const lidoComoFormula = (texto) => /^[=+\-@\t\r]/.test(texto) && !/^[-+]?\d+([.,]\d+)?$/.test(texto)
+
 export function planilhaEmCsv(columns, rows, { separador = ',', decimal = '.' } = {}) {
   const celula = (valor) => {
-    const texto = typeof valor === 'number' ? String(valor).replace('.', decimal) : String(valor ?? '')
+    let texto = typeof valor === 'number' ? String(valor).replace('.', decimal) : String(valor ?? '')
+    if (typeof valor !== 'number' && lidoComoFormula(texto)) texto = `'${texto}`
     return texto.includes(separador) || texto.includes('"') || /[\r\n]/.test(texto)
       ? `"${texto.replace(/"/g, '""')}"`
       : texto

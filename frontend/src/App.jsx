@@ -8,6 +8,8 @@ import { SplitProvider } from '@/context/SplitContext'
 import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
+import Abertura from '@/components/Abertura'
+import { aberturaJaVista, marcarAberturaVista } from '@/lib/abertura'
 import { FaixaDaJanela } from '@/components/layout/ControlesDaJanela'
 import { ligarToqueLongo } from '@/lib/toqueLongo'
 import { idioma } from '@/lib/i18n'
@@ -26,6 +28,7 @@ import Board from '@/pages/Board'
 import SearchPage from '@/pages/Search'
 import Settings from '@/pages/settings'
 import AbaAparencia from '@/pages/settings/AbaAparencia'
+import AbaAtalhos from '@/pages/settings/AbaAtalhos'
 import AbaConta from '@/pages/settings/AbaConta'
 import AbaNotificacoes from '@/pages/settings/AbaNotificacoes'
 import AbaLaviel from '@/pages/settings/AbaLaviel'
@@ -142,6 +145,7 @@ function AppRoutes() {
         <Route path="settings" element={<Settings />}>
           <Route index element={<Navigate to="aparencia" replace />} />
           <Route path="aparencia" element={<AbaAparencia />} />
+          <Route path="atalhos" element={<AbaAtalhos />} />
           <Route path="conta" element={<AbaConta />} />
           <Route path="notificacoes" element={<AbaNotificacoes />} />
           <Route path="laviel" element={<AbaLaviel />} />
@@ -197,11 +201,19 @@ export default function App() {
     return () => window.removeEventListener('notefy:idioma', trocou)
   }, [])
 
+  // A abertura passa uma vez por abertura do app: recarregar ou navegar não repete.
+  // (O `main.jsx` marca como vista nas janelas destacadas, que não são o app abrindo.)
+  const [abertura, setAbertura] = useState(() => !aberturaJaVista())
+  useEffect(() => {
+    if (abertura) marcarAberturaVista()
+  }, [abertura])
+
   return (
     <UIProvider>
       <AuthProvider>
         <AppRoutes key={lingua} />
       </AuthProvider>
+      {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </UIProvider>
   )
 }

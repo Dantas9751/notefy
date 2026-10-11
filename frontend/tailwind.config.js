@@ -42,6 +42,8 @@ export default {
         // demais numa tela de leitura predominantemente branca.
         // Em variáveis CSS (index.css) para os temas de cor trocarem a
         // escala inteira (lib/temas.js). Os valores de fábrica continuam lá.
+        // `white` também é variável: um tema claro personalizado troca o fundo do app, que é `bg-white`.
+        white: 'rgb(var(--white) / <alpha-value>)',
         ink: {
           50: 'rgb(var(--ink-50) / <alpha-value>)',
           100: 'rgb(var(--ink-100) / <alpha-value>)',
