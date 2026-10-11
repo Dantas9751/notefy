@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BoxSelect,
   Copy,
   Eraser,
   Maximize,
   Minus,
   Moon,
-  MousePointer2,
   Palette,
   Plus,
   Redo2,
   Shapes,
   Sun,
   Trash2,
-  Type,
   Undo2,
   X,
 } from 'lucide-react'
@@ -29,6 +26,7 @@ import {
   edgePath,
   eraseFromStroke,
   fitViewport,
+  linhaEntre,
   nodeRect,
   paletteFor,
   rectBetween,
@@ -42,8 +40,9 @@ import { cn, uid } from '@/lib/utils'
 import { atalhoDe } from '@/lib/history'
 import GraphNode from './GraphNode'
 import BarraDoQuadro from './BarraDoQuadro'
+import PaletaLateral from './PaletaLateral'
+import AlcaDeLargura, { useLarguraDoPainel } from '@/components/ui/AlcaDeLargura'
 import { t } from '@/lib/i18n'
-import { semMouse } from '@/lib/desktop'
 
 /**
  * Motor de nós e setas, compartilhado por Diagrama e Canvas.
@@ -63,6 +62,12 @@ const ERASER_TOLERANCE = 10
 //: personalizada (rodinha de cores) tem que saber o que é "padrão" para
 //: acender a borda certa — igual ao Settings.
 const CORES_TINTA = ['#1a1816', ...NODE_COLORS.slice(0, 8)]
+
+//: A tinta padrão acompanha o tema do quadro: escura no claro, clara no
+//: escuro (via `currentColor`, com a cor do texto no grupo do traço). Fixa
+//: em quase preto, ela sumia no quadro escuro — na tela e no PNG exportado.
+const corDaTinta = (cor) => (cor === CORES_TINTA[0] ? 'currentColor' : cor)
+const CLASSE_DA_TINTA = 'text-ink-900 dark:text-ink-50'
 
 const MARKERS = {
   arrow: 'arrow',
@@ -90,6 +95,17 @@ const CURSOR_LAPIS = `url("data:image/svg+xml,${encodeURIComponent(
     '<path d="M2 18l1.2-4.2L13.4 3.6a2 2 0 0 1 2.8 0l.2.2a2 2 0 0 1 0 2.8L6.2 16.8 2 18z" ' +
     'fill="#fff" stroke="#1a1816" stroke-width="1.4" stroke-linejoin="round"/></svg>',
 )}") 2 18, crosshair`
+
+/** Ferramentas no alto ou na lateral; sem escolha salva, o canvas usa a barra e o diagrama a coluna. */
+function lerPosicao(kind) {
+  try {
+    const salva = localStorage.getItem(`notefy.ferramentas.${kind}`)
+    if (salva === 'topo' || salva === 'lateral') return salva
+  } catch {
+    /* sem acesso ao armazenamento: fica o padrão */
+  }
+  return kind === 'canvas' ? 'topo' : 'lateral'
+}
 
 /** Deixa passar só o ponteiro principal (o primeiro dedo, o mouse, a caneta). */
 const ignorarOutrosDedos = (event) => {
@@ -141,10 +157,26 @@ export default function GraphEditor({
   const [connecting, setConnecting] = useState(null)
   const [edgeType, setEdgeType] = useState(palette.defaultEdge)
   const [editingNode, setEditingNode] = useState(null)
-  //: Grupos de formas abertos na paleta. Conjunto, e não um id só: o
-  //: "Conteúdo" e o "Formas" não disputam a mesma vaga — colar um post-it
-  //: e um retângulo pede os dois abertos lado a lado.
-  const [openGroups, setOpenGroups] = useState(() => new Set([palette.groups[0]?.id]))
+  //: Onde ficam as ferramentas: na barra do alto ou na coluna da esquerda.
+  //: Escolha da pessoa, por editor e por aparelho.
+  const [posicao, setPosicao] = useState(() => lerPosicao(kind))
+  const mudarPosicao = (nova) => {
+    setPosicao(nova)
+    try {
+      localStorage.setItem(`notefy.ferramentas.${kind}`, nova)
+    } catch {
+      /* modo privado: vale só nesta sessão */
+    }
+  }
+  const raizRef = useRef(null)
+  const paleta = useLarguraDoPainel('notefy.largura.paleta', {
+    padrao: 192,
+    min: 160,
+    max: () => {
+      const largura = raizRef.current?.clientWidth ?? 0
+      return largura < 640 ? largura * 0.85 : Math.min(420, largura - 320)
+    },
+  })
   //: Retângulo elástico da seleção de área (mundo). `somar` diz se a área
   //: acrescenta à seleção atual (Ctrl+arrastar) ou a substitui (ferramenta).
   const [selectRect, setSelectRect] = useState(null)
@@ -186,10 +218,12 @@ export default function GraphEditor({
   const [drawing, setDrawing] = useState(null)
   //: Retângulo elástico enquanto o usuário arrasta para desenhar a forma.
   const [rubber, setRubber] = useState(null)
-  // Posição do ponteiro dentro do svg, em pixels de tela — só para
-  // desenhar a prévia da borracha por cima de tudo, fora do grupo que
-  // leva o transform do viewport.
-  const [pointer, setPointer] = useState(null)
+  // A borracha anda fora do estado do React: a prévia (o círculo) é movida
+  // direto no DOM e os pontos apagados se acumulam até o próximo quadro de
+  // animação, que apaga tudo de uma vez. Antes cada evento do ponteiro
+  // repintava o editor inteiro, com todos os nós, e a borracha engasgava.
+  const previaBorrachaRef = useRef(null)
+  const borrachaRef = useRef({ pontos: [], ultimo: null, tracos: null, quadro: 0 })
   // Timer do commit adiado do inspetor: cada tecla gera um update, mas
   // gravar sessenta snapshots por segundo de digitação é desperdício.
   // O commit vai 400 ms depois da última tecla, e o undo pula de edição
@@ -561,13 +595,15 @@ export default function GraphEditor({
       // acumularia erro a cada evento.
       origin: pointerWorld(event),
       rect: nodeRect(node, palette.nodes),
+      // A linha pode ficar reta (altura ou largura zero); as outras formas, não.
+      minimo: node.type === 'line_shape' ? 0 : 20,
     })
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
   /** Novo retângulo conforme a alça arrastada. */
   const resizedRect = (drag, world) => {
-    const { rect, origin, handle } = drag
+    const { rect, origin, handle, minimo = 20 } = drag
     const dx = world.x - origin.x
     const dy = world.y - origin.y
 
@@ -587,13 +623,13 @@ export default function GraphEditor({
 
     const snap = (v) => Math.round(v / 10) * 10
     // Trava no mínimo sem deixar a origem passar do lado oposto.
-    if (w < 20) {
-      if (handle.includes('w')) x = rect.x + rect.w - 20
-      w = 20
+    if (w < minimo) {
+      if (handle.includes('w')) x = rect.x + rect.w - minimo
+      w = minimo
     }
-    if (h < 20) {
-      if (handle.includes('n')) y = rect.y + rect.h - 20
-      h = 20
+    if (h < minimo) {
+      if (handle.includes('n')) y = rect.y + rect.h - minimo
+      h = minimo
     }
     return { x: snap(x), y: snap(y), w: snap(w), h: snap(h) }
   }
@@ -645,6 +681,7 @@ export default function GraphEditor({
     }
 
     if (tool === 'eraser') {
+      borrachaRef.current = { pontos: [], ultimo: null, tracos: null, quadro: 0 }
       setDrawing({ tool: 'eraser' })
       eraseAt(world)
       return
@@ -670,24 +707,51 @@ export default function GraphEditor({
    * Cada traço devolve os pedaços que sobraram: nenhum se ele foi todo
    * apagado, um se só aparou a ponta, dois ou mais se o corte foi no meio.
    */
-  const eraseAt = (world) => {
-    let changed = false
-    const remaining = []
-
-    for (const stroke of strokes) {
-      const pieces = eraseFromStroke(stroke, world, eraserRadius)
-      // `eraseFromStroke` devolve o próprio traço quando não encostou nele.
-      if (pieces.length !== 1 || pieces[0] !== stroke) changed = true
-      remaining.push(...pieces)
+  //
+  // Entre um ponto e o seguinte, a borracha passa a cada meio raio: um
+  // movimento rápido do mouse não pula o traço que estava no caminho.
+  // Devolve o documento novo quando apagou algo (para o commit do fim).
+  const apagarPendentes = () => {
+    const b = borrachaRef.current
+    cancelAnimationFrame(b.quadro)
+    b.quadro = 0
+    const pontos = b.pontos
+    b.pontos = []
+    let restantes = b.tracos ?? dataRef.current?.strokes ?? []
+    let mudou = false
+    const passo = Math.max(2, eraserRadius / 2)
+    for (const ponto of pontos) {
+      const de = b.ultimo ?? ponto
+      const amostras = Math.max(1, Math.ceil(Math.hypot(ponto.x - de.x, ponto.y - de.y) / passo))
+      for (let i = 1; i <= amostras; i += 1) {
+        const centro = { x: de.x + ((ponto.x - de.x) * i) / amostras, y: de.y + ((ponto.y - de.y) * i) / amostras }
+        const proximos = []
+        for (const stroke of restantes) {
+          const pieces = eraseFromStroke(stroke, centro, eraserRadius)
+          // `eraseFromStroke` devolve o próprio traço quando não encostou nele.
+          if (pieces.length !== 1 || pieces[0] !== stroke) mudou = true
+          proximos.push(...pieces)
+        }
+        restantes = proximos
+      }
+      b.ultimo = ponto
     }
+    if (!mudou) return null
+    b.tracos = restantes
+    return update({ strokes: restantes })
+  }
 
-    if (changed) update({ strokes: remaining })
+  const eraseAt = (world) => {
+    const b = borrachaRef.current
+    b.pontos.push(world)
+    if (!b.quadro) b.quadro = requestAnimationFrame(apagarPendentes)
   }
 
   const handlePointerMove = (event) => {
-    if (tool === 'eraser') {
+    if (tool === 'eraser' && previaBorrachaRef.current) {
       const box = svgRef.current.getBoundingClientRect()
-      setPointer({ x: event.clientX - box.left, y: event.clientY - box.top })
+      previaBorrachaRef.current.setAttribute('transform', `translate(${event.clientX - box.left} ${event.clientY - box.top})`)
+      previaBorrachaRef.current.style.visibility = 'visible'
     }
 
     if (selectRect) {
@@ -820,12 +884,16 @@ export default function GraphEditor({
       // Um clique sem arraste vira a forma no tamanho padrão, em vez de
       // criar algo de 2px que o usuário nem consegue selecionar.
       const preset = palette.nodes[tool]
-      const node = buildNode(
-        tool,
-        bounds.w < 12 || bounds.h < 12
-          ? { x: bounds.x, y: bounds.y, w: preset.w, h: preset.h }
-          : bounds,
-      )
+      // A linha vai de onde o arraste começou até onde terminou, sem a grade
+      // nem o tamanho mínimo das formas — senão virava uma barra grossa.
+      const ehLinha = tool === 'line_shape'
+      const curta = ehLinha
+        ? Math.hypot(bounds.w, bounds.h) < 12
+        : bounds.w < 12 || bounds.h < 12
+      const padrao = { x: bounds.x, y: bounds.y, w: preset.w, h: preset.h }
+      const node = ehLinha
+        ? { ...buildNode(tool, padrao), ...(curta ? { ...padrao, x: Math.round(bounds.x), y: Math.round(bounds.y), dir: 'desce' } : linhaEntre(rubber.origin, rubber.current)) }
+        : buildNode(tool, curta ? padrao : bounds)
       onCommit?.(update({ nodes: [...nodes, node] }))
       setSelecionados([node.id])
       setTool('select')
@@ -838,9 +906,10 @@ export default function GraphEditor({
         // do estado final, não do que a última render conhecia.
         onCommit?.(update({ strokes: [...strokes, drawing] }))
       } else {
-        // Borracha: as mudanças já vieram nos `eraseAt` dos movimentos,
-        // e o estado renderizado já é o final.
-        onCommit?.()
+        // Borracha: apaga o que ainda esperava o quadro e grava o final.
+        const final = drawing.tool === 'eraser' ? apagarPendentes() : null
+        borrachaRef.current = { pontos: [], ultimo: null, tracos: null, quadro: 0 }
+        onCommit?.(final ?? undefined)
       }
       setDrawing(null)
       return
@@ -1199,122 +1268,49 @@ export default function GraphEditor({
   const selectedNode =
     selecionados.length === 1 ? nodes.find((n) => n.id === selecionados[0]) : null
 
+  // A barra do alto e a coluna mostram as mesmas ferramentas, com os mesmos controles.
+  const propsDasFerramentas = {
+    isCanvas,
+    tool,
+    onTool: setTool,
+    cores: CORES_TINTA,
+    espessuras: STROKE_WIDTHS,
+    tinta: inkColor,
+    onTinta: setInkColor,
+    larguras: inkWidths,
+    onLarguras: setInkWidths,
+    opacidade: inkOpacity,
+    onOpacidade: setInkOpacity,
+    raio: eraserRadius,
+    onRaio: setEraserRadius,
+    palette,
+    onAdicionar: addNode,
+    conector: edgeType,
+    onConector: setEdgeType,
+  }
+
   return (
-    <div className="relative flex min-h-0 flex-1">
-      {/* Paleta. No celular vira gaveta sobre o quadro (ver `paletaAberta`). */}
-      <div
-        className={cn(
-          'w-48 shrink-0 overflow-y-auto border-r border-ink-100 p-2 dark:border-ink-800',
-          'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-30 max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
-          !paletaAberta && 'max-sm:hidden',
-          (somenteLeitura || isCanvas) && 'hidden',
-        )}
-      >
-        {/* O diagrama também ganha ferramentas, só que duas: selecionar e
-            texto. O texto solto é o que permite anotar um diagrama —
-            legenda, observação, título de área — sem precisar inventar uma
-            forma para segurar a frase. O tipo `text` já é válido no
-            esquema de diagrama no backend, então nada mais precisa mudar. */}
-        <>
-          <p className="px-1 pb-1.5 secao">
-            {t('Ferramentas')}
-          </p>
-          <div className="grid grid-cols-2 gap-1">
-            {[
-              { id: 'select', icon: MousePointer2, title: t('Selecionar (V)') },
-              { id: 'select-area', icon: BoxSelect, title: t('Selecionar área (A): arraste para marcar vários') },
-              { id: 'text', icon: Type, title: t('Texto livre (T): clique para escrever') },
-            ].map((item) => (
-              <button
-                key={item.id}
-                title={item.title}
-                onClick={() => setTool(item.id)}
-                className={cn(
-                  'flex items-center justify-center rounded-md p-2 transition',
-                  tool === item.id
-                    ? 'bg-accent-600 text-white'
-                    : 'text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800',
-                )}
-              >
-                <item.icon size={14} />
-              </button>
-            ))}
+    <div ref={raizRef} className="relative flex min-h-0 flex-1">
+      {/* Ferramentas em coluna (quando a pessoa escolheu a lateral). No
+          celular vira gaveta sobre o quadro (ver `paletaAberta`). A borda
+          direita ajusta a largura; a rolagem fica num filho, senão a alça
+          rolaria junto com o conteúdo. */}
+      {posicao === 'lateral' && !somenteLeitura && (
+        <div
+          ref={paleta.painelRef}
+          style={{ width: paleta.largura, maxWidth: 'calc(100% - 320px)' }}
+          className={cn(
+            'relative shrink-0 border-r border-ink-100 dark:border-ink-800',
+            'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-30 max-sm:!max-w-[85%] max-sm:bg-white max-sm:shadow-pop max-sm:dark:bg-ink-900',
+            !paletaAberta && 'max-sm:hidden',
+          )}
+        >
+          <div className="h-full overflow-y-auto p-2">
+            <PaletaLateral {...propsDasFerramentas} onParaTopo={() => mudarPosicao('topo')} />
           </div>
-        </>
-
-        <p className="px-1 pb-1.5 pt-4 secao">
-          {t('Formas')}
-        </p>
-        {palette.groups.map((group) => {
-          const aberto = openGroups.has(group.id)
-          return (
-            <div key={group.id} className="mb-1">
-              <button
-                onClick={() =>
-                  setOpenGroups((atual) => {
-                    const copia = new Set(atual)
-                    if (copia.has(group.id)) copia.delete(group.id)
-                    else copia.add(group.id)
-                    return copia
-                  })
-                }
-                className="flex w-full items-center justify-between rounded px-1.5 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
-              >
-                {group.label}
-                <Plus
-                  size={11}
-                  className={cn('transition-transform', aberto && 'rotate-45')}
-                />
-              </button>
-              {aberto && (
-                <div className="space-y-0.5 pt-0.5">
-                  {Object.entries(group.types).map(([type, preset]) => (
-                    <button
-                      key={type}
-                      onClick={() => addNode(type)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
-
-        <p className="px-1 pb-1.5 pt-4 secao">
-          {t('Conector')}
-        </p>
-        {palette.edgeGroups.map((group) => (
-          <div key={group.label} className="mb-2">
-            <p className="px-1.5 py-0.5 secao">
-              {group.label}
-            </p>
-            {Object.entries(group.types).map(([type, preset]) => (
-              <button
-                key={type}
-                onClick={() => setEdgeType(type)}
-                className={cn(
-                  'flex w-full items-center rounded-md px-2 py-1 text-left text-xs transition',
-                  edgeType === type
-                    ? 'bg-accent-50 font-medium text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
-                    : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800',
-                )}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-        ))}
-
-        <p className="mt-3 rounded bg-ink-50 p-2 text-[10px] leading-relaxed text-ink-400 dark:bg-ink-800/60">
-          {t('Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.')}{' '}
-          {semMouse()
-            ? t('Toque e segure um objeto para duplicar ou excluir. Os botões no canto dão zoom e desfazem.')
-            : t('Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Delete apaga, Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.')}
-        </p>
-      </div>
+          <AlcaDeLargura painel={paleta} />
+        </div>
+      )}
 
       {/* Área de desenho.
 
@@ -1383,7 +1379,7 @@ export default function GraphEditor({
             handlePointerUp(event)
             // A prévia da borracha acompanha o ponteiro; sem isto ela
             // ficaria congelada na borda depois que o mouse saiu.
-            setPointer(null)
+            if (previaBorrachaRef.current) previaBorrachaRef.current.style.visibility = 'hidden'
           }}
           onWheel={handleWheel}
         >
@@ -1496,7 +1492,19 @@ export default function GraphEditor({
 
             {/* Prévia elástica: mostra o tamanho da forma antes de soltar,
                 que é o que torna o gesto previsível. */}
-            {rubber && (() => {
+            {rubber && tool === 'line_shape' && (
+              <line
+                x1={rubber.origin.x}
+                y1={rubber.origin.y}
+                x2={rubber.current.x}
+                y2={rubber.current.y}
+                className="stroke-accent-500"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                strokeLinecap="round"
+              />
+            )}
+            {rubber && tool !== 'line_shape' && (() => {
               const preview = rectBetween(rubber.origin, rubber.current)
               return (
                 <rect
@@ -1561,6 +1569,7 @@ export default function GraphEditor({
                 }}
                 onCancelText={() => setEditingNode(null)}
                 onResize={(e, handle) => handleResizeStart(e, node, handle)}
+                rotuloDeExemplo={permiteTexto(node)}
                 onStartConnection={(e) => {
                   const rect = nodeRect(node, palette.nodes)
                   setConnecting({
@@ -1588,7 +1597,7 @@ export default function GraphEditor({
             return (
               <g
                 key={stroke.id}
-                className={tool === 'select' ? 'cursor-move' : undefined}
+                className={cn(CLASSE_DA_TINTA, tool === 'select' && 'cursor-move')}
                 onPointerDown={(e) => handleStrokePointerDown(e, stroke)}
               >
                 <path
@@ -1597,8 +1606,8 @@ export default function GraphEditor({
                       ? brushPath(stroke.points, stroke.width)
                       : strokePath(stroke.points)
                   }
-                  fill={stroke.tool === 'marker' ? stroke.color : 'none'}
-                  stroke={stroke.color}
+                  fill={stroke.tool === 'marker' ? corDaTinta(stroke.color) : 'none'}
+                  stroke={corDaTinta(stroke.color)}
                   strokeWidth={stroke.tool === 'marker' ? 0 : stroke.width}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1637,8 +1646,9 @@ export default function GraphEditor({
                   ? brushPath(drawing.points, drawing.width)
                   : strokePath(drawing.points)
               }
-              fill={drawing.tool === 'marker' ? drawing.color : 'none'}
-              stroke={drawing.color}
+              className={CLASSE_DA_TINTA}
+              fill={drawing.tool === 'marker' ? corDaTinta(drawing.color) : 'none'}
+              stroke={corDaTinta(drawing.color)}
               strokeWidth={drawing.tool === 'marker' ? 0 : drawing.width}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -1654,11 +1664,11 @@ export default function GraphEditor({
               dentro do grupo dispensaria a conta, mas o círculo herdaria a
               escala do traço e engrossaria junto. O duplo contorno mantém
               ele legível sobre o quadro claro e o escuro. */}
-          {tool === 'eraser' && pointer && (
-            <g pointerEvents="none">
+          {tool === 'eraser' && (
+            <g ref={previaBorrachaRef} pointerEvents="none" style={{ visibility: 'hidden' }}>
               <circle
-                cx={pointer.x}
-                cy={pointer.y}
+                cx={0}
+                cy={0}
                 r={eraserRadius * viewport.zoom}
                 fill="none"
                 stroke="#fff"
@@ -1666,8 +1676,8 @@ export default function GraphEditor({
                 opacity={0.9}
               />
               <circle
-                cx={pointer.x}
-                cy={pointer.y}
+                cx={0}
+                cy={0}
                 r={eraserRadius * viewport.zoom}
                 fill="none"
                 stroke="#1a1816"
@@ -1678,29 +1688,12 @@ export default function GraphEditor({
           )}
         </svg>
 
-        {isCanvas && !somenteLeitura && (
-          <BarraDoQuadro
-            tool={tool}
-            onTool={setTool}
-            cores={CORES_TINTA}
-            espessuras={STROKE_WIDTHS}
-            tinta={inkColor}
-            onTinta={setInkColor}
-            larguras={inkWidths}
-            onLarguras={setInkWidths}
-            opacidade={inkOpacity}
-            onOpacidade={setInkOpacity}
-            raio={eraserRadius}
-            onRaio={setEraserRadius}
-            palette={palette}
-            onAdicionar={addNode}
-            conector={edgeType}
-            onConector={setEdgeType}
-          />
+        {posicao === 'topo' && !somenteLeitura && (
+          <BarraDoQuadro {...propsDasFerramentas} onParaLateral={() => mudarPosicao('lateral')} />
         )}
 
-        {/* A paleta do diagrama no celular: sem este botão ela não teria como abrir. */}
-        {!isCanvas && !somenteLeitura && (
+        {/* A coluna no celular é gaveta: sem este botão ela não teria como abrir. */}
+        {posicao === 'lateral' && !somenteLeitura && (
         <button
           onClick={() => setPaletaAberta((aberta) => !aberta)}
           aria-expanded={paletaAberta}
@@ -1762,8 +1755,12 @@ export default function GraphEditor({
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <p className="text-sm text-ink-400">
               {isCanvas
-                ? t('Escolha uma caneta para desenhar ou uma forma na barra de cima.')
-                : t('Escolha uma forma na lateral para começar.')}
+                ? posicao === 'topo'
+                  ? t('Escolha uma caneta para desenhar ou uma forma na barra de cima.')
+                  : t('Escolha uma caneta para desenhar ou uma forma na lateral.')
+                : posicao === 'topo'
+                  ? t('Escolha uma forma na barra de cima para começar.')
+                  : t('Escolha uma forma na lateral para começar.')}
             </p>
           </div>
         )}
@@ -1820,6 +1817,8 @@ export default function GraphEditor({
         <NodeInspector
           node={selectedNode}
           kind={kind}
+          nome={palette.nodes[selectedNode.type]?.label ?? selectedNode.type}
+          comTexto={permiteTexto(selectedNode)}
           edges={edges}
           onChange={(patch) => {
             updateNode(selectedNode.id, patch)
@@ -1851,10 +1850,12 @@ export default function GraphEditor({
 /* Inspetor                                                             */
 /* -------------------------------------------------------------------- */
 
-function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge, onDelete, onClose }) {
+function NodeInspector({ node, kind, nome, comTexto, edges, onChange, onChangeEdge, onDeleteEdge, onDelete, onClose }) {
   const hasCompartments = ['class', 'interface', 'abstract', 'enum'].includes(node.type)
   const connected = edges.filter((e) => e.from === node.id || e.to === node.id)
   const isSticky = node.type === 'sticky'
+  //: A linha do canvas: sem preenchimento e podendo ficar reta (altura ou largura zero).
+  const ehLinha = node.type === 'line_shape'
 
   return (
     <div
@@ -1866,9 +1867,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
       )}
     >
       <div className="mb-3 flex items-center justify-between">
-        <span className="secao">
-          {node.type}
-        </span>
+        <span className="secao">{nome}</span>
         <button
           onClick={onClose}
           aria-label={t('Fechar inspetor')}
@@ -1878,14 +1877,20 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
         </button>
       </div>
 
-      <label className="label">{t('Texto')}</label>
-      <textarea
-        value={node.text ?? ''}
-        onChange={(e) => onChange({ text: e.target.value })}
-        rows={isSticky ? 4 : 2}
-        autoFocus
-        className="input py-1.5 text-sm"
-      />
+      {/* Sem foco automático: o inspetor abre a cada seleção, e o campo
+          focado engolia os atalhos (R, O, Delete viravam texto). E sem o
+          campo nas formas de desenho do canvas, que não têm texto. */}
+      {comTexto && (
+        <>
+          <label className="label">{t('Texto')}</label>
+          <textarea
+            value={node.text ?? ''}
+            onChange={(e) => onChange({ text: e.target.value })}
+            rows={isSticky ? 4 : 2}
+            className="input py-1.5 text-sm"
+          />
+        </>
+      )}
 
       {(node.type === 'link' || node.type === 'image') && (
         <>
@@ -1950,7 +1955,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
         </>
       )}
 
-      <label className="label mt-3">{isSticky ? t('Papel') : t('Cor')}</label>
+      <label className={cn('label', comTexto && 'mt-3')}>{isSticky ? t('Papel') : t('Cor')}</label>
       <div className="flex flex-wrap gap-1.5">
         {(isSticky ? STICKY_COLORS : NODE_COLORS).map((color) => (
           <button
@@ -1968,7 +1973,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
         ))}
       </div>
 
-      {!isSticky && (
+      {!isSticky && !ehLinha && (
         <>
           <label className="label mt-3 flex items-center gap-1">
             <Palette size={11} /> {t('Preenchimento')}
@@ -2005,7 +2010,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
           <input
             type="number"
             value={node.w ?? 160}
-            min={40}
+            min={ehLinha ? 0 : 40}
             step={10}
             onChange={(e) => onChange({ w: Number(e.target.value) })}
             className="input h-8 py-0 text-sm"
@@ -2016,7 +2021,7 @@ function NodeInspector({ node, kind, edges, onChange, onChangeEdge, onDeleteEdge
           <input
             type="number"
             value={node.h ?? 90}
-            min={24}
+            min={ehLinha ? 0 : 24}
             step={10}
             onChange={(e) => onChange({ h: Number(e.target.value) })}
             className="input h-8 py-0 text-sm"

@@ -435,7 +435,8 @@ export default function Sidebar({ sempreAberta = false }) {
           collapsed ? 'w-[60px]' : 'w-64',
         )}
       >
-        <div className={cn('flex h-14 items-center px-3', collapsed && 'justify-center px-0')}>
+        {/* No app do computador, o alto da barra lateral também arrasta a janela. */}
+        <div data-tauri-drag-region className={cn('flex h-14 items-center px-3', collapsed && 'justify-center px-0')}>
           <DicaLateral rotulo={t('Início')} ativa={collapsed}>
             <Link
               to={homeRoute}

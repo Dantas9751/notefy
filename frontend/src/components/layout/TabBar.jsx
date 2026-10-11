@@ -212,7 +212,9 @@ export default function TabBar() {
         onWheel={(e) => {
           if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY
         }}
-        className="flex min-w-0 flex-1 select-none items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // Do tamanho das abas (e não da linha toda): o vão que sobra à direita
+        // é a área de arrastar a janela, no app do computador.
+        className="flex min-w-0 flex-initial select-none items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {tabs.map((tab, indice) => {
           const meta = kindMeta(tab.kind)

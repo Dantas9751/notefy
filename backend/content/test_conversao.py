@@ -11,7 +11,17 @@ from rest_framework.test import APITestCase
 
 from core.testutils import make_category, make_document, make_folder, make_user
 
-from .conversao import LIMITE_DE_PIXELS, LIMITE_DE_TEXTO, NaoConverte, converter, destinos, nome_convertido
+from .conversao import (
+    COLUNAS_DO_PDF,
+    LIMITE_DE_PIXELS,
+    LIMITE_DE_TEXTO,
+    NaoConverte,
+    _quebrar_em_colunas,
+    _texto_como_html,
+    converter,
+    destinos,
+    nome_convertido,
+)
 from .models import Document
 
 
@@ -53,6 +63,20 @@ class Converter(SimpleTestCase):
         webp = abrir(converter(imagem(), "a.png", "webp"))
         self.assertEqual(webp.getpixel((0, 0))[3], 0)
 
+    def test_gif_poe_o_meio_transparente_sobre_o_branco(self):
+        # Três pixels: invisível, vermelho a 85% e quase invisível.
+        origem = Image.new("RGBA", (3, 1))
+        origem.putdata([(0, 0, 0, 0), (220, 38, 38, 217), (220, 38, 38, 40)])
+        saida = io.BytesIO()
+        origem.save(saida, "PNG")
+        gif = abrir(converter(saida.getvalue(), "a.png", "gif")).convert("RGBA")
+        self.assertEqual(gif.getpixel((0, 0))[3], 0)
+        # Como fica numa página branca, e não o vermelho cru a 100%.
+        r, g, b, a = gif.getpixel((1, 0))
+        self.assertEqual(a, 255)
+        self.assertGreater(g, 55)
+        self.assertEqual(gif.getpixel((2, 0))[3], 0)
+
     def test_imagem_para_pdf(self):
         self.assertTrue(converter(imagem("JPEG", "RGB", "blue"), "a.jpg", "pdf").startswith(b"%PDF"))
 
@@ -68,6 +92,41 @@ class Converter(SimpleTestCase):
         exif[0x0112] = 6  # girar 90°: a câmera gravou deitada
         dados = imagem("JPEG", "RGB", "green", (4, 2), exif=exif.tobytes())
         self.assertEqual(abrir(converter(dados, "a.jpg", "png")).size, (2, 4))
+
+    def test_texto_para_pdf_mantem_as_quebras_de_linha_e_o_recuo(self):
+        # `white-space: pre-wrap` virava um parágrafo só no xhtml2pdf.
+        html = _texto_como_html("Linha 1\n    recuada\n\nLinha 4".encode(), "txt")
+        self.assertNotIn("pre-wrap", html)
+        self.assertIn("<pre", html)
+        # No PDF, cada linha com o recuo inteiro: os 4 espaços saíam 3.
+        pdf = converter("Linha 1\n    recuada\n\tcom tab\n\nLinha 5".encode(), "a.txt", "pdf")
+        texto = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("Linha 1\n    recuada\n    com tab", texto)
+
+    def test_html_ganha_estilo_base_sem_perder_o_proprio(self):
+        arquivo = (
+            b'<!doctype html><html><head><style>td { padding: 0 }</style></head>'
+            b'<body><table><tr><td>a</td></tr></table><pre class="x y">\n    a\n    b</pre></body></html>'
+        )
+        html = _texto_como_html(arquivo, "html")
+        # A base vem antes, e o estilo do arquivo continua mandando.
+        self.assertLess(html.index("font-size: 10.5pt"), html.index("td { padding: 0 }"))
+        self.assertTrue(html.startswith("<!doctype html>"))
+        self.assertIn('<pre class="x y">', html)
+        # A quebra logo depois do `<pre>` não conta; o recuo das duas linhas chega igual.
+        texto = PdfReader(io.BytesIO(converter(arquivo, "a.html", "pdf"))).pages[0].extract_text()
+        self.assertIn("    a\n    b", texto)
+        self.assertNotIn("     a", texto)
+
+    def test_linha_longa_quebra_na_margem_com_o_mesmo_recuo(self):
+        longa = "    " + "palavra " * 40
+        quebrada = _quebrar_em_colunas(longa)
+        linhas = quebrada.split("\n")
+        self.assertGreater(len(linhas), 1)
+        self.assertTrue(all(len(l) <= COLUNAS_DO_PDF for l in linhas))
+        self.assertTrue(all(l.startswith("    ") for l in linhas))
+        # Palavra sem espaço maior que a margem também parte, em vez de sair da página.
+        self.assertTrue(all(len(l) <= COLUNAS_DO_PDF for l in _quebrar_em_colunas("x" * 300).split("\n")))
 
     def test_texto_vira_pdf_com_o_conteudo(self):
         pdf = converter("Olá, ação\n\tcom recuo".encode(), "a.txt", "pdf")

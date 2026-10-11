@@ -25,6 +25,7 @@ import { baixar, copiarTexto } from '@/lib/desktop'
 import { atalhoDe } from '@/lib/history'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
+import AlcaDeLargura, { useLarguraDoPainel } from '@/components/ui/AlcaDeLargura'
 import {
   acharCamada,
   agrupar,
@@ -90,6 +91,15 @@ const ZOOM_MAX = 64
 const LIMIAR = 3
 /** Altura da barra de ferramentas flutuante, com a folga embaixo dela. */
 const BARRA = 64
+/**
+ * Abaixo desta largura DO EDITOR (e não da janela: ele pode estar num painel
+ * ao lado, ou com o menu lateral aberto) os dois painéis viram gavetas.
+ * Camadas (240) + propriedades (256) + um quadro que ainda dê para desenhar.
+ */
+const LARGURA_PARA_PAINEIS = 880
+const LARGURA_DAS_PROPRIEDADES = 256
+/** O mínimo de quadro que alargar as camadas deixa sobrar. */
+const QUADRO_MIN = 320
 const ATALHOS_DE_FERRAMENTA = { v: 'move', h: 'hand', f: 'frame', a: 'frame', r: 'rect', o: 'ellipse', l: 'line', t: 'text' }
 const ALINHAR_POR_TECLA = { KeyA: 'esquerda', KeyD: 'direita', KeyW: 'topo', KeyS: 'base', KeyH: 'centroH', KeyV: 'centroV' }
 
@@ -137,6 +147,10 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   const [editando, setEditando] = useState(null)
   const [renomeando, setRenomeando] = useState(null)
   const [painel, setPainel] = useState(null)
+  //: Editor estreito: os painéis viram gavetas (ver LARGURA_PARA_PAINEIS).
+  //: `null` até medir: enquadrar antes disso usava um quadro de largura zero (os dois
+  //: painéis ocupam tudo num editor estreito) e o design abria a 2% de zoom — e salvava assim.
+  const [compacto, setCompacto] = useState(null)
   const [vista, setVista] = useState(() => doc.viewport?.[pagina.id] ?? null)
   const [visual, setVisual] = useState(null)
   const [espaco, setEspaco] = useState(false)
@@ -154,6 +168,31 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   const imagemRef = useRef(null)
   const trocaDeImagemRef = useRef(null)
 
+  const painelDeCamadas = useLarguraDoPainel('notefy.design.larguraDasCamadas', {
+    padrao: 240,
+    min: 180,
+    max: () => {
+      const largura = raizRef.current?.clientWidth ?? 0
+      return compacto ? largura * 0.85 : Math.min(520, largura - LARGURA_DAS_PROPRIEDADES - QUADRO_MIN)
+    },
+  })
+
+  useLayoutEffect(() => {
+    const raiz = raizRef.current
+    if (!raiz) return undefined
+    const medir = () => setCompacto(raiz.clientWidth < LARGURA_PARA_PAINEIS)
+    medir()
+    const observador = new ResizeObserver(medir)
+    observador.observe(raiz)
+    return () => observador.disconnect()
+  }, [])
+
+  /** Escolher uma ferramenta tira a gaveta da frente; o frame abre a lista de tamanhos. */
+  const escolherFerramenta = (id) => {
+    setFerramenta(id)
+    if (compacto) setPainel(id === 'frame' ? 'propriedades' : null)
+  }
+
   /* ------------------------------------------------------------------ */
   /* Escrita                                                            */
   /* ------------------------------------------------------------------ */
@@ -168,9 +207,14 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   onCommitRef.current = onCommit
   const commitar = useCallback((estado) => onCommitRef.current?.(estado), [])
 
-  const escrever = useCallback((proximo, { commit = false } = {}) => {
+  // `silencioso`: o que o editor calcula sozinho (medidas do layout, enquadramento)
+  // não é edição de ninguém: salva, mas não acende o "não salvo" nem a pilha de
+  // desfazer. Sem isso, só abrir um design já deixava a aba com o ponto de editado.
+  const escrito = useRef(null)
+  const escrever = useCallback((proximo, { commit = false, silencioso = false } = {}) => {
     dataRef.current = proximo
-    onChangeRef.current(proximo)
+    escrito.current = proximo
+    onChangeRef.current(proximo, { silencioso })
     if (commit) commitar(proximo)
     return proximo
   }, [commitar])
@@ -225,20 +269,50 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
 
   // Página sem enquadramento salvo abre mostrando tudo.
   useLayoutEffect(() => {
-    if (!vista) setVista(enquadrar(caixasDoTopo(camadas)))
+    if (!vista && compacto !== null) setVista(enquadrar(caixasDoTopo(camadas)))
   })
+
+  /** Tem camada, e nenhuma delas está na janela agora? */
+  const nadaAVista = (alvos) => {
+    const v = vistaRef.current
+    const caixa = areaRef.current.getBoundingClientRect()
+    const janela = { x: -v.x / v.zoom, y: -v.y / v.zoom, w: caixa.width / v.zoom, h: caixa.height / v.zoom }
+    return alvos.length > 0 && !alvos.some((r) => intersecta(r, janela))
+  }
+
+  // Enquadramento salvo que não mostra nada daqui (veio de outra janela, de outro
+  // aparelho com outra largura): reenquadra, em vez de abrir olhando para o vazio.
+  const conferidoRef = useRef(false)
+  useLayoutEffect(() => {
+    if (compacto === null || conferidoRef.current) return
+    conferidoRef.current = true
+    if (vista && nadaAVista(caixasDoTopo(camadas))) setVista(enquadrar(caixasDoTopo(camadas)))
+  }, [compacto])
+
+  // Página vazia que ganha camadas de fora (o Laviel montou a tela): elas nascem
+  // fora do enquadramento da página em branco. Só nesse caso: reenquadrar toda vez
+  // que o servidor devolve o documento tiraria a vista de quem está desenhando
+  // num canto vazio.
+  const estavaVaziaRef = useRef(camadas.length === 0)
+  useLayoutEffect(() => {
+    const deFora = data !== escrito.current
+    if (deFora && estavaVaziaRef.current && camadas.length && compacto !== null && nadaAVista(caixasDoTopo(camadas))) {
+      setVista(enquadrar(caixasDoTopo(camadas)))
+    }
+    estavaVaziaRef.current = camadas.length === 0
+  }, [data])
 
   // O enquadramento fica no documento, por página — reabrir volta onde estava.
   useEffect(() => {
-    if (!vista) return undefined
+    if (!vista || compacto === null) return undefined
     const salvo = dataRef.current.viewport?.[paginaIdRef.current]
     if (salvo && salvo.x === vista.x && salvo.y === vista.y && salvo.zoom === vista.zoom) return undefined
     const timer = setTimeout(() => {
       const atual = dataRef.current
-      escrever({ ...atual, viewport: { ...atual.viewport, [paginaIdRef.current]: vista } })
+      escrever({ ...atual, viewport: { ...atual.viewport, [paginaIdRef.current]: vista } }, { silencioso: true })
     }, 600)
     return () => clearTimeout(timer)
-  }, [vista, escrever])
+  }, [vista, escrever, compacto])
 
   const zoomPara = useCallback(
     (alvo) => {
@@ -315,7 +389,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       }
     }
     andar(camadas, null)
-    if (mudancas.length) mudarCamadas((lista) => mudancas.reduce((acc, [id, m]) => atualizar(acc, id, (c) => ({ ...c, ...m })), lista))
+    if (mudancas.length) mudarCamadas((lista) => mudancas.reduce((acc, [id, m]) => atualizar(acc, id, (c) => ({ ...c, ...m })), lista), { silencioso: true })
     // `digitado` (texto em edição) e `visual` (fim do redimensionar) não entram
     // no corpo, mas pedem uma nova medida: sem eles na lista, panorâmica e
     // hover varriam o DOM inteiro a cada quadro.
@@ -435,7 +509,10 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   }
 
   const empurrar = (dx, dy) => {
-    const livres = selecao.filter((id) => !noFluxo(acharCamada(camadas, id), paiDe(camadas, id)))
+    const livres = selecao.filter((id) => {
+      const c = acharCamada(camadas, id)
+      return !c.locked && !noFluxo(c, paiDe(camadas, id))
+    })
     if (!livres.length) return
     mudarCamadas((l) => livres.reduce((acc, id) => atualizar(acc, id, (c) => ({ ...c, x: c.x + dx, y: c.y + dy })), l), { commit: true })
   }
@@ -730,6 +807,8 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
   useListenerDeJanela('keyup', (e) => {
     if (e.key === ' ') setEspaco(false)
   })
+  // Trocar de janela com o Espaço apertado: o keyup nunca chega e a mão ficava presa.
+  useListenerDeJanela('blur', () => setEspaco(false))
 
   useListenerDeJanela('keydown', (e) => {
     if (!focado.current || digitando(e.target) || editando) return
@@ -741,7 +820,11 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       e.preventDefault()
       return acao === 'undo' ? onUndo?.() : onRedo?.()
     }
-    if (e.key === ' ' && !e.repeat) {
+    // Botão, link e item de menu com o foco: Espaço, Enter e Tab são DELES. Sem
+    // isto a barra de ferramentas não ativava com o teclado, e o Tab nunca saía
+    // das propriedades (virava "próxima camada").
+    const emControle = !!e.target.closest?.('button, a, summary, [role="menuitem"], [role="treeitem"]')
+    if (e.key === ' ' && !emControle && !e.repeat) {
       e.preventDefault()
       setEspaco(true)
       return
@@ -764,7 +847,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       e.preventDefault()
       return selecionarTudo()
     }
-    if (e.key === 'Tab' && selecao.length === 1) {
+    if (e.key === 'Tab' && !emControle && selecao.length === 1) {
       e.preventDefault()
       const pai = paiDe(camadas, selecao[0])
       const lista = (pai ? pai.children : camadas).filter((c) => c.visible !== false)
@@ -773,7 +856,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       if (proxima) setSelecao([proxima.id])
       return
     }
-    if (e.key === 'Enter' && selecao.length === 1) {
+    if (e.key === 'Enter' && !emControle && selecao.length === 1) {
       e.preventDefault()
       const c = acharCamada(camadas, selecao[0])
       if (e.shiftKey) {
@@ -798,7 +881,8 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       e.preventDefault()
       return removerSelecao()
     }
-    if (e.key.startsWith('Arrow') && selecao.length) {
+    // Setas na lista de camadas andam pela lista (e não empurram a seleção no quadro).
+    if (e.key.startsWith('Arrow') && selecao.length && !e.target.closest?.('[role="tree"]')) {
       e.preventDefault()
       const passo = e.shiftKey ? 10 : 1
       const [dx, dy] = { ArrowLeft: [-passo, 0], ArrowRight: [passo, 0], ArrowUp: [0, -passo], ArrowDown: [0, passo] }[e.key]
@@ -878,7 +962,18 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
 
   const aoPressionar = (e) => {
     // Gaveta aberta (celular): tocar no quadro fecha, como em qualquer gaveta.
-    if (painel) setPainel(null)
+    if (painel && compacto) setPainel(null)
+    if (e.pointerType !== 'mouse' && e.isPrimary && e.button === 0) {
+      const agora = performance.now()
+      const anterior = toqueAnteriorRef.current
+      if (anterior && agora - anterior.t < 320 && Math.hypot(e.clientX - anterior.x, e.clientY - anterior.y) < 24) {
+        toqueAnteriorRef.current = null
+        duploToqueEmRef.current = agora
+        duploNoPonto(e.clientX, e.clientY, e.target)
+        return
+      }
+      toqueAnteriorRef.current = { t: agora, x: e.clientX, y: e.clientY }
+    }
     if (e.pointerType === 'touch') {
       dedosRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
       if (dedosRef.current.size === 2) {
@@ -1249,11 +1344,19 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
     return redimensionarFilhos(novo, orig)
   }
 
-  const aoDuploClique = (e) => {
+  /** O duplo clique ou duplo toque num ponto: renomear o frame, editar o texto ou entrar no grupo. */
+  const duploNoPonto = (x, y, alvoEl) => {
     if (somenteLeitura || ferramenta !== 'move') return
+    const rotulo = alvoEl?.closest?.('[data-rotulo]')?.dataset.rotulo
+    if (rotulo) {
+      // O nome do frame se renomeia na lista de camadas (que na gaveta abre aqui).
+      setPainel('camadas')
+      setRenomeando(rotulo)
+      return
+    }
     // Pelo ponto, e não pelo `e.target`: com o ponteiro capturado pelo quadro
     // no pointerdown, o navegador entrega o dblclick ao próprio quadro.
-    const sob = document.elementsFromPoint(e.clientX, e.clientY).find((el) => el.closest?.('[data-camada]') && palcoRef.current?.contains(el))
+    const sob = document.elementsFromPoint(x, y).find((el) => el.closest?.('[data-camada]') && palcoRef.current?.contains(el))
     const caminho = caminhoDoAlvo(sob)
     if (!caminho.length) return
     const funda = caminho.at(-1)
@@ -1268,6 +1371,18 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
     if (i >= 0 && i < caminho.length - 1) setSelecao([caminho[i + 1].id])
   }
 
+  /**
+   * Duplo toque feito à mão: o `dblclick` não vem em todo celular (o Safari do
+   * iPhone só o dispara com `touch-action: manipulation`, e aqui é `none`), e
+   * sem ele não havia como editar um texto sem teclado. O `dblclick` nativo,
+   * quando vem, chega logo depois e é ignorado.
+   */
+  const toqueAnteriorRef = useRef(null)
+  const duploToqueEmRef = useRef(0)
+  const aoDuploClique = (e) => {
+    if (performance.now() - duploToqueEmRef.current < 600) return
+    duploNoPonto(e.clientX, e.clientY, e.target)
+  }
   /* ------------------------------------------------------------------ */
   /* Arrastar no palco: o translate vai direto no DOM                   */
   /* ------------------------------------------------------------------ */
@@ -1427,11 +1542,14 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
 
   return (
     <div ref={raizRef} className="relative flex min-h-0 flex-1">
-      {/* Camadas: coluna fixa no computador, gaveta no celular. */}
+      {/* Camadas: coluna no computador, gaveta no celular; nos dois, a borda direita ajusta a largura. */}
       <aside
+        ref={painelDeCamadas.painelRef}
+        style={{ width: painelDeCamadas.largura, maxWidth: compacto ? '85%' : `calc(100% - ${LARGURA_DAS_PROPRIEDADES + QUADRO_MIN}px)` }}
         className={cn(
-          'z-20 w-60 shrink-0 border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950',
-          painel === 'camadas' ? 'absolute inset-y-0 left-0 shadow-pop md:static md:shadow-none' : 'hidden md:block',
+          'z-20 shrink-0 border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950',
+          // `relative` só fora da gaveta: o `cn` não desfaz conflito, e no CSS o `relative` vence o `absolute`.
+          compacto ? (painel === 'camadas' ? 'absolute inset-y-0 left-0 shadow-pop' : 'hidden') : 'relative',
         )}
       >
         <PainelDeCamadas
@@ -1462,6 +1580,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
           }
           somenteLeitura={somenteLeitura}
         />
+        <AlcaDeLargura painel={painelDeCamadas} />
       </aside>
 
       <div
@@ -1502,13 +1621,18 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
             <div className="max-w-xs rounded-lg border border-dashed border-ink-300 bg-white/70 p-5 text-center text-sm text-ink-500 backdrop-blur dark:border-ink-700 dark:bg-ink-900/70 dark:text-ink-400">
               <p className="mb-1 font-medium text-ink-700 dark:text-ink-200">{t('Página vazia')}</p>
-              <p className="text-xs leading-relaxed">{t('Aperte F e escolha um tamanho de tela à direita, ou arraste no quadro para desenhar um frame.')}</p>
+              <p className="text-xs leading-relaxed">
+                {compacto
+                  ? t('Toque em Frame na barra de baixo e escolha um tamanho de tela, ou arraste no quadro para desenhar um frame.')
+                  : t('Aperte F e escolha um tamanho de tela à direita, ou arraste no quadro para desenhar um frame.')}
+              </p>
             </div>
           </div>
         )}
         <BarraDeFerramentas
           ferramenta={ferramenta}
-          onFerramenta={setFerramenta}
+          onFerramenta={escolherFerramenta}
+          compacto={compacto}
           onImagens={(arquivos) => adicionarImagens(arquivos)}
           zoom={zoom}
           onZoom={zoomPara}
@@ -1520,7 +1644,7 @@ export default function DesignEditor({ documentId, data, onChange, onCommit, onU
       <aside
         className={cn(
           'z-20 w-64 shrink-0 border-l border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950',
-          painel === 'propriedades' ? 'absolute inset-y-0 right-0 shadow-pop md:static md:shadow-none' : 'hidden md:block',
+          compacto && (painel === 'propriedades' ? 'absolute inset-y-0 right-0 shadow-pop' : 'hidden'),
         )}
       >
         <PainelDePropriedades itens={itens} editar={editarSelecao} acoes={acoesDoPainel} pagina={pagina} ferramenta={ferramenta} somenteLeitura={somenteLeitura} />

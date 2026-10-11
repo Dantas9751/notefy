@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Music2, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
+import { Music2, Pause, PictureInPicture2, Play, SkipBack, SkipForward } from 'lucide-react'
 import { noDesktop } from '@/lib/desktop'
 import { idioma, t } from '@/lib/i18n'
-import { FotoDaCapa, fundoDaCapa } from './Capa'
+import { cn } from '@/lib/utils'
+import { FotoDaCapa, fundoDaCapa, textoDaCapa } from './Capa'
 
 /** A hora, renovada a cada virada de minuto (e não a cada segundo: o relógio não mostra segundos). */
 function useAgora() {
@@ -64,14 +65,18 @@ function useMidia() {
   return { midia, comando }
 }
 
-function BotaoDaMidia({ rotulo, onClick, children }) {
+function BotaoDaMidia({ rotulo, onClick, claro, className, children }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={rotulo}
       aria-label={rotulo}
-      className="rounded-full p-1.5 text-white/85 transition hover:bg-white/15 hover:text-white"
+      className={cn(
+        'rounded-full p-1.5 transition',
+        claro ? 'text-white/85 hover:bg-white/15 hover:text-white' : 'text-ink-600 hover:bg-ink-900/10 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/10 dark:hover:text-ink-50',
+        className,
+      )}
     >
       {children}
     </button>
@@ -79,27 +84,45 @@ function BotaoDaMidia({ rotulo, onClick, children }) {
 }
 
 /**
- * O bloco do relógio: uma foto escolhida pela pessoa, a hora por cima e, no
- * app do computador, a música que está tocando, com tocar/pausar, anterior e
- * próxima. Sem foto, o fundo é o da cor do app.
+ * O bloco do relógio: a hora sobre o fundo escolhido (uma foto, um dos
+ * materiais da capa ou nada — o bloco liso, como os outros) e, no app do
+ * computador, a música que está tocando, com tocar/pausar, anterior e próxima.
+ *
+ * O mesmo relógio vive no Início e solto sobre o app (`flutuante`, Alt+R).
+ * `canto(claro)` desenha o que vai no canto de cima à direita; no Início,
+ * sem ele, fica ali o botão de destacar (`onDestacar`).
  */
-export default function BlocoRelogio({ foto }) {
+export const relogioClaro = (foto) =>
+  foto?.tipo === 'imagem' || (foto?.tipo === 'gradiente' && textoDaCapa(foto) === 'claro')
+
+export default function BlocoRelogio({ foto, flutuante = false, onDestacar, canto }) {
   const agora = useAgora()
   const { midia, comando } = useMidia()
-  const temFoto = foto?.tipo === 'imagem'
+  const tipo = foto?.tipo ?? 'nenhuma'
+  //: Texto branco sobre foto e material escuro; o da página no papel e no bloco liso.
+  const claro = relogioClaro(foto)
 
   return (
     // Altura própria (e não só `absolute inset-0`): o Início dá a um bloco
     // novo a altura que o conteúdo pede, e conteúdo todo absoluto pedia zero.
-    <div className="relative h-full min-h-[190px] overflow-hidden text-white">
-      {temFoto ? (
-        <FotoDaCapa capa={foto} />
-      ) : (
-        <div className="absolute inset-0" style={{ background: fundoDaCapa({ tipo: 'gradiente', id: 'acento' }) }} />
-      )}
-      <div className="relative flex h-full flex-col justify-between gap-3 p-4 [text-shadow:0_1px_8px_rgb(0_0_0/0.45)]">
+    <div
+      data-relogio={flutuante ? undefined : ''}
+      className={cn('group/relogio relative h-full overflow-hidden', !flutuante && 'min-h-[190px]', claro ? 'text-white' : 'text-ink-900 dark:text-ink-50')}
+    >
+      {tipo === 'imagem' && <FotoDaCapa capa={foto} />}
+      {tipo === 'gradiente' && <div className="absolute inset-0" style={{ background: fundoDaCapa(foto) }} />}
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+        {canto
+          ? canto(claro)
+          : onDestacar && (
+              <BotaoDaMidia claro={claro} rotulo={t('Destacar o relógio (Alt+R)')} onClick={onDestacar} className="opacity-0 focus-visible:opacity-100 group-hover/relogio:opacity-100 [@media(hover:none)]:opacity-100">
+                <PictureInPicture2 size={15} />
+              </BotaoDaMidia>
+            )}
+      </div>
+      <div className={cn('relative flex h-full flex-col justify-between gap-3 p-4', claro && '[text-shadow:0_1px_8px_rgb(0_0_0/0.45)]')}>
         <div>
-          <p className="font-display text-5xl tabular-nums leading-none tracking-tight">
+          <p className={cn('font-display tabular-nums leading-none tracking-tight', flutuante ? 'text-4xl' : 'text-5xl')}>
             {agora.toLocaleTimeString(idioma, { hour: '2-digit', minute: '2-digit' })}
           </p>
           <p className="mt-1.5 text-sm opacity-85 first-letter:uppercase">
@@ -108,19 +131,19 @@ export default function BlocoRelogio({ foto }) {
         </div>
 
         {midia && (
-          <div className="flex items-center gap-2 rounded-lg bg-black/40 py-1.5 pl-3 pr-1.5 backdrop-blur-sm [text-shadow:none]">
+          <div className={cn('flex items-center gap-2 rounded-lg py-1.5 pl-3 pr-1.5 backdrop-blur-sm [text-shadow:none]', claro ? 'bg-black/40' : 'bg-ink-900/[0.06] dark:bg-white/10')}>
             <Music2 size={15} className="shrink-0 opacity-80" aria-hidden />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{midia.titulo || t('Sem título')}</p>
               <p className="truncate text-xs opacity-75">{midia.artista || midia.app}</p>
             </div>
-            <BotaoDaMidia rotulo={t('Anterior')} onClick={() => comando('anterior')}>
+            <BotaoDaMidia claro={claro} rotulo={t('Anterior')} onClick={() => comando('anterior')}>
               <SkipBack size={15} className="fill-current" />
             </BotaoDaMidia>
-            <BotaoDaMidia rotulo={midia.tocando ? t('Pausar') : t('Tocar')} onClick={() => comando('tocar')}>
+            <BotaoDaMidia claro={claro} rotulo={midia.tocando ? t('Pausar') : t('Tocar')} onClick={() => comando('tocar')}>
               {midia.tocando ? <Pause size={17} className="fill-current" /> : <Play size={17} className="fill-current" />}
             </BotaoDaMidia>
-            <BotaoDaMidia rotulo={t('Próxima')} onClick={() => comando('proxima')}>
+            <BotaoDaMidia claro={claro} rotulo={t('Próxima')} onClick={() => comando('proxima')}>
               <SkipForward size={15} className="fill-current" />
             </BotaoDaMidia>
           </div>

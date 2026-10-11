@@ -92,6 +92,9 @@ class ImagensNaRestauracaoTests(APITestCase):
         ).json()[0]["file_url"]
         if kind == "note":
             data = {"sections": [{"id": "s", "type": "text", "html": f'<img src="{url}">'}]}
+        elif kind == "design":
+            camada = {"id": "r", "type": "rect", "x": 0, "y": 0, "w": 9, "h": 9, "fills": [{"type": "image", "src": url}]}
+            data = {"version": 1, "pages": [{"id": "p", "name": "P", "children": [camada]}]}
         else:
             data = {"nodes": [{"id": "n", "type": "image", "x": 0, "y": 0, "w": 9, "h": 9, "url": url}], "edges": [], "strokes": []}
         self.client.patch(f"/api/documents/{doc['id']}/", {"data": data}, format="json")
@@ -110,9 +113,10 @@ class ImagensNaRestauracaoTests(APITestCase):
         )
         self.assertEqual(resposta.status_code, 200, resposta.content[:300])
 
-    def test_imagens_de_nota_e_canvas_voltam_funcionando(self):
+    def test_imagens_de_nota_canvas_e_design_voltam_funcionando(self):
         self.criar_com_imagem("note", "Aula")
         self.criar_com_imagem("canvas", "Mapa")
+        self.criar_com_imagem("design", "Tela")
 
         with self.captureOnCommitCallbacks(execute=True):
             self.restaurar_substituindo()

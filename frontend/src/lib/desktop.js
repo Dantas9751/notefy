@@ -50,6 +50,9 @@ export async function abrirEmNovaJanela(rota, titulo = t('Notefy')) {
     height: 800,
     minWidth: 640,
     minHeight: 480,
+    // Como a principal: a moldura é a faixa de abas do próprio app.
+    decorations: false,
+    shadow: true,
   })
 }
 

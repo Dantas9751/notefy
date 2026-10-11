@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
@@ -32,10 +32,10 @@ import { usePropriedadesNoMenu } from '@/context/PropriedadesContext'
 import CategoryFormModal from '@/components/modals/CategoryFormModal'
 import { itensDaCategoria } from '@/components/layout/menusDaArvore'
 import FolderFormModal from '@/components/modals/FolderFormModal'
-import Bloco, { Abas } from '@/components/inicio/Bloco'
-import Capa, { BotaoDaCapa, enviarCapa, fundoDaCapa } from '@/components/inicio/Capa'
+import Bloco, { Abas, TitulosDosBlocos } from '@/components/inicio/Bloco'
+import Capa, { BotaoDaCapa, PapelDeParede, areaDaPagina, caixaUtil, enviarCapa, fundoDaCapa } from '@/components/inicio/Capa'
+import RecortarFoto from '@/components/inicio/RecortarFoto'
 import BlocoRelogio from '@/components/inicio/BlocoRelogio'
-import { urlDeMedia } from '@/lib/fileMedia'
 import ItensDoInicio from '@/components/inicio/ItensDoInicio'
 import BlocoTarefas from '@/components/inicio/BlocoTarefas'
 import BlocoAgenda from '@/components/inicio/BlocoAgenda'
@@ -44,7 +44,7 @@ import BlocoArquivos from '@/components/inicio/BlocoArquivos'
 import PersonalizarInicio from '@/components/inicio/PersonalizarInicio'
 import GradeDoInicio from '@/components/inicio/GradeDoInicio'
 import { DOCUMENT_KINDS } from '@/lib/documents'
-import { blocosParaSalvar, layoutDoInicio } from '@/lib/inicio'
+import { alternarBlocos, blocosParaSalvar, layoutDoInicio, restaurado } from '@/lib/inicio'
 import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
 import { idioma, t } from '@/lib/i18n'
@@ -167,7 +167,14 @@ export default function Home() {
   const [categoryModal, setCategoryModal] = useState(null)
   const [folderModal, setFolderModal] = useState(null)
   const [personalizando, setPersonalizando] = useState(false)
-  const [recortando, setRecortando] = useState(false)
+  //: Foto em recorte: `{ para, voltar }` — `para` é capa, fundo ou foto (o
+  //: relógio); `voltar` reabre o Personalizar ao terminar, se veio de lá.
+  const [recorte, setRecorte] = useState(null)
+  const paginaRef = useRef(null)
+  //: Opacidade enquanto o controle é arrastado: a página muda na hora e a
+  //: conta só recebe o valor quando a mão para (um pedido por pixel, não).
+  const [opacidadeEmEdicao, setOpacidadeEmEdicao] = useState(null)
+  const gravarOpacidadeRef = useRef(null)
 
   const stats = useFetch('/documents/stats/')
   const recent = useFetch('/documents/recent/')
@@ -217,6 +224,16 @@ export default function Home() {
       avisarErro(extractError(err)),
     )
   }
+
+  const mudarOpacidade = (valor) => {
+    setOpacidadeEmEdicao(valor)
+    clearTimeout(gravarOpacidadeRef.current)
+    gravarOpacidadeRef.current = setTimeout(() => {
+      mudarLayout({ opacidade: valor })
+      setOpacidadeEmEdicao(null)
+    }, 400)
+  }
+  const opacidade = opacidadeEmEdicao ?? layout.opacidade
 
   // `recarregarItens`, e não só os recentes: com a aba Favoritos à mostra,
   // excluir ou mover em outra tela deixava o cartão ali até recarregar.
@@ -347,7 +364,7 @@ export default function Home() {
     rascunho: (b) => <BlocoRascunho key={b.id} />,
     relogio: (b) => (
       <Bloco key={b.id} titulo={t('Relógio')} icon={Clock} corpoClassName="relative p-0">
-        <BlocoRelogio foto={layout.foto} />
+        <BlocoRelogio foto={layout.foto} onDestacar={() => window.dispatchEvent(new Event('notefy:relogio'))} />
       </Bloco>
     ),
     arquivos: (b) => (
@@ -396,7 +413,7 @@ export default function Home() {
           <EmptyState
             icon={Tag}
             title={t('Comece criando uma categoria')}
-            description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas e canvas.')}
+            description={t('Tudo no Notefy mora dentro de uma categoria: ela guarda pastas, e as pastas guardam suas notas, arquivos, planilhas, diagramas, canvas e designs.')}
             action={
               <Button icon={Plus} onClick={() => setCategoryModal({})}>
                 {t('Criar categoria')}
@@ -409,15 +426,26 @@ export default function Home() {
   }
 
   /**
+   * Abre o recorte de uma foto do Início. O Personalizar sai da frente (dois
+   * popups empilhados escondiam a caixa) e volta quando o recorte termina.
+   */
+  const recortar = (para) => {
+    setRecorte({ para, voltar: personalizando })
+    setPersonalizando(false)
+  }
+  const fecharRecorte = () => {
+    if (recorte?.voltar) setPersonalizando(true)
+    setRecorte(null)
+  }
+
+  /**
    * Foto nova (dos arquivos, do computador ou arrastada) na capa, no papel de
-   * parede (`fundo`) ou no relógio (`foto`). Vale na hora; a da capa já abre
-   * o recorte, que é feito na própria capa.
+   * parede (`fundo`) ou no relógio (`foto`): vale na hora, centrada, e já
+   * abre o recorte na proporção do lugar onde ela vai ficar.
    */
   const usarFoto = (url, para = 'capa') => {
     mudarLayout({ [para]: { tipo: 'imagem', url } })
-    if (para !== 'capa') return
-    setPersonalizando(false)
-    setRecortando(true)
+    recortar(para)
   }
   const enviarFoto = async (arquivo, para = 'capa') => {
     try {
@@ -432,7 +460,7 @@ export default function Home() {
     naCapa ? (
       <>
         {layout.capa.tipo === 'imagem' && (
-          <BotaoDaCapa icon={Crop} escuro={escuro} onClick={() => setRecortando(true)} aria-label={t('Recortar')}>
+          <BotaoDaCapa icon={Crop} escuro={escuro} onClick={() => recortar('capa')} aria-label={t('Recortar')}>
             <span className="max-sm:hidden">{t('Recortar')}</span>
           </BotaoDaCapa>
         )}
@@ -454,21 +482,42 @@ export default function Home() {
       </>
     )
 
-  // O papel de parede fica parado enquanto a página rola (`fixed`): é o fundo
-  // da janela, e não uma imagem esticada até a altura de todos os blocos.
+  // O papel de parede fica parado enquanto a página rola: é o fundo da área
+  // da página, e não uma imagem esticada até a altura de todos os blocos. O
+  // material vai no `background` fixo; a foto, numa camada própria
+  // (`PapelDeParede`), que é o que deixa o recorte valer.
   const fundo = layout.fundo
-  const papelDeParede =
-    fundo.tipo === 'imagem'
-      ? { backgroundImage: `url("${urlDeMedia(fundo.url)}")`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }
-      : fundo.tipo === 'gradiente'
-        ? { background: fundoDaCapa(fundo), backgroundAttachment: 'fixed' }
-        : undefined
+  const material = fundo.tipo === 'gradiente' ? { background: fundoDaCapa(fundo), backgroundAttachment: 'fixed' } : undefined
+
+  /**
+   * A proporção (largura/altura) do lugar onde a foto vai ficar, medida na
+   * tela: a capa, a área da página (o fundo) ou o bloco do relógio. Sem o
+   * lugar à vista (relógio escondido), um formato típico dele.
+   */
+  const proporcaoDe = (para) => {
+    const medir = (el) => {
+      const r = el?.getBoundingClientRect()
+      return r?.width && r?.height ? r.width / r.height : null
+    }
+    if (para === 'fundo') {
+      const area = areaDaPagina(paginaRef.current)
+      const caixa = area && caixaUtil(area)
+      return caixa?.height ? caixa.width / caixa.height : 16 / 9
+    }
+    if (para === 'foto') return medir(document.querySelector('[data-relogio]')) ?? 16 / 10
+    return medir(document.querySelector('[data-capa]')) ?? 5
+  }
 
   return (
-    <div className="relative min-h-full pb-24" style={papelDeParede}>
+    <div
+      ref={paginaRef}
+      className="relative min-h-full pb-24"
+      style={{ ...material, ...(opacidade !== null && { '--opacidade-dos-blocos': opacidade / 100 }) }}
+    >
+      {fundo.tipo === 'imagem' && <PapelDeParede foto={fundo} paginaRef={paginaRef} />}
       {/* Véu da cor da página sobre o papel de parede: o que fica entre os
           blocos (títulos soltos, vãos) continua legível em claro e escuro. */}
-      {papelDeParede && <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/35 dark:bg-ink-950/45" />}
+      {fundo.tipo !== 'nenhuma' && <div aria-hidden className="pointer-events-none absolute inset-0 bg-white/35 dark:bg-ink-950/45" />}
       {layout.capa.tipo === 'nenhuma' ? (
         <PageHeader title={saudacao} actions={acoesDoTopo(false)} />
       ) : (
@@ -478,21 +527,17 @@ export default function Home() {
           data={new Date().toLocaleDateString(idioma, { weekday: 'long', day: 'numeric', month: 'long' })}
           acoes={(escuro) => acoesDoTopo(true, escuro)}
           onSoltarImagem={usarFotoNaCapa}
-          recortando={recortando && layout.capa.tipo === 'imagem'}
-          onSalvarRecorte={(recorte) => {
-            mudarLayout({ capa: { ...layout.capa, ...recorte } })
-            setRecortando(false)
-          }}
-          onCancelarRecorte={() => setRecortando(false)}
         />
       )}
 
       <PageBody className="relative">
-        <GradeDoInicio
-          blocos={layout.blocos}
-          renderizar={(b) => blocos[b.id]?.(b)}
-          onMudar={(novos) => mudarLayout({ blocos: novos })}
-        />
+        <TitulosDosBlocos.Provider value={layout.titulos}>
+          <GradeDoInicio
+            blocos={layout.blocos}
+            renderizar={(b) => blocos[b.id]?.(b)}
+            onMudar={(novos) => mudarLayout({ blocos: novos })}
+          />
+        </TitulosDosBlocos.Provider>
       </PageBody>
 
       <BarraDeSelecao total={selectedIds.length} onExcluir={pedirExclusao} onLimpar={limparSelecao} />
@@ -542,14 +587,43 @@ export default function Home() {
         onClose={() => setPersonalizando(false)}
         layout={layout}
         onMudar={mudarLayout}
+        opacidade={opacidade}
+        onOpacidade={mudarOpacidade}
         onEnviarFoto={enviarFoto}
         onEscolherFoto={usarFoto}
-        onRecortar={() => {
-          setPersonalizando(false)
-          setRecortando(true)
+        onRecortar={recortar}
+        onAlternarBloco={(id, visivel) => mudarLayout({ blocos: alternarBlocos(layout.blocos, [id], visivel) })}
+        onRestaurar={(parte) => {
+          clearTimeout(gravarOpacidadeRef.current)
+          setOpacidadeEmEdicao(null)
+          // "Tudo" grava o layout vazio: a conta volta a seguir o padrão, inclusive o de amanhã.
+          if (parte === 'tudo') salvar({ home_layout: {} }).catch((err) => avisarErro(extractError(err)))
+          else mudarLayout(restaurado(layout, parte))
         }}
-        onRestaurar={() => salvar({ home_layout: {} }).catch((err) => avisarErro(extractError(err)))}
       />
+
+      <RecortarFoto
+        open={!!recorte}
+        titulo={{ capa: t('Recortar a capa'), fundo: t('Recortar o fundo da página'), foto: t('Recortar a foto do relógio') }[recorte?.para]}
+        foto={recorte ? layout[recorte.para] : null}
+        proporcao={recorte ? proporcaoDe(recorte.para) : 1}
+        escurecer={recorte?.para !== 'fundo'}
+        onCancelar={fecharRecorte}
+        onSalvar={(novo) => {
+          mudarLayout({ [recorte.para]: { ...layout[recorte.para], ...novo } })
+          fecharRecorte()
+        }}
+      >
+        {/* Onde fica o texto, para enquadrar sem cobrir o que importa. */}
+        {recorte?.para === 'capa' && (
+          <p className="absolute bottom-3 left-4 font-serif text-xl text-white [text-shadow:0_1px_14px_rgb(0_0_0/0.35)]">{saudacao}</p>
+        )}
+        {recorte?.para === 'foto' && (
+          <p className="absolute left-4 top-3 font-display text-4xl tabular-nums text-white [text-shadow:0_1px_8px_rgb(0_0_0/0.45)]">
+            {new Date().toLocaleTimeString(idioma, { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        )}
+      </RecortarFoto>
 
       <CategoryFormModal
         open={!!categoryModal}

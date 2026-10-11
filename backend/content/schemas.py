@@ -668,17 +668,18 @@ def _validate_design(data):
     _require(vista is None or isinstance(vista, dict), "`data.viewport` deve ser um objeto.")
 
 
-def _textos_do_design(nodes, parts):
+def _textos_do_design(nodes, parts, topo=True):
     for node in nodes or []:
         if not isinstance(node, dict):
             continue
         if node.get("type") == "text" and node.get("text"):
             parts.append(str(node["text"]))
-        # O nome do frame é o nome da TELA ("Login", "Checkout"): é por ele
-        # que se procura. O de um retângulo é "Retângulo 3", ruído.
-        elif node.get("type") == "frame" and node.get("name"):
+        # O nome do frame DO TOPO é o nome da TELA ("Login", "Checkout"): é por
+        # ele que se procura. O de um retângulo é "Retângulo 3" e o de um frame
+        # aninhado, "Campos" ou "Botão entrar": ruído no resumo do cartão.
+        elif topo and node.get("type") == "frame" and node.get("name"):
             parts.append(str(node["name"]))
-        _textos_do_design(node.get("children"), parts)
+        _textos_do_design(node.get("children"), parts, topo=False)
 
 
 def validate_data(kind, data):

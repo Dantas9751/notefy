@@ -54,11 +54,14 @@ blockquote { margin: 0 0 8pt 0; padding-left: 8pt;
              border-left: 2pt solid #d7d2cc; color: #5c574f; font-style: italic; }
 a { color: #4338ca; }
 .code-block { margin: 0 0 10pt 0; }
+/* margin: 0 na faixa e no corpo: o xhtml2pdf repassa a margem do
+   .code-block à faixa, e o `pre` tem 1em de margem padrão — a faixa
+   descolava do código. */
 .code-head { font-family: Courier, monospace; font-size: 7.5pt; color: #5c574f;
-             background-color: #eeece9; padding: 3pt 6pt;
+             background-color: #eeece9; padding: 3pt 6pt; margin: 0;
              border: 0.6pt solid #d7d2cc; }
 .code-body { font-family: Courier, monospace; font-size: 8.5pt; line-height: 1.35;
-             background-color: #f7f6f4; padding: 6pt;
+             background-color: #f7f6f4; padding: 6pt; margin: 0;
              border: 0.6pt solid #d7d2cc; border-top: none; }
 .section-gap { margin-bottom: 4pt; }
 table.nota { border-collapse: collapse; width: 100%; margin: 0 0 10pt 0;
@@ -75,14 +78,49 @@ ul.tarefas li { margin-bottom: 3pt; }
 _STRIP_TAGS_RE = re.compile(r"</?(?:section|article|figure|figcaption)[^>]*>", re.I)
 
 
+_TAG_RE = re.compile(r"(<[^>]+>)")
+
+
+def _espacos_duros(html):
+    """Espaços e tabs do código como espaço duro, só no texto (nunca nos atributos).
+
+    O Pygments põe o recuo dentro de `<span>`, e o xhtml2pdf junta espaço
+    de span em span: quatro espaços viravam um num lugar e três no outro,
+    e o recuo saía torto. Espaço duro na fonte monoespaçada tem sempre a
+    mesma largura.
+    """
+    partes = _TAG_RE.split(html)
+    return "".join(
+        parte if parte.startswith("<") else parte.replace("\t", "    ").replace(" ", "&nbsp;")
+        for parte in partes
+    )
+
+
+#: Uma quebra de linha seguida de recuo (depois das tags que abrirem ali).
+_QUEBRA_ANTES_DO_RECUO = re.compile(r"\n((?:<[^>]+>)*)(?=[ \t]|&nbsp;)")
+
+
+def manter_recuo_do_pre(conteudo):
+    """O conteúdo de um `pre` com um espaço duro a mais no recuo de cada linha.
+
+    O ReportLab, por baixo do xhtml2pdf, trata o recuo como separador de
+    palavras e descarta o primeiro de toda linha que vem depois de uma
+    quebra: 4 espaços saíam 3, e o tab, 7. A primeira linha não perde
+    nada, nem a quebra logo depois do `<pre>`, que o HTML ignora.
+    """
+    primeira = re.match(r"\r?\n", conteudo)
+    inicio = primeira.end() if primeira else 0
+    return conteudo[:inicio] + _QUEBRA_ANTES_DO_RECUO.sub(r"\n\1&nbsp;", conteudo[inicio:])
+
+
 def _highlight(code, language):
     """Código em HTML com cores embutidas."""
     name = LEXER_ALIASES.get(language, language or "text")
     try:
         lexer = get_lexer_by_name(name, stripnl=False)
     except ClassNotFound:
-        return html_lib.escape(code)
-    return pygments_highlight(code, lexer, _FORMATTER)
+        return _espacos_duros(html_lib.escape(code))
+    return _espacos_duros(pygments_highlight(code, lexer, _FORMATTER))
 
 
 def _render_code_section(section):
@@ -93,7 +131,7 @@ def _render_code_section(section):
     return (
         f'<div class="code-block">'
         f'<div class="code-head">{html_lib.escape(title)}</div>'
-        f'<pre class="code-body">{_highlight(code, language)}</pre>'
+        f'<pre class="code-body">{manter_recuo_do_pre(_highlight(code, language))}</pre>'
         f"</div>"
     )
 

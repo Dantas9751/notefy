@@ -9,7 +9,7 @@ import { t } from '@/lib/i18n'
  */
 
 const CAIXA =
-  'flex h-7 min-w-0 items-center gap-1 rounded-md border border-transparent bg-ink-100 px-1.5 text-xs text-ink-800 transition focus-within:border-accent-500 hover:border-ink-200 dark:bg-ink-800 dark:text-ink-100 dark:hover:border-ink-700'
+  'flex h-7 [@media(pointer:coarse)]:h-9 min-w-0 items-center gap-1 rounded-md border border-transparent bg-ink-100 px-1.5 text-xs text-ink-800 transition focus-within:border-accent-500 hover:border-ink-200 dark:bg-ink-800 dark:text-ink-100 dark:hover:border-ink-700'
 
 const arred = (n, casas) => {
   const f = 10 ** casas
@@ -191,7 +191,7 @@ export function BotaoIcone({ titulo, ativo, onClick, children, className, disabl
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-ink-500 transition disabled:opacity-40',
+        'inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-ink-500 transition disabled:opacity-40 [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:min-w-9',
         ativo
           ? 'bg-accent-100 text-accent-700 dark:bg-accent-500/20 dark:text-accent-300'
           : 'hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800 dark:hover:text-ink-100',

@@ -13,17 +13,18 @@ import { t } from './i18n.js'
 
 /**
  * Os blocos do Início, na ordem padrão, com o tamanho de partida: largura
- * em colunas (de 12) e altura em px.
+ * em colunas (de 12) e altura em px. O relógio vem logo depois do resumo,
+ * e as tarefas ao lado dele (a arrumação de partida enche a vaga mais alta).
  */
 export const BLOCOS = [
   { id: 'resumo', get nome() { return t('Resumo') }, get dica() { return t('Quantos itens, pastas e tarefas abertas') }, colunas: 12, altura: 150 },
-  { id: 'notas', get nome() { return t('Itens recentes e favoritos') }, get dica() { return t('O que você mexeu por último, ou o que tem estrela') }, colunas: 12, altura: 420 },
+  { id: 'relogio', get nome() { return t('Relógio e música') }, get dica() { return t('Uma foto sua com a hora e, no app do computador, a música que está tocando') }, colunas: 6, altura: 260 },
   { id: 'tarefas', get nome() { return t('Minhas tarefas') }, get dica() { return t('Tarefas abertas, para marcar ou criar sem sair daqui') }, colunas: 6, altura: 360 },
+  { id: 'notas', get nome() { return t('Itens recentes e favoritos') }, get dica() { return t('O que você mexeu por último, ou o que tem estrela') }, colunas: 12, altura: 420 },
   { id: 'agenda', get nome() { return t('Agenda') }, get dica() { return t('O dia, com o que está marcado nele') }, colunas: 6, altura: 360 },
   { id: 'rascunho', get nome() { return t('Bloco de rascunho') }, get dica() { return t('Um papel para anotar rápido e virar nota depois') }, colunas: 6, altura: 300 },
-  { id: 'arquivos', get nome() { return t('Arquivos recentes') }, get dica() { return t('Imagens e documentos enviados por último') }, colunas: 6, altura: 300 },
   { id: 'categorias', get nome() { return t('Categorias') }, get dica() { return t('O primeiro nível das suas pastas') }, colunas: 12, altura: 240 },
-  { id: 'relogio', get nome() { return t('Relógio e música') }, get dica() { return t('Uma foto sua com a hora e, no app do computador, a música que está tocando') }, colunas: 6, altura: 260 },
+  { id: 'arquivos', get nome() { return t('Arquivos recentes') }, get dica() { return t('Imagens e documentos enviados por último') }, colunas: 6, altura: 300 },
 ]
 
 /**
@@ -129,14 +130,97 @@ export function layoutDoInicio(salvo) {
   for (const b of BLOCOS) if (!vistos.has(b.id)) adicionar({ id: b.id }, b)
   return {
     capa: base.capa?.tipo ? base.capa : CAPA_PADRAO,
-    // Papel de parede atrás dos blocos e a foto do bloco do relógio: sem
-    // nada até a pessoa escolher.
+    // Papel de parede atrás dos blocos: nada até a pessoa escolher. O relógio
+    // nasce na cor do app; "nenhuma" nele é o bloco liso, como os outros.
     fundo: base.fundo?.tipo ? base.fundo : { tipo: 'nenhuma' },
-    foto: base.foto?.tipo === 'imagem' ? base.foto : { tipo: 'nenhuma' },
+    foto: base.foto?.tipo ? base.foto : CAPA_PADRAO,
+    // Do fundo dos blocos, em %; `null` é a do tema (cheio no claro, meio no escuro).
+    opacidade: numero(base.opacidade) ? Math.round(prender(base.opacidade, 0, 100)) : null,
+    //: O nome no alto de cada bloco ("Resumo", "Relógio"...); sem ele, o bloco é só o conteúdo.
+    titulos: base.titulos !== false,
     blocos,
     aba_notas: base.aba_notas === 'favoritos' ? 'favoritos' : 'recentes',
     aba_arquivos: ['imagens', 'documentos', 'todos'].includes(base.aba_arquivos) ? base.aba_arquivos : 'imagens',
   }
+}
+
+/**
+ * Recorte de uma foto do Início: o ponto da foto (`x`, `y`, em %) que fica
+ * no mesmo ponto da caixa, e o `zoom` em volta dele (`object-fit: cover`).
+ * Vale em qualquer tamanho de caixa, sem guardar pixel nenhum.
+ */
+export const RECORTE_PADRAO = { x: 50, y: 50, zoom: 1 }
+export const recorteDa = (foto) => ({ x: foto?.x ?? 50, y: foto?.y ?? 50, zoom: foto?.zoom ?? 1 })
+
+/**
+ * Arrastar a foto `dx`/`dy` px dentro da caixa leva o ponto junto com o
+ * cursor. Em %, é o arraste sobre o quanto a foto (coberta e com zoom)
+ * passa da caixa naquele eixo; sem sobra, o eixo não se mexe.
+ */
+export function recorteAoMover(recorte, dx, dy, imagem, caixa) {
+  if (!imagem?.w || !imagem?.h || !caixa?.w || !caixa?.h) return recorte
+  const escala = Math.max(caixa.w / imagem.w, caixa.h / imagem.h) * recorte.zoom
+  const passo = (atual, d, sobra) => (sobra > 1 ? prender(atual - (d / sobra) * 100, 0, 100) : atual)
+  return {
+    ...recorte,
+    x: passo(recorte.x, dx, imagem.w * escala - caixa.w),
+    y: passo(recorte.y, dy, imagem.h * escala - caixa.h),
+  }
+}
+
+/** O recorte como vai para a conta: uma casa decimal na posição, duas no zoom. */
+export const recorteParaSalvar = (r) => ({
+  x: Math.round(r.x * 10) / 10,
+  y: Math.round(r.y * 10) / 10,
+  zoom: Math.round(prender(r.zoom, 1, 3) * 100) / 100,
+})
+
+/** O relógio flutuante (Alt+R): tamanho de partida e limites. */
+export const RELOGIO_FLUTUANTE = { w: 320, h: 200, wMin: 220, hMin: 150, wMax: 640, hMax: 420 }
+
+/**
+ * Prende a caixa do relógio flutuante dentro da `tela` (a janela do app),
+ * com uma margem: arrastado até a borda, ou com a janela encolhida depois,
+ * ele nunca some de vista. O tamanho fica entre os limites e cabe na tela.
+ */
+export function prenderNaTela(caixa, tela, margem = 8) {
+  const { wMin, hMin, wMax, hMax } = RELOGIO_FLUTUANTE
+  const w = prender(caixa.w, wMin, Math.max(wMin, Math.min(wMax, tela.w - margem * 2)))
+  const h = prender(caixa.h, hMin, Math.max(hMin, Math.min(hMax, tela.h - margem * 2)))
+  return {
+    x: Math.round(prender(caixa.x, margem, Math.max(margem, tela.w - w - margem))),
+    y: Math.round(prender(caixa.y, margem, Math.max(margem, tela.h - h - margem))),
+    w: Math.round(w),
+    h: Math.round(h),
+  }
+}
+
+/**
+ * Mostra ou esconde blocos. Esconder guarda a posição; um bloco que volta
+ * a aparecer a perde, e o app o recoloca embaixo de tudo — onde se vê que
+ * ele chegou (no lugar antigo, podia cair por cima de quem ocupou a vaga).
+ */
+export function alternarBlocos(blocos, ids, visivel) {
+  const alvos = new Set(ids)
+  return blocos.map((b) => {
+    if (!alvos.has(b.id)) return b
+    if (!visivel) return { ...b, visivel: false }
+    if (b.visivel) return b
+    const { x: _x, y: _y, w: _w, h: _h, ...resto } = b
+    return { ...resto, visivel: true }
+  })
+}
+
+/**
+ * O que cada "Restaurar" do Personalizar devolve ao padrão: só os blocos
+ * (arrumação, opacidade e títulos), só as imagens (capa, fundo e relógio)
+ * ou tudo. O resto do layout fica como a pessoa deixou.
+ */
+export function restaurado(layout, parte) {
+  const padrao = layoutDoInicio(null)
+  if (parte === 'blocos') return { ...layout, blocos: padrao.blocos, opacidade: padrao.opacidade, titulos: padrao.titulos }
+  if (parte === 'imagens') return { ...layout, capa: padrao.capa, fundo: padrao.fundo, foto: padrao.foto }
+  return padrao
 }
 
 /**

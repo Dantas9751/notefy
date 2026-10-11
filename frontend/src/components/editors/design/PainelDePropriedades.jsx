@@ -548,7 +548,7 @@ function AbaDesign({ itens, editar, acoes, pagina, ferramenta }) {
         <Grade>
           <CampoNumero rotulo="X" valor={comum(itens, (i) => i.camada.x)} disabled={algumNoFluxo} onChange={(x) => acoes.mover({ x })} />
           <CampoNumero rotulo="Y" valor={comum(itens, (i) => i.camada.y)} disabled={algumNoFluxo} onChange={(y) => acoes.mover({ y })} />
-          <CampoNumero rotulo={linhas ? t('C') : 'W'} titulo={linhas ? t('Comprimento') : t('Largura')} valor={comum(itens, (i) => i.camada.w)} min={linhas ? 0 : 1} onChange={(v) => tamanho('w', v)} />
+          <CampoNumero rotulo="W" titulo={linhas ? t('Comprimento') : t('Largura')} valor={comum(itens, (i) => i.camada.w)} min={linhas ? 0 : 1} onChange={(v) => tamanho('w', v)} />
           {!linhas && <CampoNumero rotulo="H" titulo={t('Altura')} valor={comum(itens, (i) => i.camada.h)} min={1} onChange={(v) => tamanho('h', v)} />}
           <CampoNumero
             rotulo={<RotateCw size={11} />}

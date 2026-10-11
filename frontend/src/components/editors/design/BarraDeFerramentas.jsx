@@ -33,7 +33,7 @@ function Botao({ titulo, ativo, onClick, children, className }) {
       aria-pressed={ativo}
       onClick={onClick}
       className={cn(
-        'inline-flex h-9 min-w-[30px] shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-ink-600 transition dark:text-ink-300 sm:min-w-9 sm:px-2',
+        'inline-flex h-9 min-w-[30px] shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-ink-600 transition dark:text-ink-300 sm:min-w-9 sm:px-2 [@media(pointer:coarse)]:h-11',
         ativo ? 'bg-accent-600 text-white dark:text-white' : 'hover:bg-ink-100 dark:hover:bg-ink-800',
         className,
       )}
@@ -53,6 +53,8 @@ export default function BarraDeFerramentas({
   onZoom,
   somenteLeitura,
   onPainel,
+  //: Editor estreito: os painéis são gavetas e a barra ganha os botões que as abrem.
+  compacto,
 }) {
   const arquivoRef = useRef(null)
   const { menu, openMenu, closeMenu } = useContextMenu()
@@ -77,17 +79,19 @@ export default function BarraDeFerramentas({
         onDoubleClick={(e) => e.stopPropagation()}
         onContextMenu={(e) => e.stopPropagation()}
         className="pointer-events-auto flex max-w-full items-center overflow-x-auto rounded-xl border border-ink-200 bg-white/95 p-1 shadow-pop backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
-        <Botao titulo={t('Camadas')} onClick={() => onPainel('camadas')} className="md:hidden">
-          <PanelLeft size={17} />
-        </Botao>
+        {compacto && (
+          <Botao titulo={t('Camadas')} onClick={() => onPainel('camadas')}>
+            <PanelLeft size={17} />
+          </Botao>
+        )}
         {FERRAMENTAS.map((grupo, i) => (
           <div key={i} className="flex items-center">
-            {(i > 0 || onPainel) && <Divisoria />}
+            {(i > 0 || compacto) && <Divisoria />}
             {grupo
               .filter((f) => !somenteLeitura || f.id === 'move' || f.id === 'hand')
               .map((f) => (
                 // No celular a vista anda com dois dedos: a Mão só ocuparia espaço.
-                <Botao key={f.id} titulo={f.titulo} ativo={ferramenta === f.id} onClick={() => onFerramenta(f.id)} className={f.id === 'hand' ? 'hidden md:inline-flex' : undefined}>
+                <Botao key={f.id} titulo={f.titulo} ativo={ferramenta === f.id} onClick={() => onFerramenta(f.id)} className={f.id === 'hand' ? '[@media(pointer:coarse)]:hidden' : undefined}>
                   <f.icon size={17} />
                 </Botao>
               ))}
@@ -120,13 +124,15 @@ export default function BarraDeFerramentas({
             openMenu({ clientX: caixa.left, clientY: caixa.top, preventDefault() {}, stopPropagation() {} }, null)
           }}
           title={t('Zoom')}
-          className="h-9 min-w-11 rounded-md px-1.5 text-xs tabular-nums sm:min-w-14 sm:px-2 text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
+          className="h-9 min-w-11 rounded-md px-1.5 text-xs tabular-nums sm:min-w-14 sm:px-2 [@media(pointer:coarse)]:h-11 text-ink-600 transition hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800"
         >
           {Math.round(zoom * 100)}%
         </button>
-        <Botao titulo={t('Propriedades')} onClick={() => onPainel('propriedades')} className="md:hidden">
-          <PanelRight size={17} />
-        </Botao>
+        {compacto && (
+          <Botao titulo={t('Propriedades')} onClick={() => onPainel('propriedades')}>
+            <PanelRight size={17} />
+          </Botao>
+        )}
       </div>
       <ContextMenu open={!!menu} x={menu?.x ?? 0} y={menu?.y ?? 0} onClose={closeMenu} items={itensDeZoom} />
     </div>

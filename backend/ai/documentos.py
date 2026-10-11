@@ -187,6 +187,66 @@ def para_editar(data):
     return {k: v for k, v in (data or {}).items() if k not in _SO_DO_APP}
 
 
+_PESOS_DE_FONTE = {
+    "thin": 100, "extralight": 200, "light": 300, "regular": 400, "normal": 400,
+    "medium": 500, "semibold": 600, "bold": 700, "extrabold": 800, "black": 900,
+}
+_NUMERICOS_DO_DESIGN = ("x", "y", "w", "h", "rotation", "opacity", "strokeWidth", "radius")
+_NUMERO_COM_UNIDADE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*(?:px)?\s*$")
+
+
+def _numero_do_design(valor):
+    """"16", "16px" -> 16; o resto volta como veio (o schema decide se serve)."""
+    if isinstance(valor, str):
+        achou = _NUMERO_COM_UNIDADE.match(valor)
+        if achou:
+            n = float(achou.group(1))
+            return int(n) if n.is_integer() else n
+    return valor
+
+
+def _arrumar_camada_do_design(camada):
+    """Os deslizes mais comuns do modelo num design, sem refazer o que ele quis dizer.
+
+    O schema recusa `padding: 16` e `weight: "bold"` (o editor desmonta o
+    primeiro em quatro margens e soma o segundo), e o resultado era um erro
+    para quem só pediu "mais espaço". Aqui entram só as conversões sem
+    ambiguidade; o resto continua passando pelo schema.
+    """
+    if not isinstance(camada, dict):
+        return
+    for campo in _NUMERICOS_DO_DESIGN:
+        if campo in camada:
+            camada[campo] = _numero_do_design(camada[campo])
+    layout = camada.get("layout")
+    if isinstance(layout, dict):
+        if "gap" in layout:
+            layout["gap"] = _numero_do_design(layout["gap"])
+        margens = layout.get("padding")
+        if isinstance(margens, str):
+            margens = _numero_do_design(margens)
+        if isinstance(margens, (int, float)) and not isinstance(margens, bool):
+            margens = [margens]
+        if isinstance(margens, list) and 1 <= len(margens) <= 4:
+            margens = [_numero_do_design(m) for m in margens]
+            # Como no CSS: 1 valor = os quatro; 2 = vertical e horizontal; 3 = cima, lados, baixo.
+            cima = margens[0]
+            lados = margens[1] if len(margens) > 1 else cima
+            baixo = margens[2] if len(margens) > 2 else cima
+            esquerda = margens[3] if len(margens) > 3 else lados
+            layout["padding"] = [cima, lados, baixo, esquerda]
+    fonte = camada.get("font")
+    if isinstance(fonte, dict):
+        peso = fonte.get("weight")
+        if isinstance(peso, str):
+            fonte["weight"] = _PESOS_DE_FONTE.get(peso.strip().lower().replace(" ", "").replace("-", ""), _numero_do_design(peso))
+        for campo in ("size", "lineHeight", "letterSpacing"):
+            if campo in fonte:
+                fonte[campo] = _numero_do_design(fonte[campo])
+    for filho in camada.get("children") or []:
+        _arrumar_camada_do_design(filho)
+
+
 def editado(kind, original, bruto):
     """Resposta do `editar` -> `data` válido. Levanta ErroFormato.
 
@@ -199,6 +259,10 @@ def editado(kind, original, bruto):
     for chave in _SO_DO_APP:
         if chave in (original or {}):
             dados[chave] = original[chave]
+    if kind == "design":
+        for pagina in dados.get("pages") or []:
+            for camada in (pagina.get("children") or []) if isinstance(pagina, dict) else []:
+                _arrumar_camada_do_design(camada)
     try:
         validate_data(kind, dados)
     except ValidationError as erro:

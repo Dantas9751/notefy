@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
 #[cfg(desktop)]
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Manager, RunEvent};
 #[cfg(desktop)]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(desktop)]
@@ -39,6 +39,28 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Guarda o processo filho para poder encerrá-lo quando o app fechar.
 #[cfg(desktop)]
 struct Backend(std::sync::Mutex<Option<CommandChild>>);
+
+/// Encerra o backend inteiro.
+///
+/// O executável é um PyInstaller de arquivo único, que no Windows roda em
+/// dois processos: o que se descompacta (filho deste) e o Python de verdade
+/// (neto). `kill()` só alcança o primeiro — o servidor ficava órfão,
+/// segurando a porta e o próprio `notefy-server.exe`, e depois de atualizar
+/// o app novo conversava com o backend velho.
+#[cfg(desktop)]
+fn encerrar_backend(child: CommandChild) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Sem piscar uma janela de console ao fechar o app.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &child.pid().to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    let _ = child.kill();
+}
 
 /// Espera a porta aceitar conexão — é o sinal de que o Django está pronto.
 #[cfg(desktop)]
@@ -268,20 +290,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("erro ao construir o aplicativo")
         .run(|_app, _event| {
-            // Fechar a janela precisa levar o servidor junto: um processo
-            // órfão continuaria segurando a porta e o banco, e a próxima
-            // abertura falharia sem explicação.
+            // Sair do app precisa levar o servidor junto: um processo órfão
+            // continuaria segurando a porta e o banco, e a próxima abertura
+            // falharia sem explicação. Só ao sair de fato, e não ao fechar
+            // uma janela qualquer: fechar uma janela extra (item aberto à
+            // parte) derrubava o backend da janela principal.
             #[cfg(desktop)]
-            {
-                let encerrar = matches!(
-                    _event,
-                    RunEvent::ExitRequested { .. } | RunEvent::WindowEvent { event: WindowEvent::Destroyed, .. }
-                );
-
-                if encerrar {
-                    if let Some(child) = _app.state::<Backend>().0.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
+            if matches!(_event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+                if let Some(child) = _app.state::<Backend>().0.lock().unwrap().take() {
+                    encerrar_backend(child);
                 }
             }
         });

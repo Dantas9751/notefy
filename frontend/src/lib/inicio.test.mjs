@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BLOCOS, CAPA_PADRAO, VAO, alinhar, blocosParaSalvar, layoutDoInicio, posicionar, tituloDoRascunho } from './inicio.js'
+import { BLOCOS, CAPA_PADRAO, VAO, alinhar, blocosParaSalvar, layoutDoInicio, posicionar, restaurado, tituloDoRascunho, alternarBlocos, recorteAoMover, recorteParaSalvar, recorteDa, prenderNaTela, RELOGIO_FLUTUANTE } from './inicio.js'
 
 test('sem nada salvo, todos os blocos na ordem padrão', () => {
   const layout = layoutDoInicio(null)
@@ -43,11 +43,12 @@ test('posição livre salva é presa à faixa', () => {
 test('o Início de antes vira posição livre sem buraco nem sobreposição', () => {
   const blocos = posicionar(layoutDoInicio(null).blocos, 1000)
   const px = blocos.map((b) => ({ id: b.id, x: (b.x / 100) * 1000, y: b.y, w: (b.w / 100) * 1000, h: b.h }))
-  // Resumo e itens ocupam a linha toda; tarefas e agenda dividem a de baixo.
-  assert.deepEqual(px.slice(0, 2).map((b) => [Math.round(b.x), b.y, Math.round(b.w)]), [[0, 0, 1000], [0, 150 + VAO, 1000]])
-  const [tarefas, agenda] = px.slice(2, 4)
-  assert.equal(tarefas.y, agenda.y)
-  assert.equal(Math.round(agenda.x - (tarefas.x + tarefas.w)), VAO)
+  // O resumo ocupa a linha toda; relógio e tarefas dividem a de baixo.
+  assert.deepEqual([Math.round(px[0].x), px[0].y, Math.round(px[0].w)], [0, 0, 1000])
+  const [relogio, tarefas] = px.slice(1, 3)
+  assert.equal(relogio.y, 150 + VAO)
+  assert.equal(tarefas.y, relogio.y)
+  assert.equal(Math.round(tarefas.x - (relogio.x + relogio.w)), VAO)
   for (const a of px) {
     for (const b of px) {
       if (a === b) continue
@@ -97,13 +98,100 @@ test('título do rascunho é a primeira linha com texto', () => {
   assert.equal(tituloDoRascunho('x'.repeat(100)).length, 80)
 })
 
-test('papel de parede e foto do relógio: nada até escolher, e a foto só aceita imagem', () => {
+test('papel de parede vazio até escolher; o relógio nasce na cor do app e guarda o que for escolhido', () => {
   const vazio = layoutDoInicio(null)
-  assert.deepEqual([vazio.fundo, vazio.foto], [{ tipo: 'nenhuma' }, { tipo: 'nenhuma' }])
+  assert.deepEqual([vazio.fundo, vazio.foto], [{ tipo: 'nenhuma' }, { tipo: 'gradiente', id: 'acento' }])
   const foto = { tipo: 'imagem', url: '/media/capas/1/a.png' }
   const salvo = layoutDoInicio({ fundo: { tipo: 'gradiente', id: 'lousa' }, foto })
   assert.deepEqual(salvo.fundo, { tipo: 'gradiente', id: 'lousa' })
   assert.deepEqual(salvo.foto, foto)
-  assert.deepEqual(layoutDoInicio({ foto: { tipo: 'gradiente', id: 'lousa' } }).foto, { tipo: 'nenhuma' })
+  // "Sem fundo" no relógio é escolha, e não ausência: não volta para a cor do app.
+  assert.deepEqual(layoutDoInicio({ foto: { tipo: 'nenhuma' } }).foto, { tipo: 'nenhuma' })
+  assert.deepEqual(layoutDoInicio({ foto: { tipo: 'gradiente', id: 'lousa' } }).foto, { tipo: 'gradiente', id: 'lousa' })
   assert.ok(vazio.blocos.some((b) => b.id === 'relogio' && b.visivel))
+})
+
+test('opacidade dos blocos: a do tema até escolher, e presa entre 0 e 100', () => {
+  assert.equal(layoutDoInicio(null).opacidade, null)
+  assert.equal(layoutDoInicio({ opacidade: 42.4 }).opacidade, 42)
+  assert.equal(layoutDoInicio({ opacidade: 150 }).opacidade, 100)
+  assert.equal(layoutDoInicio({ opacidade: '50' }).opacidade, null)
+})
+
+test('no padrão, o relógio vem logo depois do resumo', () => {
+  assert.deepEqual(BLOCOS.slice(0, 3).map((b) => b.id), ['resumo', 'relogio', 'tarefas'])
+})
+
+test('títulos dos blocos: à mostra até a pessoa esconder', () => {
+  assert.equal(layoutDoInicio(null).titulos, true)
+  assert.equal(layoutDoInicio({ titulos: false }).titulos, false)
+  assert.equal(layoutDoInicio({ titulos: 'nao' }).titulos, true)
+})
+
+test('restaurar só os blocos, só as imagens ou tudo', () => {
+  const mexido = layoutDoInicio({
+    capa: { tipo: 'gradiente', id: 'lousa' },
+    fundo: { tipo: 'gradiente', id: 'kraft' },
+    foto: { tipo: 'nenhuma' },
+    opacidade: 30,
+    titulos: false,
+    aba_notas: 'favoritos',
+    blocos: [{ id: 'notas', visivel: false, x: 10, y: 20, w: 40, h: 300 }],
+  })
+  const padrao = layoutDoInicio(null)
+
+  const blocos = restaurado(mexido, 'blocos')
+  assert.deepEqual([blocos.blocos, blocos.opacidade, blocos.titulos], [padrao.blocos, null, true])
+  assert.deepEqual([blocos.capa, blocos.fundo, blocos.foto, blocos.aba_notas], [mexido.capa, mexido.fundo, mexido.foto, 'favoritos'])
+
+  const imagens = restaurado(mexido, 'imagens')
+  assert.deepEqual([imagens.capa, imagens.fundo, imagens.foto], [CAPA_PADRAO, { tipo: 'nenhuma' }, CAPA_PADRAO])
+  assert.deepEqual([imagens.blocos, imagens.opacidade, imagens.titulos], [mexido.blocos, 30, false])
+
+  assert.deepEqual(restaurado(mexido, 'tudo'), padrao)
+})
+
+test('esconder guarda a posição; mostrar devolve o bloco sem posição, para o app recolocá-lo embaixo', () => {
+  const blocos = [
+    { id: 'notas', visivel: true, colunas: 6, altura: 300, x: 10, y: 20, w: 40, h: 300 },
+    { id: 'agenda', visivel: true, colunas: 6, altura: 300, x: 50, y: 20, w: 40, h: 300 },
+  ]
+  const escondido = alternarBlocos(blocos, ['notas'], false)
+  assert.deepEqual(escondido[0], { ...blocos[0], visivel: false })
+  assert.equal(escondido[1], blocos[1])
+  const devolvido = alternarBlocos(escondido, ['notas'], true)[0]
+  assert.equal(devolvido.visivel, true)
+  assert.equal('x' in devolvido, false)
+  // Mostrar quem já está à mostra não mexe na posição.
+  assert.equal(alternarBlocos(blocos, ['agenda'], true)[1], blocos[1])
+})
+
+test('recorte: arrastar leva o ponto da foto junto com o cursor, até a borda', () => {
+  // Foto 2000x1000 numa caixa 1000x250: coberta pela largura, sobra 250 px na altura.
+  const imagem = { w: 2000, h: 1000 }
+  const caixa = { w: 1000, h: 250 }
+  const r = recorteDa(null)
+  assert.deepEqual(r, { x: 50, y: 50, zoom: 1 })
+  // Sem sobra na largura, x não se mexe; puxar 25 px para baixo sobe 10% (25 de 250).
+  assert.deepEqual(recorteAoMover(r, 100, 25, imagem, caixa), { x: 50, y: 40, zoom: 1 })
+  // Com zoom 2 sobra mais: 1000 px na largura e 750 na altura.
+  assert.deepEqual(recorteAoMover({ ...r, zoom: 2 }, -100, 0, imagem, caixa), { x: 60, y: 50, zoom: 2 })
+  // Não passa da borda da foto.
+  assert.equal(recorteAoMover(r, 0, 10000, imagem, caixa).y, 0)
+  assert.equal(recorteAoMover(r, 0, -10000, imagem, caixa).y, 100)
+  // Imagem ainda sem medida: fica como está.
+  assert.equal(recorteAoMover(r, 10, 10, { w: 0, h: 0 }, caixa), r)
+  assert.deepEqual(recorteParaSalvar({ x: 12.345, y: 99.99, zoom: 4 }), { x: 12.3, y: 100, zoom: 3 })
+})
+
+test('relógio flutuante: nunca sai da janela, nem quando ela encolhe', () => {
+  const tela = { w: 1280, h: 800 }
+  assert.deepEqual(prenderNaTela({ x: 100, y: 100, w: 320, h: 200 }, tela), { x: 100, y: 100, w: 320, h: 200 })
+  // Arrastado para fora, volta para a borda (com 8 px de margem).
+  assert.deepEqual(prenderNaTela({ x: 5000, y: -50, w: 320, h: 200 }, tela), { x: 1280 - 320 - 8, y: 8, w: 320, h: 200 })
+  // Tamanho dentro dos limites.
+  const grande = prenderNaTela({ x: 0, y: 0, w: 5000, h: 10 }, tela)
+  assert.deepEqual([grande.w, grande.h], [RELOGIO_FLUTUANTE.wMax, RELOGIO_FLUTUANTE.hMin])
+  // Janela menor que o relógio: encolhe até o mínimo e fica no canto.
+  assert.deepEqual(prenderNaTela({ x: 300, y: 300, w: 320, h: 200 }, { w: 230, h: 160 }), { x: 8, y: 8, w: 220, h: 150 })
 })

@@ -236,6 +236,25 @@ def _nome_livre(nome, ocupados):
     return novo
 
 
+#: Um manifesto de verdade aninha uns 15 níveis (e um design com camadas dentro
+#: de camadas, uns 60). O teto existe porque a defesa antiga era o
+#: `RecursionError` do `json.loads`, que depende da versão do Python: nas mais
+#: novas o limite do parser subiu, e um manifesto de 5000 níveis passava.
+PROFUNDIDADE_MAXIMA = 200
+
+
+def _aninhado_demais(dados, limite=PROFUNDIDADE_MAXIMA):
+    """Passa do `limite` de níveis? Iterativo: recursão aqui seria o mesmo problema."""
+    pilha = [(dados, 1)]
+    while pilha:
+        atual, nivel = pilha.pop()
+        if nivel > limite:
+            return True
+        filhos = atual.values() if isinstance(atual, dict) else atual
+        pilha.extend((f, nivel + 1) for f in filhos if isinstance(f, (dict, list)))
+    return False
+
+
 def _ler_manifesto(zf):
     try:
         bruto = zf.read(MANIFESTO)
@@ -247,6 +266,8 @@ def _ler_manifesto(zf):
         dados = json.loads(bruto.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise BackupInvalido("O notefy.json do backup está corrompido.") from exc
+    if _aninhado_demais(dados):
+        raise BackupInvalido("O notefy.json do backup está corrompido.")
 
     formato = dados.get("notefy_backup") if isinstance(dados, dict) else None
     if not isinstance(formato, int):
