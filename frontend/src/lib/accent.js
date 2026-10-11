@@ -135,6 +135,26 @@ export function escalaDe(hex) {
   return escala
 }
 
+/**
+ * A escala de fábrica (o musgo), a mesma de `--accent-*` no index.css. Com o
+ * destaque no padrão a regra do app fica vazia e vale esta, não a derivada.
+ */
+const ESCALA_DE_FABRICA = {
+  50: '244 246 238',
+  100: '232 237 219',
+  200: '210 220 187',
+  300: '180 196 145',
+  400: '146 167 106',
+  500: '112 134 76',
+  600: '86 105 56',
+  700: '67 82 45',
+  800: '55 66 39',
+  900: '47 56 35',
+}
+
+/** A escala que o app realmente usa para um destaque: a de fábrica no padrão, a derivada nos outros. */
+export const escalaEfetiva = (hex) => (String(hex).toLowerCase() === ACCENT_PADRAO.toLowerCase() ? ESCALA_DE_FABRICA : escalaDe(hex))
+
 const ID_ESTILO = 'notefy-accent'
 
 /**

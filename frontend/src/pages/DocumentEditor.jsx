@@ -53,6 +53,7 @@ import {
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { avisarErro } from '@/lib/avisoFlutuante'
+import { casa } from '@/lib/atalhos'
 
 const AUTOSAVE_MS = 1500
 
@@ -603,13 +604,13 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      if (casa(e, 'salvar')) {
         e.preventDefault()
         if (dirty) save()
       }
       // Ctrl+Shift+F alterna a estrela do item aberto, pela mesma porta do
       // botão do cabeçalho.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      if (casa(e, 'favoritar')) {
         e.preventDefault()
         toggleFavorite()
       }

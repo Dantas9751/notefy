@@ -3,6 +3,7 @@ import api, { extractError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { parseKey } from '@/hooks/useMultiSelect'
+import { casa } from '@/lib/atalhos'
 
 /**
  * Renomear no lugar: o texto vira um campo, e o campo vira texto de volta.
@@ -150,7 +151,7 @@ export function useF2(renomear, chaves, tiposAceitos = ['document']) {
   // razão de não haver array) e registra uma vez só.
   useListenerDeJanela('keydown', (evento) => {
     // Só com UM item marcado: renomear vários de uma vez não existe.
-    if (evento.key !== 'F2' || renomear.editando || chaves.length !== 1) return
+    if (!casa(evento, 'lateral.renomear') || renomear.editando || chaves.length !== 1) return
     const { type, id } = parseKey(chaves[0])
     if (!tiposAceitos.includes(type)) return
     evento.preventDefault()

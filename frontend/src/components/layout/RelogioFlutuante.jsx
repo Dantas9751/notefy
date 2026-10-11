@@ -7,6 +7,7 @@ import { chaveDoDia, formatarDuracao, lerTotal } from '@/lib/estudo'
 import { RELOGIO_FLUTUANTE, layoutDoInicio, prenderNaTela } from '@/lib/inicio'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { casa } from '@/lib/atalhos'
 
 const CHAVE_ABERTO = 'notefy.relogio.aberto'
 const CHAVE_CAIXA = 'notefy.relogio.caixa'
@@ -68,9 +69,7 @@ export default function RelogioFlutuante() {
 
   useListenerDeJanela('notefy:relogio', alternar)
   useListenerDeJanela('keydown', (e) => {
-    // Alt+R: livre no navegador e no app; \`code\`, e não \`key\`, para valer
-    // em qualquer layout de teclado.
-    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyR') {
+    if (casa(e, 'relogio')) {
       e.preventDefault()
       alternar()
     }
@@ -154,7 +153,7 @@ export default function RelogioFlutuante() {
           e.stopPropagation()
           comecar('tamanho')(e)
         }}
-        className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize"
+        className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-9"
       />
     </div>
   )

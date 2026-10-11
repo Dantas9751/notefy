@@ -39,6 +39,7 @@ import {
   visibleRows,
 } from '@/lib/formula'
 import { atalhoDe } from '@/lib/history'
+import { casa } from '@/lib/atalhos'
 import { avisarErro } from '@/lib/avisoFlutuante'
 import { copiarTexto } from '@/lib/desktop'
 import { cn, uid } from '@/lib/utils'
@@ -91,6 +92,9 @@ function contornoDaSelecao(bordas, cor, espessura) {
  * onde se escolhe o formato; o menu da coluna usa a mesma lista.
  */
 
+/** Atalho (id em `lib/atalhos.js`) de cada estilo de célula e de cada formato numérico. */
+const ESTILOS_POR_ATALHO = [['planilha.negrito', 'bold'], ['planilha.italico', 'italic'], ['planilha.sublinhado', 'underline']]
+const FORMATOS_POR_ATALHO = [['planilha.moeda', 'currency'], ['planilha.porcentagem', 'percent']]
 const NUMERIC_TYPES = ['number', 'currency', 'percent', 'rating', 'formula']
 
 /** Tipos que editam num controle próprio (lista, estrelas, calendário) em vez de texto. */
@@ -1490,7 +1494,7 @@ export default function SpreadsheetEditor({
     const linha = shown[ancora.linha]
     const coluna = columns[ancora.coluna]
 
-    if (mod && event.key.toLowerCase() === 'a') {
+    if (casa(event, 'planilha.selecionarTudo')) {
       event.preventDefault()
       setSelecao({
         ancora: { linha: 0, coluna: 0 },
@@ -1500,29 +1504,29 @@ export default function SpreadsheetEditor({
       return
     }
 
-    // Os atalhos de formatar do Excel: Ctrl+B/I/U, Ctrl+Shift+$ e Ctrl+Shift+%.
-    if (mod && !event.altKey && !somenteLeitura) {
-      const estilo = !event.shiftKey && { b: 'bold', i: 'italic', u: 'underline' }[event.key.toLowerCase()]
+    // Os atalhos de formatar do Excel: Ctrl+B/I/U, Ctrl+Shift+4 ($) e Ctrl+Shift+5 (%), de fábrica.
+    if (!somenteLeitura) {
+      const estilo = ESTILOS_POR_ATALHO.find(([id]) => casa(event, id))
       if (estilo) {
         event.preventDefault()
-        alternarEstilo(estilo)
+        alternarEstilo(estilo[1])
         return
       }
-      if (event.shiftKey && (event.key === '$' || event.key === '%')) {
+      const formato = FORMATOS_POR_ATALHO.find(([id]) => casa(event, id))
+      if (formato) {
         event.preventDefault()
-        mudarFormato(event.key === '$' ? 'currency' : 'percent')
+        mudarFormato(formato[1])
+        return
+      }
+      // A Soma automática do Excel (Alt+=).
+      if (casa(event, 'planilha.soma')) {
+        event.preventDefault()
+        autoSoma(funcaoPorNome('SOMA'))
         return
       }
     }
 
-    // Alt+= é a Soma automática do Excel.
-    if (event.altKey && !mod && event.key === '=' && !somenteLeitura) {
-      event.preventDefault()
-      autoSoma(funcaoPorNome('SOMA'))
-      return
-    }
-
-    if ((event.key === 'Delete' || event.key === 'Backspace') && !somenteLeitura) {
+    if (casa(event, 'planilha.limpar') && !somenteLeitura) {
       event.preventDefault()
       limparSelecao()
       return
@@ -1547,7 +1551,7 @@ export default function SpreadsheetEditor({
       return
     }
 
-    if (event.key === 'Enter' || event.key === 'F2') {
+    if (event.key === 'Enter' || casa(event, 'planilha.editar')) {
       event.preventDefault()
       comecarEdicao(ancora.linha, ancora.coluna)
       return

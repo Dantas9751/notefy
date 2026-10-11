@@ -26,6 +26,7 @@ import Board from '@/pages/Board'
 import SearchPage from '@/pages/Search'
 import Settings from '@/pages/settings'
 import AbaAparencia from '@/pages/settings/AbaAparencia'
+import AbaAtalhos from '@/pages/settings/AbaAtalhos'
 import AbaConta from '@/pages/settings/AbaConta'
 import AbaNotificacoes from '@/pages/settings/AbaNotificacoes'
 import AbaLaviel from '@/pages/settings/AbaLaviel'
@@ -142,6 +143,7 @@ function AppRoutes() {
         <Route path="settings" element={<Settings />}>
           <Route index element={<Navigate to="aparencia" replace />} />
           <Route path="aparencia" element={<AbaAparencia />} />
+          <Route path="atalhos" element={<AbaAtalhos />} />
           <Route path="conta" element={<AbaConta />} />
           <Route path="notificacoes" element={<AbaNotificacoes />} />
           <Route path="laviel" element={<AbaLaviel />} />

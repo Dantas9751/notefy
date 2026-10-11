@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { MAX_COLUNAS_TABELA, MAX_ITENS_SECAO } from '@/lib/limites'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { casa } from '@/lib/atalhos'
 
 /**
  * Tabela da página.
@@ -114,7 +115,7 @@ const TableSection = forwardRef(function TableSection(
     const campo = event.target
     const ultimaLinha = linha === rows.length - 1
 
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (casa(event, 'nota.sairDoBloco')) {
       event.preventDefault()
       onSair?.('baixo')
       return

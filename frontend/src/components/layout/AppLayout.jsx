@@ -23,6 +23,7 @@ import { kindMeta } from '@/lib/documents'
 import { NotificacoesProvider } from '@/context/NotificacoesContext'
 import { AvisosFlutuantes, CentralDeNotificacoes } from './Notificacoes'
 import { t } from '@/lib/i18n'
+import { casa } from '@/lib/atalhos'
 
 export default function AppLayout() {
   const { mobileSidebarOpen, setMobileSidebarOpen, toggleZen } = useUI()
@@ -66,7 +67,7 @@ export default function AppLayout() {
   // 3. Ctrl/Cmd+K abre a busca global de qualquer tela.
   useEffect(() => {
     const onKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (casa(e, 'buscar')) {
         e.preventDefault()
         navigate('/search')
       }
@@ -75,14 +76,14 @@ export default function AppLayout() {
       // F11 também, no desktop: o zen agora É a tela cheia, e o F11 é onde
       // a mão vai para isso. No navegador o F11 é dele, e sair da tela cheia
       // por ele já tira o zen (`fullscreenchange`, no UIContext).
-      if (((e.metaKey || e.ctrlKey) && e.key === '.') || (e.key === 'F11' && noDesktop())) {
+      if (casa(e, 'zen') && (e.key !== 'F11' || noDesktop())) {
         e.preventDefault()
         toggleZen()
       }
       // Ctrl+\ fecha o painel lateral — mesma tecla que o VS Code usa
       // para dividir. Só fecha: abrir exige escolher QUAL documento vai
       // ao lado, e isso o teclado não tem como perguntar.
-      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+      if (casa(e, 'fecharPainel')) {
         e.preventDefault()
         fecharPainel()
       }
@@ -91,11 +92,11 @@ export default function AppLayout() {
       // senão, a main view.
       // Ctrl+/ mostra a lista de atalhos: a convenção do Gmail, do Slack
       // e do Notion, e livre no Chrome e no Edge.
-      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+      if (casa(e, 'atalhos')) {
         e.preventDefault()
         setAtalhosAbertos((aberto) => !aberto)
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+      if (casa(e, 'laviel')) {
         e.preventDefault()
         alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
       }

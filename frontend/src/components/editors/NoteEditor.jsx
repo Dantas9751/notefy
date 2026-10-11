@@ -35,6 +35,8 @@ import {
 } from '@/lib/nota'
 import { cn } from '@/lib/utils'
 import { idioma, t } from '@/lib/i18n'
+import { casa, numeroDaSerie } from '@/lib/atalhos'
+import { atalhoDe } from '@/lib/history'
 
 // Carregado sob demanda: o bloco de código arrasta o highlight.js junto,
 // e uma nota só de texto não deve pagar por ele.
@@ -599,36 +601,30 @@ const NoteEditor = forwardRef(function NoteEditor({
     }
 
     const mod = e.ctrlKey || e.metaKey
-    // Ctrl+Shift+7/8/9: as listas do Google Docs. `code`, e não `key`: no
-    // teclado ABNT o Shift+9 é "(", e a tecla física é a mesma.
-    if (mod && e.shiftKey && !e.altKey) {
-      if (e.code === 'Digit7') {
-        e.preventDefault()
-        comando('insertOrderedList')
-        return
-      }
-      if (e.code === 'Digit8') {
-        e.preventDefault()
-        comando('insertUnorderedList')
-        return
-      }
-      if (e.code === 'Digit9') {
-        e.preventDefault()
-        fecharTrechoDigitado()
-        inserirBlocoNoTexto(id, 'checklist')
-        return
-      }
+    // As listas do Google Docs (Ctrl+Shift+7/8/9, de fábrica).
+    if (casa(e, 'nota.numerada')) {
+      e.preventDefault()
+      comando('insertOrderedList')
+      return
     }
-    // Ctrl+Alt+0 a 3: texto normal e títulos, como no Word. O AltGr do
-    // teclado brasileiro também chega como Ctrl+Alt — e AltGr+2 é o "²",
-    // que precisa continuar sendo digitado.
-    if (mod && e.altKey && !e.getModifierState?.('AltGraph')) {
-      const formato = { Digit0: 'p', Digit1: 'h1', Digit2: 'h2', Digit3: 'h3' }[e.code]
-      if (formato) {
-        e.preventDefault()
-        comando('formatBlock', formato)
-        return
-      }
+    if (casa(e, 'nota.lista')) {
+      e.preventDefault()
+      comando('insertUnorderedList')
+      return
+    }
+    if (casa(e, 'nota.checklist')) {
+      e.preventDefault()
+      fecharTrechoDigitado()
+      inserirBlocoNoTexto(id, 'checklist')
+      return
+    }
+    // Texto normal e títulos, como no Word (Ctrl+Alt+0 a 3, de fábrica). O AltGr do
+    // teclado brasileiro também chega como Ctrl+Alt — e AltGr+2 é o "²": `casa` não o toma.
+    const nivel = numeroDaSerie(e, 'nota.formato')
+    if (nivel !== null) {
+      e.preventDefault()
+      comando('formatBlock', ['p', 'h1', 'h2', 'h3'][nivel])
+      return
     }
     if (mod || e.altKey) return
 
@@ -664,17 +660,12 @@ const NoteEditor = forwardRef(function NoteEditor({
 
   /** Ctrl+Z e Ctrl+Y em qualquer seção vão para o histórico da nota. */
   const capturarHistorico = (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey) return
-    const tecla = e.key.toLowerCase()
-    if (tecla === 'z' && !e.shiftKey) {
-      e.preventDefault()
-      e.stopPropagation()
-      desfazer()
-    } else if (tecla === 'y' || (tecla === 'z' && e.shiftKey)) {
-      e.preventDefault()
-      e.stopPropagation()
-      refazer()
-    }
+    const acao = atalhoDe(e)
+    if (!acao) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (acao === 'undo') desfazer()
+    else refazer()
   }
 
   /** Clique no branco da folha, abaixo do texto: o cursor vai para o fim. */

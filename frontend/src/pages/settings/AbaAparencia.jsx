@@ -1,12 +1,16 @@
-import { RotateCcw } from 'lucide-react'
+import { useState } from 'react'
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
 import { Field, Select } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import { ACCENT_PADRAO, CORES_PADRAO } from '@/lib/accent'
 import { FONTES_DA_NOTA, FONTES_DO_APP } from '@/lib/fontes'
-import { TEMAS } from '@/lib/temas'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import useTemas from '@/hooks/useTemas'
+import { TEMAS, amostraDoTema, apagarTemaPersonalizado, temaPorId } from '@/lib/temas'
 import { cn } from '@/lib/utils'
 import { Bloco, Chave } from './componentes'
+import EditorDeTema from './EditorDeTema'
 import { usePreferencias } from './index'
 import { IDIOMAS, idioma, t, trocarIdioma } from '@/lib/i18n'
 
@@ -48,36 +52,67 @@ const AMOSTRAS_BASE = [
 ]
 
 /** Os temas como amostras: um quadradinho com o fundo, duas linhas de texto e o destaque. */
-function EscolhaDeTema({ valor, destaque, onEscolher }) {
+function EscolhaDeTema({ valor, destaque, onEscolher, onCriar, onEditar, onApagar }) {
+  const personalizados = useTemas()
+  const comoOpcao = (tema) => ({ id: tema.id, nome: tema.nome, ...amostraDoTema(tema), cor: tema.destaque, tema })
   const opcoes = [
     ...AMOSTRAS_BASE.map((o) => ({ ...o, cor: destaque })),
-    ...TEMAS.map((tema) => ({ id: tema.id, nome: tema.nome, fundo: tema.ink[11], painel: tema.ink[10], texto: tema.ink[2], cor: tema.destaque, tema })),
+    ...TEMAS.map(comoOpcao),
+    ...personalizados.map(comoOpcao),
   ]
   return (
     <div role="radiogroup" aria-label={t('Tema')} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {opcoes.map((o) => (
-        <button
+        <div
           key={o.id}
-          type="button"
-          role="radio"
-          aria-checked={valor === o.id}
-          onClick={() => onEscolher(o)}
           className={cn(
-            'overflow-hidden rounded-md border text-left transition',
+            'relative overflow-hidden rounded-md border transition',
             valor === o.id ? 'border-accent-500 ring-1 ring-accent-500' : 'border-ink-200 hover:border-ink-300 dark:border-ink-700 dark:hover:border-ink-600',
           )}
         >
-          <span className="flex h-14 gap-1.5 p-2" style={{ background: o.fundo }} aria-hidden>
-            {o.painel && <span className="w-5 rounded-sm" style={{ background: o.painel }} />}
-            <span className="flex flex-1 flex-col justify-center gap-1">
-              <span className="h-1.5 w-3/4 rounded-full" style={{ background: o.texto }} />
-              <span className="h-1.5 w-1/2 rounded-full opacity-60" style={{ background: o.texto }} />
-              <span className="h-1.5 w-1/3 rounded-full" style={{ background: o.cor }} />
+          <button type="button" role="radio" aria-checked={valor === o.id} onClick={() => onEscolher(o)} className="block w-full text-left">
+            <span className="flex h-14 gap-1.5 p-2" style={{ background: o.fundo }} aria-hidden>
+              {o.painel && <span className="w-5 rounded-sm" style={{ background: o.painel }} />}
+              <span className="flex flex-1 flex-col justify-center gap-1">
+                <span className="h-1.5 w-3/4 rounded-full" style={{ background: o.texto }} />
+                <span className="h-1.5 w-1/2 rounded-full opacity-60" style={{ background: o.texto }} />
+                <span className="h-1.5 w-1/3 rounded-full" style={{ background: o.cor }} />
+              </span>
             </span>
-          </span>
-          <span className="block truncate border-t border-ink-100 px-2 py-1.5 text-xs text-ink-700 dark:border-ink-800 dark:text-ink-200">{o.nome}</span>
-        </button>
+            <span className={cn('block truncate border-t border-ink-100 px-2 py-1.5 text-xs text-ink-700 dark:border-ink-800 dark:text-ink-200', o.tema?.personalizado && 'pr-14')}>{o.nome}</span>
+          </button>
+          {o.tema?.personalizado && (
+            <span className="absolute bottom-0.5 right-0.5 flex">
+              <button
+                type="button"
+                onClick={() => onEditar(o.tema)}
+                title={t('Editar o tema')}
+                aria-label={`${t('Editar o tema')}: ${o.nome}`}
+                className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
+              >
+                <Pencil size={12} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => onApagar(o.tema)}
+                title={t('Apagar o tema')}
+                aria-label={`${t('Apagar o tema')}: ${o.nome}`}
+                className="rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+              >
+                <Trash2 size={12} aria-hidden />
+              </button>
+            </span>
+          )}
+        </div>
       ))}
+      <button
+        type="button"
+        onClick={onCriar}
+        className="flex min-h-[5.5rem] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-ink-300 text-xs text-ink-500 transition hover:border-accent-400 hover:text-accent-700 dark:border-ink-600 dark:text-ink-400 dark:hover:text-accent-400"
+      >
+        <Plus size={16} aria-hidden />
+        {t('Criar tema')}
+      </button>
     </div>
   )
 }
@@ -87,6 +122,16 @@ export default function AbaAparencia() {
   const { prefs, savePrefs } = usePreferencias()
 
   const corPersonalizada = !CORES_PADRAO.includes(accent)
+  // O editor de tema: `null` fechado, `{ tema }` aberto (`tema: null` é um tema novo).
+  const [editor, setEditor] = useState(null)
+  const [apagando, setApagando] = useState(null)
+
+  /** Usa o tema e a cor de destaque dele: é o que escolher uma paleta já faz. */
+  const usarTema = (id) => {
+    const tema = temaPorId(id)
+    setTheme(id)
+    if (tema) setAccent(tema.destaque)
+  }
 
   return (
     <>
@@ -102,7 +147,7 @@ export default function AbaAparencia() {
         </Field>
       </Bloco>
 
-      <Bloco title={t('Tema')} description={t('Claro, escuro, o do sistema, ou uma paleta escura no estilo dos editores de código. Uma paleta traz a cor de destaque dela, que dá para trocar logo abaixo.')}>
+      <Bloco title={t('Tema')} description={t('Claro, escuro, o do sistema, uma paleta no estilo dos editores de código, ou um tema seu, com a cor de cada coisa. Uma paleta traz a cor de destaque dela, que dá para trocar logo abaixo.')}>
         <EscolhaDeTema
           valor={theme}
           destaque={accent}
@@ -110,6 +155,9 @@ export default function AbaAparencia() {
             setTheme(opcao.id)
             if (opcao.tema) setAccent(opcao.tema.destaque)
           }}
+          onCriar={() => setEditor({ tema: null })}
+          onEditar={(tema) => setEditor({ tema })}
+          onApagar={setApagando}
         />
 
         <div>
@@ -153,6 +201,16 @@ export default function AbaAparencia() {
           </p>
         </div>
       </Bloco>
+
+      <EditorDeTema aberto={!!editor} tema={editor?.tema ?? null} onFechar={() => setEditor(null)} onSalvo={usarTema} />
+      <ConfirmDialog
+        open={!!apagando}
+        title={t('Apagar o tema')}
+        message={t('O tema “{nome}” será apagado deste aparelho. Se for o que está em uso, o Notefy volta a seguir o sistema.', { nome: apagando?.nome ?? '' })}
+        confirmLabel={t('Apagar')}
+        onClose={() => setApagando(null)}
+        onConfirm={() => apagarTemaPersonalizado(apagando.id)}
+      />
 
       <Bloco title={t('Fontes')} description={t('Cada opção aparece escrita na própria fonte. Só fontes do sistema: nada é baixado.')}>
         <EscolhaDeFonte rotulo={t('Fonte do app')} opcoes={FONTES_DO_APP} valor={fonteApp} onEscolher={setFonteApp} />

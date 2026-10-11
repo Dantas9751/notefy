@@ -110,8 +110,9 @@ cria a caixa no clique** e já abre a edição. Post-its, cartões, imagens e
 áreas saem da paleta com tamanho padrão — são blocos de conteúdo, e
 dimensioná-los antes de haver texto dentro seria trabalho sem propósito.
 
-Atalhos: `V` seleção, `P` caneta, `M` marcador, `H` marca-texto, `E` borracha,
-`T` texto, `R` retângulo, `O` elipse, `L` linha.
+Atalhos (de fábrica; trocam em Configurações → Atalhos): `V` seleção, `P` caneta,
+`M` marcador, `H` marca-texto, `E` borracha, `T` texto, `R` retângulo, `O` elipse,
+`L` linha.
 
 Os traços vivem numa lista própria no payload (`strokes`), separada de nós e
 arestas: um traço não conecta nem tem borda de encaixe, então tratá-lo como nó
@@ -366,9 +367,14 @@ renderiza um resultado sem saber de qual tabela ele veio.
   canto de baixo.
 - **Estados de carregamento** em toda tela (skeletons que preservam o layout),
   modais para criação rápida e navegação sem reload.
-- **Tema claro/escuro** com opção de seguir o sistema.
+- **Tema claro/escuro** com opção de seguir o sistema, paletas de editor de
+  código e **temas próprios** (Configurações → Aparência → Criar tema): sete
+  cores escolhidas uma a uma, num seletor livre, com prévia ao vivo. Escuros
+  ou claros; ficam neste aparelho (`lib/temas.js`).
 - `Ctrl/Cmd+K` abre a busca global; `Ctrl/Cmd+S` salva a nota aberta;
-  `Ctrl/Cmd+/` lista todos os atalhos.
+  `Ctrl/Cmd+/` lista todos os atalhos. **Todos trocam** em Configurações →
+  Atalhos (rascunho até o Salvar; redefine um ou todos); o registro único
+  está em `lib/atalhos.js` e os handlers perguntam `casa(evento, 'id')`.
 
 ### Design
 

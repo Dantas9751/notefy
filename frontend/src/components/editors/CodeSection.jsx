@@ -11,6 +11,7 @@ import { podeExecutar, useExecucao } from '@/hooks/useExecucao'
 import SaidaDoCodigo from './SaidaDoCodigo'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { casa } from '@/lib/atalhos'
 
 /**
  * Bloco de código de uma nota.
@@ -92,7 +93,7 @@ const CodeSection = forwardRef(function CodeSection(
     const el = event.target
     const { selectionStart: inicio, selectionEnd: fim } = el
     // Em JavaScript e Python, Ctrl+Enter executa, como num notebook.
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && clicavel) {
+    if (casa(event, 'nota.sairDoBloco') && clicavel) {
       event.preventDefault()
       alternarExecucao()
       return
@@ -100,7 +101,7 @@ const CodeSection = forwardRef(function CodeSection(
     // Saídas do bloco, para a página continuar sem o mouse: Ctrl+Enter ou
     // Esc descem para o texto, e a seta só sai quando já está na ponta —
     // no meio do código ela anda entre as linhas, como em qualquer editor.
-    if ((event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || event.key === 'Escape') {
+    if (casa(event, 'nota.sairDoBloco') || event.key === 'Escape') {
       event.preventDefault()
       onSair?.('baixo')
       return
