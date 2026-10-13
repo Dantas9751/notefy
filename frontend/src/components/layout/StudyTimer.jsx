@@ -31,7 +31,7 @@ import { t } from '@/lib/i18n'
  * Mora no rodapé da sidebar porque é o único lugar que a interface toda
  * compartilha: o cabeçalho de página some no zen e no split existem dois.
  */
-export default function StudyTimer({ collapsed }) {
+export default function StudyTimer({ collapsed, oculto = false }) {
   const [segundos, setSegundos] = useState(() => lerTotal(chaveDoDia()))
   const [pausado, setPausado] = useState(false)
   const [verHistorico, setVerHistorico] = useState(false)
@@ -89,7 +89,10 @@ export default function StudyTimer({ collapsed }) {
       }
 
       setSegundos((atual) => {
-        const proximo = atual + 1
+        // Parte do maior entre o que contou e o que está gravado: o total
+        // gravado pode ter crescido por fora (o estudo de antes de ter
+        // dono, adotado depois do login), e sem storage vale o que contou.
+        const proximo = Math.max(atual, lerTotal(chaveRef.current)) + 1
         // ponytail: grava a cada segundo. São poucos bytes numa chave só;
         // se virar problema, gravar a cada 15s e no `visibilitychange`.
         gravarTotal(chaveRef.current, proximo)
@@ -116,6 +119,10 @@ export default function StudyTimer({ collapsed }) {
     () => (verHistorico ? historico(7).slice(1) : []),
     [verHistorico, chaveRef.current],
   )
+
+  // Escondido da barra (Personalizar), o relógio continua contando: o Início
+  // e o relógio flutuante mostram o mesmo total.
+  if (oculto) return null
 
   if (collapsed) {
     return (

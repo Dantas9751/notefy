@@ -307,7 +307,24 @@ def _validate_table_section(section, sid):
             )
 
 
+#: Como a nota se lê quando foge do padrão da pessoa (Aparência > Leitura).
+LARGURAS_DA_FOLHA = ("estreita", "media", "inteira")
+ENTRELINHAS = ("compacta", "normal", "ampla")
+
+
+def _validate_leitura(data):
+    leitura = data.get("leitura")
+    if leitura is None:
+        return
+    _require(isinstance(leitura, dict), "`data.leitura` deve ser um objeto.")
+    _require(set(leitura) <= {"largura", "entrelinha"}, "`data.leitura` tem chave desconhecida.")
+    for chave, opcoes in (("largura", LARGURAS_DA_FOLHA), ("entrelinha", ENTRELINHAS)):
+        if chave in leitura:
+            _require(leitura[chave] in opcoes, f"`leitura.{chave}` desconhecida: {leitura[chave]!r}.")
+
+
 def _validate_note(data):
+    _validate_leitura(data)
     sections = data.get("sections")
     if sections is None:
         data["sections"] = []

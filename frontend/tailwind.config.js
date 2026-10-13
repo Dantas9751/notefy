@@ -129,5 +129,10 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `compacto:` vale com a densidade compacta (Aparência), que põe
+    // `.compacto` no <html>. `:where()` não pesa: a variante ganha da classe
+    // comum só por vir depois no CSS, como toda variante.
+    ({ addVariant }) => addVariant('compacto', ':where(.compacto) &'),
+  ],
 }

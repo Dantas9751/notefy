@@ -9,12 +9,12 @@ import { useCallback, useState } from 'react'
  * O storage pode recusar leitura e escrita (aba anônima, cota estourada,
  * site data bloqueado). Quando isso acontece o conjunto continua valendo
  * em memória: perder a expansão ao recarregar é aceitável, quebrar a
- * sidebar não é.
+ * sidebar não é. Sem chave (`null`), vale só em memória.
  */
 export function usePersistedSet(storageKey) {
   const [values, setValues] = useState(() => {
     try {
-      const lido = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
+      const lido = storageKey ? JSON.parse(localStorage.getItem(storageKey) ?? '[]') : []
       return new Set(Array.isArray(lido) ? lido : [])
     } catch {
       return new Set()
@@ -24,7 +24,7 @@ export function usePersistedSet(storageKey) {
   const persist = useCallback(
     (next) => {
       try {
-        localStorage.setItem(storageKey, JSON.stringify([...next]))
+        if (storageKey) localStorage.setItem(storageKey, JSON.stringify([...next]))
       } catch {
         /* sem storage: vale só nesta sessão */
       }

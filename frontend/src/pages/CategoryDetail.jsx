@@ -156,7 +156,7 @@ export default function CategoryDetail({ id: idProp }) {
     >
       <PageHeader
         title={category?.name}
-        subtitle={category?.description || t('{length} pasta(s) nesta categoria.', { length: folders.length })}
+        subtitle={category?.description || (folders.length === 1 ? t('1 pasta nesta categoria.') : t('{n} pastas nesta categoria.', { n: folders.length }))}
         breadcrumb={
           <nav className="mb-2 flex items-center gap-1 text-xs text-ink-400">
             <Link to="/" className="hover:text-ink-700 dark:hover:text-ink-200">
@@ -190,7 +190,7 @@ export default function CategoryDetail({ id: idProp }) {
 
       <PageBody>
         {folders.length ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 compacto:gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {folders.map((folder) => {
               const selecionada = isSelected(`folder:${folder.id}`)
               return (

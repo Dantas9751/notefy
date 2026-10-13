@@ -1,15 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Empacota o backend do Notefy num executável único.
+"""Empacota o backend do Notefy numa pasta com o executável.
 
 O Django descobre quase tudo em tempo de execução — apps pelo nome em
 INSTALLED_APPS, migrations varrendo pastas, backends de banco por string.
 Nada disso aparece num `import`, então o PyInstaller não encontraria
 sozinho: daí a lista explícita abaixo.
 
-Um arquivo só (`onefile`) porque o Tauri espera um binário para o sidecar.
-O preço é um segundo a mais no primeiro arranque, enquanto o executável se
-descompacta — o processo Rust espera a porta responder antes de abrir a
-janela.
+Pasta (`onedir`), e não arquivo único: o `onefile` se descompactava a
+cada abertura — 4.700 arquivos no Temp, uns 14 s com o antivírus olhando
+cada um — e, encerrado à força ao fechar o app, deixava a pasta lá (3 GB
+acumulados em poucos dias). A pasta vai no instalador como recurso, e o
+processo Rust a inicia pelo caminho.
 """
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -58,15 +59,15 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="notefy-server",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    runtime_tmpdir=None,
     # Sem janela de console: o servidor é um detalhe interno do aplicativo.
     console=False,
 )
+
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="notefy-server")

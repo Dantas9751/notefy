@@ -1,9 +1,22 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework import viewsets
+from django.http import Http404
+from rest_framework import status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 
+from .idioma import texto
 from .permissions import IsOwner
+
+
+class NaLixeira(APIException):
+    """410: o item é da pessoa e está na lixeira (o 404 fica para o que não existe para ela)."""
+
+    status_code = status.HTTP_410_GONE
+    default_code = "na_lixeira"
+
+    def __init__(self):
+        super().__init__(texto("Este item está na lixeira.", "This item is in the trash."))
 
 
 class OwnedModelViewSet(viewsets.ModelViewSet):
@@ -33,6 +46,28 @@ class OwnedModelViewSet(viewsets.ModelViewSet):
         if hasattr(qs, "alive"):
             qs = qs.alive()
         return qs
+
+    def get_object(self):
+        """O item vivo; na lixeira da própria conta, 410 em vez de 404.
+
+        O app dizia "foi para a lixeira" a qualquer 404 — também para o item
+        de outra conta, que sobrava no navegador depois de trocar de conta, e
+        para o apagado de vez. Só a dona fica sabendo da lixeira: para os
+        outros, o item não existe.
+        """
+        try:
+            return super().get_object()
+        except Http404:
+            modelo = self.queryset.model if self.queryset is not None else None
+            chave = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+            if modelo is not None and hasattr(modelo.objects.none(), "trashed"):
+                try:
+                    na_lixeira = modelo.objects.trashed().filter(owner=self.request.user, pk=chave).exists()
+                except (ValueError, DjangoValidationError):
+                    na_lixeira = False  # id malformado: segue o 404
+                if na_lixeira:
+                    raise NaLixeira() from None
+            raise
 
     def perform_create(self, serializer):
         self._save(serializer, owner=self.request.user)

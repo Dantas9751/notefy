@@ -1,12 +1,15 @@
 """Validadores reutilizáveis."""
 
 import ipaddress
+import re
 import unicodedata
 import uuid
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
+
+from .idioma import texto
 
 hex_color_validator = RegexValidator(
     regex=r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
@@ -17,6 +20,38 @@ icon_name_validator = RegexValidator(
     regex=r"^[a-z0-9-]{1,64}$",
     message="Ícone deve ser um identificador kebab-case (ex.: 'book-open').",
 )
+
+#: O que costura um emoji além dos símbolos: o junta-emoji (ZWJ), os
+#: seletores de apresentação, a moldura de tecla e as marcas das bandeiras
+#: de região (tags).
+_COSTURA_DE_EMOJI = {0x200D, 0xFE0E, 0xFE0F, 0x20E3}
+_TAGS = range(0xE0020, 0xE0080)
+#: O bloco dos emojis. Um emoji mais novo que a tabela Unicode deste Python
+#: chega como "não atribuído" (`Cn`), e ainda assim é um emoji.
+_EMOJIS = range(0x1F000, 0x1FB00)
+#: Uma família de cinco pessoas com tom de pele passa de 20 pontos de código.
+MAX_EMOJI = 32
+
+
+def validar_icone(valor):
+    """Ícone de um item: nome de ícone (`book-open`) ou um emoji (`📘`).
+
+    O emoji é como a pessoa reconhece a nota numa lista. Texto livre não
+    entra: só símbolos e as peças que costuram um emoji. Letra (de qualquer
+    alfabeto), número, espaço e controle ficam de fora.
+    """
+    if not valor or re.fullmatch(r"[a-z0-9-]{1,64}", valor):
+        return
+    simbolo = False
+    for caractere in valor:
+        categoria = unicodedata.category(caractere)
+        if categoria == "So" or (categoria == "Cn" and ord(caractere) in _EMOJIS):
+            simbolo = True
+        elif categoria not in ("Sk", "Mn", "Me") and ord(caractere) not in _COSTURA_DE_EMOJI and ord(caractere) not in _TAGS:
+            simbolo = False
+            break
+    if not simbolo or len(valor) > MAX_EMOJI:
+        raise ValidationError(texto("Escolha um emoji como ícone.", "Choose an emoji as the icon."))
 
 
 #: Controles de direção que INVERTEM ou isolam o texto que vem depois.

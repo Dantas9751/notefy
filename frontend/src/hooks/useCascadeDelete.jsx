@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 
 import api, { extractError } from '@/lib/api'
 import { parseKey } from '@/hooks/useMultiSelect'
-import { emLote, ignorar404 } from '@/lib/lote'
+import { emLote, ignorarSeJaSaiu, jaSaiu } from '@/lib/lote'
 
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { avisarErro } from '@/lib/avisoFlutuante'
@@ -50,8 +50,8 @@ const endpointFor = (target) => `/${ROTAS[target.kind] ?? 'documents'}/${target.
 const announce = () => window.dispatchEvent(new Event('notefy:moved'))
 
 /**
- * Exclui um item que a pessoa já confirmou; a recusa sai como erro. 404
- * conta como excluído (outra aba chegou antes); 423 é o bloqueio por
+ * Exclui um item que a pessoa já confirmou; a recusa sai como erro. 404 e
+ * 410 contam como excluído (outra aba chegou antes); 423 é o bloqueio por
  * favorito, que `?force=true` não derruba; o resto (409, "tem conteúdo")
  * repete com `?force=true`, porque o diálogo já avisou que tudo vai junto.
  */
@@ -61,9 +61,9 @@ async function excluirConfirmado(chave) {
   try {
     await api.delete(endpoint)
   } catch (err) {
-    if (err.response?.status === 404) return
+    if (jaSaiu(err)) return
     if (err.response?.status === 423) throw err
-    await api.delete(`${endpoint}?force=true`).catch(ignorar404)
+    await api.delete(`${endpoint}?force=true`).catch(ignorarSeJaSaiu)
   }
 }
 
@@ -171,7 +171,8 @@ export function MensagemDeExclusao({ nome, anexos = 0 }) {
   return (
     <>
       <strong>{nome}</strong> {t('vai para a lixeira')}
-      {anexos > 0 && t(', junto com {attachment_count} anexo(s)', { attachment_count: anexos })}.
+      {anexos === 1 && t(', junto com 1 anexo')}
+      {anexos > 1 && t(', junto com {n} anexos', { n: anexos })}.
     </>
   )
 }

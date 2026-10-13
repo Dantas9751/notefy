@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Maximize2, Sparkles } from 'lucide-react'
+import { Menu, Search, FolderPlus, Tag, FileText, Table, Network, LayoutTemplate, Maximize2, Sparkles, SlidersHorizontal } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
@@ -23,7 +23,7 @@ import { kindMeta } from '@/lib/documents'
 import { NotificacoesProvider } from '@/context/NotificacoesContext'
 import { AvisosFlutuantes, CentralDeNotificacoes } from './Notificacoes'
 import { t } from '@/lib/i18n'
-import { casa } from '@/lib/atalhos'
+import { casa, comTecla } from '@/lib/atalhos'
 
 export default function AppLayout() {
   const { mobileSidebarOpen, setMobileSidebarOpen, toggleZen } = useUI()
@@ -36,6 +36,8 @@ export default function AppLayout() {
   const { alternar: alternarAssistente } = useAssistente()
   const telaInicialAplicada = useRef(false)
   const ladoEmFoco = useRef('main')
+  /** Sobre qual lado o Laviel lê e abre: o painel, se ele está aberto e foi o último mexido. */
+  const ladoDoLaviel = useCallback(() => (painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main'), [painel])
   const { menu, openMenu, closeMenu } = useContextMenu()
 
   const [folderModal, setFolderModal] = useState(null)
@@ -87,23 +89,27 @@ export default function AppLayout() {
         e.preventDefault()
         fecharPainel()
       }
-      // Ctrl+J abre o assistente de IA sobre o lado em foco: com o
-      // "abrir ao lado" aberto e o foco no painel, ele cobre o painel;
-      // senão, a main view.
       // Ctrl+/ mostra a lista de atalhos: a convenção do Gmail, do Slack
       // e do Notion, e livre no Chrome e no Edge.
       if (casa(e, 'atalhos')) {
         e.preventDefault()
         setAtalhosAbertos((aberto) => !aberto)
       }
+      // O Laviel lê o lado em foco: com o "abrir ao lado" aberto e o foco
+      // no painel, o arquivo do painel; senão, o da main view. Ctrl+J o
+      // abre na gaveta desse lado; Ctrl+Shift+Espaço, solto sobre o app.
       if (casa(e, 'laviel')) {
         e.preventDefault()
-        alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
+        alternarAssistente(ladoDoLaviel(), 'gaveta')
+      }
+      if (casa(e, 'lavielFlutuante')) {
+        e.preventDefault()
+        alternarAssistente(ladoDoLaviel(), 'flutuante')
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [navigate, toggleZen, fecharPainel, painel, alternarAssistente])
+  }, [navigate, toggleZen, fecharPainel, ladoDoLaviel, alternarAssistente])
 
   // 3b. De que lado o usuário mexeu por último. `document.activeElement`
   // sozinho não serve: clicar no texto de um editor (ou em área sem
@@ -137,8 +143,7 @@ export default function AppLayout() {
   // — favoritar numa aparece na outra, sem nenhuma tela saber disso.
   useEffect(() => conectarJanelas(), [])
 
-  const abrirLaviel = () =>
-    alternarAssistente(painel && ladoEmFoco.current === 'painel' ? 'painel' : 'main')
+  const abrirLaviel = () => alternarAssistente(ladoDoLaviel(), 'gaveta')
 
   // Lógica dinâmica rigorosa para o menu de contexto com base na rota atual
   //
@@ -148,9 +153,15 @@ export default function AppLayout() {
   // usá-lo dos dois lados era o que fazia o botão direito do painel agir
   // sobre a main view.
   const getContextMenuItems = (path, irPara) => {
-    // Caso 1: Na Raiz / Início (ou Dashboard) -> Criar Categoria e Pastas Raiz
+    // Caso 1: Na Raiz / Início (ou Dashboard) -> Personalizar, Criar Categoria e Pastas Raiz
     if (path === '/' || path === '/dashboard') {
       return [
+        {
+          label: t('Personalizar'),
+          icon: SlidersHorizontal,
+          onClick: () => window.dispatchEvent(new Event('notefy:personalizar')),
+        },
+        { separator: true },
         {
           label: t('Criar categoria'),
           icon: Tag,
@@ -293,7 +304,7 @@ export default function AppLayout() {
             </button>
             <BotaoLaviel onClick={abrirLaviel} />
             <CentralDeNotificacoes />
-            <ControlesDaJanela className="border-l border-ink-200 dark:border-ink-800" />
+            <ControlesDaJanela />
           </div>
         </header>
 
@@ -302,7 +313,7 @@ export default function AppLayout() {
             ficaria preso no modo sem saber como voltar. */}
         <button
           onClick={toggleZen}
-          title={t('Sair do modo zen (Ctrl+.)')}
+          title={comTecla(t('Sair do modo zen'), 'zen')}
           aria-label={t('Sair do modo zen')}
           // Canto inferior: o superior direito e onde todo editor poe a
           // acao primaria — aqui ele cobria o botao Salvar da nota, e no
@@ -401,14 +412,14 @@ export default function AppLayout() {
 
 /**
  * Atalho para o Laviel. Leva cor e nome (a partir de `sm`) porque, só como
- * ícone cinza, passava despercebido — e no toque não há Ctrl+J.
+ * ícone cinza, passava despercebido — e no toque não há teclado.
  */
 function BotaoLaviel({ onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={t('Abrir o Laviel (Ctrl+J)')}
+      title={comTecla(t('Abrir o Laviel'), 'laviel')}
       aria-label={t('Abrir o Laviel')}
       className="flex shrink-0 items-center gap-1.5 border-l border-ink-200 px-3 text-xs font-medium text-accent-600 transition hover:bg-accent-50 dark:border-ink-800 dark:text-accent-400 dark:hover:bg-accent-500/10"
     >
@@ -421,7 +432,7 @@ function BotaoLaviel({ onClick }) {
 /** Cabeçalho padrão das páginas internas. */
 export function PageHeader({ title, subtitle, breadcrumb, actions, children }) {
   return (
-    <div className="app-page-header border-b border-ink-100 bg-white/80 px-6 py-5 backdrop-blur dark:border-ink-800 dark:bg-ink-950/80">
+    <div className="app-page-header border-b border-ink-100 bg-white/80 px-6 py-5 backdrop-blur compacto:py-3 dark:border-ink-800 dark:bg-ink-950/80">
       {breadcrumb}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -441,7 +452,7 @@ export function PageHeader({ title, subtitle, breadcrumb, actions, children }) {
 
 export function PageBody({ className, children, ...props }) {
   return (
-    <div className={cn('app-page-body px-6 py-6', className)} {...props}>
+    <div className={cn('app-page-body px-6 py-6 compacto:py-4', className)} {...props}>
       {children}
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Music2, Pause, PictureInPicture2, Play, SkipBack, SkipForward } from 'lucide-react'
 import { noDesktop } from '@/lib/desktop'
 import { idioma, t } from '@/lib/i18n'
+import { comTecla } from '@/lib/atalhos'
 import { cn } from '@/lib/utils'
 import { FotoDaCapa, fundoDaCapa, textoDaCapa } from './Capa'
 
@@ -88,7 +89,7 @@ function BotaoDaMidia({ rotulo, onClick, claro, className, children }) {
  * materiais da capa ou nada — o bloco liso, como os outros) e, no app do
  * computador, a música que está tocando, com tocar/pausar, anterior e próxima.
  *
- * O mesmo relógio vive no Início e solto sobre o app (`flutuante`, Alt+R).
+ * O mesmo relógio vive no Início e solto sobre o app (`flutuante`, pelo atalho do relógio).
  * `canto(claro)` desenha o que vai no canto de cima à direita; no Início,
  * sem ele, fica ali o botão de destacar (`onDestacar`).
  */
@@ -115,7 +116,7 @@ export default function BlocoRelogio({ foto, flutuante = false, onDestacar, cant
         {canto
           ? canto(claro)
           : onDestacar && (
-              <BotaoDaMidia claro={claro} rotulo={t('Destacar o relógio (Alt+R)')} onClick={onDestacar} className="opacity-0 focus-visible:opacity-100 group-hover/relogio:opacity-100 [@media(hover:none)]:opacity-100">
+              <BotaoDaMidia claro={claro} rotulo={comTecla(t('Destacar o relógio'), 'relogio')} onClick={onDestacar} className="opacity-0 focus-visible:opacity-100 group-hover/relogio:opacity-100 [@media(hover:none)]:opacity-100">
                 <PictureInPicture2 size={15} />
               </BotaoDaMidia>
             )}

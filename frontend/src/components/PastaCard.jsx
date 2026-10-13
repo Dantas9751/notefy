@@ -57,7 +57,8 @@ export default function PastaCard({ pasta, selecionada, renomear, arraste, onCli
           <p className="mt-0.5 line-clamp-2 text-[12px] text-ink-500 dark:text-ink-400">{pasta.description}</p>
         )}
         <p className="mt-1.5 text-[11px] text-ink-400">
-          {t('{itens} item(ns) · {subpastas} subpasta(s) ·', { itens: pasta.document_count, subpastas: pasta.child_count })}{' '}
+          {pasta.document_count === 1 ? t('1 item') : t('{n} itens', { n: pasta.document_count })} ·{' '}
+          {pasta.child_count === 1 ? t('1 subpasta') : t('{n} subpastas', { n: pasta.child_count })} ·{' '}
           {formatRelative(pasta.updated_at)}
         </p>
       </div>

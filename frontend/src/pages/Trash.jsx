@@ -105,7 +105,7 @@ export default function Trash() {
         // Só a contagem. O prazo de retenção já está no aviso âmbar logo
         // abaixo, e a frase do estado vazio é palavra por palavra a mesma
         // do `EmptyState` — subtítulo carrega dado, não instrução.
-        subtitle={itens.length ? t('{length} item(ns)', { length: itens.length }) : undefined}
+        subtitle={itens.length ? (itens.length === 1 ? t('1 item') : t('{n} itens', { n: itens.length })) : undefined}
         actions={
           itens.length > 0 && (
             <Button
@@ -256,7 +256,15 @@ export default function Trash() {
         title={t('Excluir definitivamente')}
         message={
           <>
-            <strong>{t('{length} item(ns)', { length: selected.length })}</strong> {t('serão apagados para sempre, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
+            {selected.length === 1 ? (
+              <>
+                <strong>{t('1 item')}</strong> {t('será apagado para sempre, com os arquivos que estiverem nele. Isso não pode ser desfeito.')}
+              </>
+            ) : (
+              <>
+                <strong>{t('{n} itens', { n: selected.length })}</strong> {t('serão apagados para sempre, com os arquivos que estiverem neles. Isso não pode ser desfeito.')}
+              </>
+            )}
           </>
         }
         onClose={() => setConfirmarLote(false)}

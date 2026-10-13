@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { ChevronDown, Folder as FolderIcon } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useFetch } from '@/hooks/useFetch'
-import { kindMeta } from '@/lib/documents'
+import IconeDoItem from '@/components/IconeDoItem'
 import { ICONE } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 import FavoriteButton from '@/components/FavoriteButton'
@@ -97,7 +97,6 @@ export default function FavoritosSidebar({ aoAbrirMenu, noPainel = false }) {
             )}
           >
             {visiveis.map((item) => {
-              const Icon = item.type === 'folder' ? FolderIcon : kindMeta(item.type).icon
               const ativo = pathname === item.url
 
               return (
@@ -119,11 +118,13 @@ export default function FavoritosSidebar({ aoAbrirMenu, noPainel = false }) {
                     onContextMenu={(evento) =>
                       aoAbrirMenu?.(evento, { type: 'bookmark', item })
                     }
-                    className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-2 text-xs"
+                    className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-2 text-xs compacto:py-0.5"
                   >
-                    <Icon
+                    <IconeDoItem
+                      item={item}
+                      kind={item.type}
                       size={ICONE.sm}
-                      className="shrink-0 text-ink-400"
+                      className="text-ink-400"
                       style={item.color ? { color: item.color } : undefined}
                     />
                     <span className="truncate">{item.title}</span>

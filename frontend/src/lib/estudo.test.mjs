@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { definirConta } from './conta.js'
 
 import {
+  adotarEstudoSemDono,
   OCIOSO_MS,
   chaveDoDia,
   chaveDosDocumentos,
@@ -13,15 +15,17 @@ import {
   somarSegundo,
 } from './estudo.js'
 
+definirConta('ana')
+
 test('a chave do dia usa a data local, não UTC', () => {
   // 22h em Brasília (UTC-3) já é o dia seguinte em UTC. O tempo tem que
   // cair no dia que a pessoa viveu, não no do meridiano.
   const noite = new Date(2026, 8, 19, 22, 30)
-  assert.equal(chaveDoDia(noite), 'notefy.estudo.2026-09-19')
+  assert.equal(chaveDoDia(noite), 'notefy.estudo.2026-09-19@ana')
 })
 
 test('mês e dia vêm com dois dígitos', () => {
-  assert.equal(chaveDoDia(new Date(2026, 0, 5)), 'notefy.estudo.2026-01-05')
+  assert.equal(chaveDoDia(new Date(2026, 0, 5)), 'notefy.estudo.2026-01-05@ana')
 })
 
 test('conta com o app visível e atividade recente', () => {
@@ -73,7 +77,7 @@ test('duração: valor negativo ou quebrado não quebra a tela', () => {
 
 test('a chave dos documentos acompanha o dia local', () => {
   const noite = new Date(2026, 8, 19, 22, 30)
-  assert.equal(chaveDosDocumentos(noite), 'notefy.estudo.2026-09-19.docs')
+  assert.equal(chaveDosDocumentos(noite), 'notefy.estudo.2026-09-19.docs@ana')
 })
 
 test('somar um segundo cria a entrada com título e tipo', () => {
@@ -131,4 +135,48 @@ test('documento sem id não vira dono de tempo nenhum', () => {
   // `undefined` juntaria numa entrada fantasma o tempo de todo rascunho.
   marcarDocumentoAberto({ title: 'Sem id ainda', kind: 'note' })
   assert.equal(documentoAberto(), null)
+})
+
+/** Um localStorage de mentira: as chaves ficam como propriedades, como no navegador. */
+function armazenamento(inicial) {
+  const caixa = Object.create({
+    getItem(chave) { return Object.hasOwn(this, chave) ? this[chave] : null },
+    setItem(chave, valor) { this[chave] = String(valor) },
+    removeItem(chave) { delete this[chave] },
+  })
+  Object.assign(caixa, inicial)
+  globalThis.localStorage = caixa
+  return caixa
+}
+
+test('o estudo sem dono passa para a conta só se todos os itens forem dela', async () => {
+  definirConta('ana')
+  const caixa = armazenamento({
+    'notefy.estudo.2026-10-11': '120',
+    'notefy.estudo.2026-10-11.docs': JSON.stringify({ d1: { s: 120, titulo: 'Cálculo', kind: 'note' } }),
+    'notefy.tema': 'escuro',
+  })
+  await adotarEstudoSemDono(async (id) => id === 'd1')
+  assert.equal(caixa['notefy.estudo.2026-10-11@ana'], '120')
+  assert.equal(JSON.parse(caixa['notefy.estudo.2026-10-11.docs@ana']).d1.s, 120)
+  assert.equal(caixa['notefy.estudo.2026-10-11'], undefined, 'a chave sem dono sai')
+  assert.equal(caixa['notefy.tema'], 'escuro', 'o que é do aparelho fica')
+})
+
+test('item de outra conta na lista: o estudo sem dono é descartado, não herdado', async () => {
+  definirConta('bia')
+  const caixa = armazenamento({
+    'notefy.estudo.2026-10-11': '4260',
+    'notefy.estudo.2026-10-11.docs': JSON.stringify({ d1: { s: 60 }, deOutra: { s: 4200 } }),
+  })
+  await adotarEstudoSemDono(async (id) => id === 'd1')
+  assert.deepEqual(Object.keys(caixa), [])
+})
+
+test('o que o cronômetro já gravou na chave nova se soma ao antigo', async () => {
+  definirConta('ana')
+  const caixa = armazenamento({ 'notefy.estudo.2026-10-11': '100', 'notefy.estudo.2026-10-11@ana': '5' })
+  await adotarEstudoSemDono(async () => true)
+  assert.equal(caixa['notefy.estudo.2026-10-11@ana'], '105')
+  delete globalThis.localStorage
 })

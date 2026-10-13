@@ -247,6 +247,8 @@ export default function Home() {
   }
   useListenerDeJanela('notefy:moved', aoMudarAlgo)
   useListenerDeJanela('notefy:task-changed', aoMudarAlgo)
+  // "Personalizar" do botão direito no Início (o menu mora no AppLayout).
+  useListenerDeJanela('notefy:personalizar', () => setPersonalizando(true))
 
   const abrirMenu = (tipo, item, event) => {
     event.preventDefault()

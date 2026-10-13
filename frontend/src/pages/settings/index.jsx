@@ -66,9 +66,11 @@ export default function Settings() {
             de rolagem atravessada embaixo. Quebrar a linha mostra as
             sete de uma vez, que é o ponto de ter abas. */}
         <div className="flex flex-col gap-6 md:flex-row md:gap-8">
+          {/* No desktop a coluna acompanha a rolagem: numa aba longa (Aparência)
+              as outras seções continuam à mão sem voltar ao topo. */}
           <nav
             aria-label={t('Seções das configurações')}
-            className="flex shrink-0 flex-wrap gap-1 md:w-44 md:flex-col md:flex-nowrap"
+            className="flex shrink-0 flex-wrap gap-1 md:sticky md:top-6 md:w-44 md:flex-col md:flex-nowrap md:self-start"
           >
             {ABAS.map(({ rota, label, icon: Icon }) => (
               <NavLink

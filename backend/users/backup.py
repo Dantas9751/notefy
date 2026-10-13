@@ -26,6 +26,7 @@ from core.idioma import texto
 from organization.models import Category, Folder
 from planner.models import ChecklistItem, Task
 
+from .barra import limpar_barra
 from .inicio import MAX_RASCUNHO, limpar_inicio
 from .models import UserPreferences
 
@@ -60,9 +61,10 @@ CAMPOS_DE_PREFERENCIA = (
     "accent_color",
     "editor_font_size",
     "week_starts_on_monday",
-    # Conferidos de novo na volta (`_preferencias_do_backup`): são os dois
+    # Conferidos de novo na volta (`_preferencias_do_backup`): são os
     # campos livres da lista, e o .zip vem de fora.
     "home_layout",
+    "sidebar_layout",
     "scratch_pad",
 )
 
@@ -592,6 +594,13 @@ def _preferencias_do_backup(prefs):
             limpo["home_layout"] = limpar_inicio(limpo["home_layout"])
         except DjangoValidationError:
             del limpo["home_layout"]
+    if "sidebar_layout" in limpo:
+        try:
+            limpo["sidebar_layout"] = limpar_barra(limpo["sidebar_layout"])
+        except DjangoValidationError:
+            del limpo["sidebar_layout"]
+    if limpo.get("default_view") not in UserPreferences.DefaultView.values:
+        limpo.pop("default_view", None)
     if "scratch_pad" in limpo:
         if isinstance(limpo["scratch_pad"], str):
             limpo["scratch_pad"] = limpo["scratch_pad"][:MAX_RASCUNHO]

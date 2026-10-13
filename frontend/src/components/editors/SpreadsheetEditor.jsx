@@ -564,7 +564,7 @@ function FilterBar({ data, onChange, visiveis }) {
       )}
       {/* Quantas linhas o filtro deixa à vista: é aqui que essa conta importa. */}
       <span className="ml-auto text-[11px] tabular-nums text-ink-400">
-        {t('{shown} de {total} linha(s)', { shown: visiveis, total })}
+        {total === 1 ? t('{shown} de 1 linha@@tabela', { shown: visiveis }) : t('{shown} de {total} linhas@@tabela', { shown: visiveis, total })}
       </span>
     </div>
   )

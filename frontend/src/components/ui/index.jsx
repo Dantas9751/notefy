@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef } from 'react'
+import { cloneElement, forwardRef, isValidElement, useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, Trash2, X } from 'lucide-react'
 import { cn, readableTextColor } from '@/lib/utils'
@@ -62,11 +62,16 @@ export function Button({
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }) {
   const panelRef = useRef(null)
+  // Em ref: quem abre o modal costuma passar uma função nova a cada render, e
+  // com ela nas dependências o efeito abaixo refazia o foco no painel a cada
+  // render de fora, tirando o foco do campo ou do botão em uso.
+  const fecharRef = useRef(onClose)
+  fecharRef.current = onClose
 
   useEffect(() => {
     if (!open) return undefined
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose?.()
+      if (e.key === 'Escape') fecharRef.current?.()
     }
     document.addEventListener('keydown', onKeyDown)
     // Trava o scroll do fundo enquanto o modal está aberto.
@@ -77,7 +82,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previous
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
@@ -265,6 +270,26 @@ export function Badge({ children, className, color }) {
   )
 }
 
+/** Liga/desliga. Sem rótulo visível, o `rotulo` vai para o leitor de tela. */
+export function Interruptor({ checked, onChange, rotulo, className }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={rotulo}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'h-5 w-9 shrink-0 rounded-full p-0.5 transition',
+        checked ? 'bg-accent-600' : 'bg-ink-300 dark:bg-ink-700',
+        className,
+      )}
+    >
+      <span className={cn('block h-4 w-4 rounded-full bg-white shadow transition-transform', checked && 'translate-x-4')} />
+    </button>
+  )
+}
+
 export function ColorDot({ color, size = 8 }) {
   return (
     <span
@@ -280,17 +305,23 @@ export function ColorDot({ color, size = 8 }) {
  * botão dentro dele herdaria o comportamento de ativação do rótulo.
  */
 export function Field({ label, error, hint, action, children }) {
+  const id = useId()
+  // Com um campo só como filho, o rótulo aponta para ele e a dica (ou o erro)
+  // o descreve: o leitor de tela lê o nome do campo, e clicar no rótulo o foca.
+  const campo = isValidElement(children) && CAMPOS.includes(children.type) ? children : null
+  const idDoCampo = campo ? campo.props.id ?? id : undefined
+  const idDaDica = campo && (error || hint) ? `${id}-dica` : undefined
   return (
     <div>
       {(label || action) && (
         <div className="flex items-end justify-between gap-2">
-          {label && <label className="label">{label}</label>}
+          {label && <label className="label" htmlFor={idDoCampo}>{label}</label>}
           {action}
         </div>
       )}
-      {children}
-      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      {hint && !error && <p className="mt-1 text-xs text-ink-400">{hint}</p>}
+      {campo ? cloneElement(campo, { id: idDoCampo, 'aria-describedby': idDaDica }) : children}
+      {error && <p id={idDaDica} className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {hint && !error && <p id={idDaDica} className="mt-1 text-xs text-ink-400">{hint}</p>}
     </div>
   )
 }
@@ -315,5 +346,8 @@ export const Input = forwardRef(function Input({ className, ...props }, ref) {
 export function Textarea({ className, ...props }) {
   return <textarea className={cn('input resize-y', className)} {...props} />
 }
+
+/** Os campos que o `Field` liga ao rótulo. */
+const CAMPOS = ['input', 'select', 'textarea', Input, Select, Textarea]
 
 export { readableTextColor }

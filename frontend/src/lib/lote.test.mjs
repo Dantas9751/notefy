@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { emLote, ignorar404 } from './lote.js'
+import { emLote, ignorarSeJaSaiu } from './lote.js'
 
 const recusa = (status, detail) => Object.assign(new Error('axios'), { response: { status, data: { detail } } })
 
@@ -20,8 +20,9 @@ test('tudo certo devolve null', async () => {
   assert.equal(await emLote(['a', 'b'], async () => {}), null)
 })
 
-test('404 conta como feito; outro erro continua sendo erro', async () => {
-  assert.equal(await emLote([1], () => Promise.reject(recusa(404)).catch(ignorar404)), null)
-  const resumo = await emLote([1], () => Promise.reject(recusa(500)).catch(ignorar404))
+test('404 e 410 contam como feito; outro erro continua sendo erro', async () => {
+  assert.equal(await emLote([1], () => Promise.reject(recusa(404)).catch(ignorarSeJaSaiu)), null)
+  assert.equal(await emLote([1], () => Promise.reject(recusa(410)).catch(ignorarSeJaSaiu)), null)
+  const resumo = await emLote([1], () => Promise.reject(recusa(500)).catch(ignorarSeJaSaiu))
   assert.equal(resumo.falhas, 1)
 })

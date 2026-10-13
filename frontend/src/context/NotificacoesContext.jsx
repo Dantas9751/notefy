@@ -9,6 +9,7 @@ import {
   podarDisparados,
 } from '@/lib/avisos'
 import { t } from '@/lib/i18n'
+import { jaSaiu } from '@/lib/lote'
 
 /**
  * A central de notificações: o que venceu ou vai vencer, dentro do app.
@@ -206,7 +207,7 @@ export function NotificacoesProvider({ children }) {
         const { data } = await api.get(`/tasks/${item.tarefaId}/`)
         setTarefaAberta(data)
       } catch (err) {
-        if (err.response?.status !== 404) return
+        if (!jaSaiu(err)) return
         // Excluída depois que o aviso saiu. O aviso fica, marcado, para
         // o clique não parecer ter falhado em silêncio.
         const atual = lerEstado(chave)

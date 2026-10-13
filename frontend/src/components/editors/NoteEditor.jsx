@@ -34,6 +34,8 @@ import {
   removerSecao,
 } from '@/lib/nota'
 import { cn } from '@/lib/utils'
+import { useUI } from '@/context/UIContext'
+import { ENTRELINHAS, LARGURAS_DA_FOLHA, leituraDaNota } from '@/lib/aparencia'
 import { idioma, t } from '@/lib/i18n'
 import { casa, numeroDaSerie } from '@/lib/atalhos'
 import { atalhoDe } from '@/lib/history'
@@ -118,6 +120,9 @@ const NoteEditor = forwardRef(function NoteEditor({
 }, ref) {
   const pagina = useMemo(() => normalizar(data?.sections), [data?.sections])
   const notaVazia = pagina.length === 1 && htmlVazio(pagina[0].html)
+  // Largura da folha e espaço entre linhas: o da nota, ou o padrão de Aparência.
+  const { leituraPadrao } = useUI()
+  const leitura = leituraDaNota(leituraPadrao, data?.leitura)
 
   // O dado mais novo, para duas operações seguidas no mesmo evento não
   // trabalharem sobre a mesma versão velha (o render ainda não veio).
@@ -757,7 +762,9 @@ const NoteEditor = forwardRef(function NoteEditor({
 
       {/* A mesa e a folha: no celular a folha ocupa a tela, sem margem. */}
       <div className="flex-1 bg-ink-50 pb-10 sm:px-6 sm:pt-6 dark:bg-black/25" onMouseDown={selecionarDaMargem}>
-        <div className="folha mx-auto w-full max-w-[816px] bg-white px-5 pt-5 sm:rounded-md sm:border sm:border-ink-150 sm:px-12 sm:pt-10 sm:shadow-subtle dark:bg-ink-900 sm:dark:border-ink-800">
+        <div
+          style={{ maxWidth: LARGURAS_DA_FOLHA[leitura.largura], '--entrelinha': ENTRELINHAS[leitura.entrelinha] }}
+          className="folha mx-auto w-full bg-white px-5 pt-5 sm:rounded-md sm:border sm:border-ink-150 sm:px-12 sm:pt-10 sm:shadow-subtle dark:bg-ink-900 sm:dark:border-ink-800">
           {cabecalho}
 
           <div ref={corpoRef} className="mt-5 max-sm:pl-6" onKeyDownCapture={capturarHistorico}>

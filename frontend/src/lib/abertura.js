@@ -19,17 +19,59 @@ export const TEMPOS = {
 
 /** Com movimento reduzido: o nome inteiro, parado, só aparece e some. */
 export const TEMPOS_REDUZIDOS = {
-  nota: [0, 200],
-  saida: [900, 1200],
+  // Fade de meio segundo: com 200 ms o nome parecia brotar na tela de uma vez.
+  nota: [100, 600],
+  saida: [1300, 1700],
 }
 
 export const DURACAO = TEMPOS.saida[1]
 export const DURACAO_REDUZIDA = TEMPOS_REDUZIDOS.saida[1]
 
+/**
+ * Onde a abertura espera o app ficar pronto: logo antes de a tela abrir. Sem
+ * esperar, ela acabava antes do backend e deixava um vazio escuro no meio.
+ */
+export const inicioDaSaida = (reduzido) => (reduzido ? TEMPOS_REDUZIDOS : TEMPOS).saida[0]
+
 /** Pular: quanto dura a saída a partir de onde estiver. */
 export const SAIDA_AO_PULAR = 220
 
 const CHAVE_VISTA = 'notefy.aberturaVista'
+const CHAVE_MODO = 'notefy.abertura'
+
+/** Configurações → Aparência: seguir o "movimento reduzido" do sistema, animar sempre ou não abrir com nada. */
+export const MODOS_DA_ABERTURA = ['sistema', 'sempre', 'nunca']
+
+export function modoDaAbertura() {
+  try {
+    const modo = localStorage.getItem(CHAVE_MODO)
+    return MODOS_DA_ABERTURA.includes(modo) ? modo : 'sistema'
+  } catch {
+    return 'sistema'
+  }
+}
+
+export function definirModoDaAbertura(modo) {
+  try {
+    localStorage.setItem(CHAVE_MODO, modo)
+  } catch {
+    // Sem armazenamento: vale só até fechar.
+  }
+}
+
+/**
+ * Como a abertura passa: `'completa'` (a caneta escrevendo), `'reduzida'` (o
+ * nome parado, que só aparece e some) ou `null` (não passa).
+ *
+ * "Sempre" existe porque o movimento reduzido do Windows vem dos "Efeitos de
+ * animação", que muita gente desliga por desempenho, e não por enjoo: aí a
+ * abertura era só o nome parado, sem a pessoa saber por quê.
+ */
+export function comoAbrir(modo, sistemaReduz) {
+  if (modo === 'nunca') return null
+  if (modo === 'sempre') return 'completa'
+  return sistemaReduz ? 'reduzida' : 'completa'
+}
 
 /** Já passou nesta abertura do app? Sem `sessionStorage` (bloqueado, ou fora do navegador) conta como vista. */
 export function aberturaJaVista() {

@@ -2,8 +2,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File build-desktop.ps1
 #
-# Sao quatro etapas: empacotar o backend Django num executavel, coloca-lo
-# assinado onde o Tauri espera o sidecar, compilar o aplicativo e empacotar
+# Sao quatro etapas: empacotar o backend Django numa pasta, coloca-la com o
+# executavel assinado entre os recursos do Tauri, compilar o aplicativo e empacotar
 # os instaladores, que sao assinados no fim. O frontend e compilado pelo
 # proprio Tauri (beforeBuildCommand), no modo "desktop", que aponta a API
 # para o backend embutido em vez do proxy do Vite.
@@ -131,29 +131,21 @@ if ($LASTEXITCODE -ne 0) { Pop-Location; throw "falha ao empacotar o backend" }
 Pop-Location
 
 Write-Host ""
-Write-Host "[2/4] Instalando o backend como sidecar..." -ForegroundColor Cyan
+Write-Host "[2/4] Colocando o backend entre os recursos do app..." -ForegroundColor Cyan
 $destino = "$raiz\frontend\src-tauri\binaries"
 New-Item -ItemType Directory -Force $destino | Out-Null
 
-# O Tauri procura o sidecar pelo nome com sufixo do alvo de compilacao.
-# No Windows ele assume "msvc" mesmo quando a toolchain do Rust e a "gnu",
-# entao gravamos os dois nomes: o binario e o mesmo (vem do PyInstaller e
-# nao tem relacao com o alvo do Rust), so o nome que o bundler procura muda.
-# ($alvo ja veio la de cima, junto da escolha do linker.)
-
-# Assina o original UMA vez e so entao copia: as duas copias saem prontas
-# e assinadas. Assinar cada copia separadamente significaria esperar o
-# antivirus liberar um arquivo de 50 MB duas vezes, e foi o que derrubava
-# o build.
+# O backend e uma pasta (onedir), e nao um sidecar de arquivo unico: o
+# tauri.conf.json a declara como recurso e o lib.rs inicia o executavel de
+# dentro dela. Assina antes de copiar, para a copia ja sair assinada.
 Write-Host "    assinando o backend..."
-Assinar "$raiz\backend\dist\notefy-server.exe"
+Assinar "$raiz\backend\dist\notefy-server\notefy-server.exe"
 
-# Na toolchain msvc os dois nomes coincidem; o -Unique evita copiar o
-# mesmo arquivo de 50 MB duas vezes.
-foreach ($sufixo in (@($alvo, "x86_64-pc-windows-msvc") | Select-Object -Unique)) {
-    Copy-Item "$raiz\backend\dist\notefy-server.exe" "$destino\notefy-server-$sufixo.exe" -Force
-    Write-Host "    -> notefy-server-$sufixo.exe"
-}
+# Os sidecars de arquivo unico dos builds antigos nao servem mais.
+Get-ChildItem $destino -Filter "notefy-server-*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+if (Test-Path "$destino\notefy-server") { Remove-Item "$destino\notefy-server" -Recurse -Force }
+Copy-Item "$raiz\backend\dist\notefy-server" "$destino\notefy-server" -Recurse -Force
+Write-Host ("    -> notefy-server\ ({0} arquivos)" -f (Get-ChildItem "$destino\notefy-server" -Recurse -File).Count)
 
 # A toolchain MSVC embute o WebView2Loader no executavel; a GNU o deixa
 # como DLL externa. Sem ela ao lado do .exe, o app nem abre na maquina de

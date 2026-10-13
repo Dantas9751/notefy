@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BLOCOS, CAPA_PADRAO, VAO, alinhar, blocosParaSalvar, layoutDoInicio, posicionar, restaurado, tituloDoRascunho, alternarBlocos, recorteAoMover, recorteParaSalvar, recorteDa, prenderNaTela, RELOGIO_FLUTUANTE } from './inicio.js'
+import { BLOCOS, CAPA_PADRAO, VAO, alinhar, blocosParaSalvar, layoutDoInicio, posicionar, restaurado, tituloDoRascunho, alternarBlocos, recorteAoMover, recorteParaSalvar, recorteDa } from './inicio.js'
 
 test('sem nada salvo, todos os blocos na ordem padrão', () => {
   const layout = layoutDoInicio(null)
@@ -182,16 +182,4 @@ test('recorte: arrastar leva o ponto da foto junto com o cursor, até a borda', 
   // Imagem ainda sem medida: fica como está.
   assert.equal(recorteAoMover(r, 10, 10, { w: 0, h: 0 }, caixa), r)
   assert.deepEqual(recorteParaSalvar({ x: 12.345, y: 99.99, zoom: 4 }), { x: 12.3, y: 100, zoom: 3 })
-})
-
-test('relógio flutuante: nunca sai da janela, nem quando ela encolhe', () => {
-  const tela = { w: 1280, h: 800 }
-  assert.deepEqual(prenderNaTela({ x: 100, y: 100, w: 320, h: 200 }, tela), { x: 100, y: 100, w: 320, h: 200 })
-  // Arrastado para fora, volta para a borda (com 8 px de margem).
-  assert.deepEqual(prenderNaTela({ x: 5000, y: -50, w: 320, h: 200 }, tela), { x: 1280 - 320 - 8, y: 8, w: 320, h: 200 })
-  // Tamanho dentro dos limites.
-  const grande = prenderNaTela({ x: 0, y: 0, w: 5000, h: 10 }, tela)
-  assert.deepEqual([grande.w, grande.h], [RELOGIO_FLUTUANTE.wMax, RELOGIO_FLUTUANTE.hMin])
-  // Janela menor que o relógio: encolhe até o mínimo e fica no canto.
-  assert.deepEqual(prenderNaTela({ x: 300, y: 300, w: 320, h: 200 }, { w: 230, h: 160 }), { x: 8, y: 8, w: 220, h: 150 })
 })

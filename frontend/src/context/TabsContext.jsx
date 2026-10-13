@@ -10,10 +10,14 @@ import {
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { semQuery } from '@/context/SplitContext'
 import { t } from '@/lib/i18n'
+import { chaveDaConta } from '@/lib/conta'
+import { guardarSessao, janelaDestacada, lerSessao } from '@/lib/sessao'
+import { useAuth } from '@/context/AuthContext'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 const TabsContext = createContext(null)
 
-/** Por janela, não por usuário: cada janela tem o seu conjunto de abas. */
+/** Por janela e por conta: cada janela tem o seu conjunto de abas, e outra conta não herda as desta. */
 const STORAGE_KEY = 'notefy.tabs'
 
 /**
@@ -64,6 +68,12 @@ const TITULOS_PADRAO = {
   get templates() { return t('Modelos') },
 }
 
+/** Rotas de passagem: não viram aba, mas dão nome à janela (na barra de tarefas, "Notefy" sozinho não diz onde se está). */
+const TITULOS_SEM_ABA = [
+  [/^\/search/, () => t('Buscar')],
+  [/^\/settings/, () => t('Configurações')],
+]
+
 /** Páginas cujo título é sempre o padrão (categoria e pasta levam o nome delas). */
 const TITULOS_FIXOS = new Set(['home', 'board', 'calendar', 'recent', 'trash', 'roadmap', 'files', 'templates'])
 
@@ -85,24 +95,43 @@ export function tabDe(location) {
   return title ? { key, path: key, kind: par[1], title } : { key, path: key, kind: par[1] }
 }
 
+/**
+ * O título das páginas fixas é refeito na leitura: as abas sobrevivem à troca
+ * de idioma, e "Início" guardado precisa virar "Home".
+ */
+const noIdiomaAtual = (abas) =>
+  abas.map((aba) => (TITULOS_FIXOS.has(aba.kind) ? { ...aba, title: TITULOS_PADRAO[aba.kind] } : aba))
+
+function abasDaJanela(chave) {
+  try {
+    const bruto = chave && sessionStorage.getItem(chave)
+    const lido = bruto ? JSON.parse(bruto) : []
+    return Array.isArray(lido) ? noIdiomaAtual(lido) : []
+  } catch {
+    return []
+  }
+}
+
 export function TabsProvider({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const tipoNavegacao = useNavigationType()
+  const { user } = useAuth()
+  // A conta não muda com o provedor montado: entrar com outra desmonta tudo.
+  const [chave] = useState(() => chaveDaConta(STORAGE_KEY))
 
-  const [tabs, setTabs] = useState(() => {
-    try {
-      const bruto = sessionStorage.getItem(STORAGE_KEY)
-      const lido = bruto ? JSON.parse(bruto) : []
-      // O título das páginas fixas é refeito na leitura: as abas sobrevivem
-      // à troca de idioma, e "Início" guardado precisa virar "Home".
-      return Array.isArray(lido)
-        ? lido.map((aba) => (TITULOS_FIXOS.has(aba.kind) ? { ...aba, title: TITULOS_PADRAO[aba.kind] } : aba))
-        : []
-    } catch {
-      return []
-    }
+  // "Onde parei" (Tela inicial): o app abrindo, sem abas nesta janela, reabre
+  // as da última sessão e vai para a que estava em foco (`destino`).
+  const [inicio] = useState(() => {
+    const daJanela = abasDaJanela(chave)
+    const continuar =
+      !daJanela.length && location.pathname === '/' && user?.preferences?.default_view === 'last' && !janelaDestacada()
+    const sessao = continuar ? lerSessao() : null
+    return sessao ? { abas: noIdiomaAtual(sessao.abas), destino: sessao.ativa } : { abas: daJanela, destino: null }
   })
+  const [tabs, setTabs] = useState(inicio.abas)
+  //: A aba para onde a sessão reaberta vai; some quando a rota chega lá.
+  const destinoRef = useRef(inicio.destino)
 
   const atual = tabDe(location)
 
@@ -141,6 +170,13 @@ export function TabsProvider({ children }) {
     anterior.current = activeKey
 
     setTabs((atuais) => {
+      // Sessão reaberta: a rota de partida (`/`) não vira aba. O caminho até
+      // o destino é só passagem.
+      if (destinoRef.current) {
+        if (atual?.path === destinoRef.current.path) destinoRef.current = null
+        return atuais
+      }
+
       // Nunca zero abas: a tela sempre mostra alguma rota, e ela precisa de
       // uma aba que a represente. Cobre a primeira abertura (o login chega
       // aqui por `replace`, que o resto do efeito ignora) e o fechamento da
@@ -197,13 +233,32 @@ export function TabsProvider({ children }) {
   }, [activeKey, tipoNavegacao, pathAtual])
 
   useEffect(() => {
+    const destino = destinoRef.current
+    if (!destino) return
+    ultimaAtiva.current = destino.key
+    navigate(destino.path, { replace: true })
+  }, [navigate])
+
+  useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(tabs))
+      if (chave) sessionStorage.setItem(chave, JSON.stringify(tabs))
     } catch {
       // Modo privado sem quota: perder a restauração é aceitável, quebrar
       // a navegação não.
     }
   }, [tabs])
+
+  // O ícone trocado num item vale também para a aba dele que não está à
+  // mostra: quem atualiza a aba ativa é a página (`useTabState`).
+  useListenerDeJanela('notefy:icone', (evento) => {
+    const { id, icon } = evento.detail ?? {}
+    if (!id) return
+    setTabs((atuais) =>
+      atuais.some((aba) => semQuery(aba.path).endsWith(`/${id}`))
+        ? atuais.map((aba) => (semQuery(aba.path).endsWith(`/${id}`) ? { ...aba, icone: icon } : aba))
+        : atuais,
+    )
+  })
 
   /** Atualiza título/estado de uma aba sem trocar o array à toa. */
   const patchTab = useCallback((key, changes) => {
@@ -312,6 +367,11 @@ export function TabsProvider({ children }) {
     return tabs.length ? tabs[tabs.length - 1].key : null
   }, [activeKey, tabs])
 
+  // Sempre, e não só com "Onde parei" ligado: quem liga depois já encontra a sessão anterior.
+  useEffect(() => {
+    guardarSessao(tabs, chaveEmFoco)
+  }, [tabs, chaveEmFoco])
+
   const value = useMemo(
     () => ({
       tabs,
@@ -343,7 +403,9 @@ export function TabsProvider({ children }) {
   // Recentes...). Era só o documento que o escrevia, e as páginas deixavam
   // "Notefy": numa aba destacada como janela, a barra de tarefas não dizia
   // qual era qual.
-  const tituloAtivo = tabs.find((aba) => aba.key === activeKey)?.title
+  const tituloAtivo = activeKey
+    ? tabs.find((aba) => aba.key === activeKey)?.title
+    : TITULOS_SEM_ABA.find(([rota]) => rota.test(location.pathname))?.[1]()
   useEffect(() => {
     document.title = tituloAtivo ? `${tituloAtivo} — Notefy` : 'Notefy'
   }, [tituloAtivo])
@@ -364,7 +426,7 @@ export function useTabs() {
  * carregou. Também é daqui que sai o título da janela, o que importa
  * quando uma aba é destacada e vira janela própria na barra de tarefas.
  */
-export function useTabState({ title, dirty = false, enabled = true } = {}) {
+export function useTabState({ title, dirty = false, enabled = true, icone } = {}) {
   const { activeKey, patchTab, tabs } = useTabs()
 
   // Efeito de filho roda ANTES do efeito do pai, então na primeira vez a
@@ -378,11 +440,16 @@ export function useTabState({ title, dirty = false, enabled = true } = {}) {
   // A página reaproveitada entre dois documentos ainda segura o anterior
   // enquanto o novo carrega — e, se o novo foi para a lixeira, para
   // sempre: a aba dele ganhava o nome do item aberto antes.
+  // `icone` segue a mesma regra: indefinido mantém o que a aba já mostra.
   useEffect(() => {
     if (enabled && activeKey && jaExiste) {
-      patchTab(activeKey, title === undefined ? { dirty: !!dirty } : { title: title || t('Sem título'), dirty: !!dirty })
+      patchTab(activeKey, {
+        dirty: !!dirty,
+        ...(title !== undefined && { title: title || t('Sem título') }),
+        ...(icone !== undefined && { icone }),
+      })
     }
-  }, [enabled, activeKey, jaExiste, title, dirty, patchTab])
+  }, [enabled, activeKey, jaExiste, title, dirty, icone, patchTab])
 
   // O título da janela sai da aba ativa (no `TabsProvider`). `enabled:
   // false` é o painel lateral do split: a aba pertence ao documento da

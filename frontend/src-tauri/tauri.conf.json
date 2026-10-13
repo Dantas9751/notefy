@@ -20,6 +20,7 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
+        "visible": false,
         "dragDropEnabled": false,
         "decorations": false,
         "shadow": true
@@ -41,9 +42,9 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/notefy-server"],
     "resources": {
-      "binaries/WebView2Loader.dll": "WebView2Loader.dll"
+      "binaries/WebView2Loader.dll": "WebView2Loader.dll",
+      "binaries/notefy-server/": "backend/"
     },
     "windows": {
       "nsis": {

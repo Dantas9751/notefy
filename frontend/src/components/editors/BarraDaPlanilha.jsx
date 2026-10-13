@@ -30,10 +30,10 @@ import {
   WrapText,
   X,
 } from 'lucide-react'
-import { Botao, Divisoria, Escolha, MenuDaBarra, Painel, SeletorDeCor } from './BarraDeFuncoes'
+import { BarraQueCabe, Botao, Divisoria, Escolha, MenuDaBarra, Painel, SeletorDeCor } from './BarraDeFuncoes'
 import { FUNCOES, assinaturaDe, funcaoPorNome } from '@/lib/formula'
 import { idioma, t } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
+import { comTecla } from '@/lib/atalhos'
 
 /**
  * A barra de funções da planilha — o "Página Inicial" do Excel.
@@ -159,17 +159,9 @@ export default function BarraDaPlanilha({ estado, acoes }) {
   const conta = (nome) => funcaoPorNome(nome)
 
   return (
-    <div
-      role="toolbar"
-      aria-label={t('Barra de funções da planilha')}
-      className={cn(
-        'flex items-center gap-px px-2 py-1',
-        // Celular: uma fileira que rola de lado, como a barra da nota.
-        'max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:[scrollbar-width:none] sm:flex-wrap',
-      )}
-    >
-      <Botao icon={Undo2} rotulo={t('Desfazer (Ctrl+Z)')} onClick={acoes.desfazer} />
-      <Botao icon={Redo2} rotulo={t('Refazer (Ctrl+Y)')} onClick={acoes.refazer} />
+    <BarraQueCabe rotulo={t('Barra de funções da planilha')}>
+      <Botao icon={Undo2} rotulo={comTecla(t('Desfazer'), 'desfazer')} onClick={acoes.desfazer} />
+      <Botao icon={Redo2} rotulo={comTecla(t('Refazer'), 'refazer')} onClick={acoes.refazer} />
 
       <Divisoria />
 
@@ -215,9 +207,9 @@ export default function BarraDaPlanilha({ estado, acoes }) {
 
       <Divisoria />
 
-      <Botao icon={Bold} rotulo={t('Negrito (Ctrl+B)')} ativo={!!estilo.bold} desligado={semCelula} onClick={() => acoes.alternar('bold')} />
-      <Botao icon={Italic} rotulo={t('Itálico (Ctrl+I)')} ativo={!!estilo.italic} desligado={semCelula} onClick={() => acoes.alternar('italic')} />
-      <Botao icon={Underline} rotulo={t('Sublinhado (Ctrl+U)')} ativo={!!estilo.underline} desligado={semCelula} onClick={() => acoes.alternar('underline')} />
+      <Botao icon={Bold} rotulo={comTecla(t('Negrito'), 'planilha.negrito')} ativo={!!estilo.bold} desligado={semCelula} onClick={() => acoes.alternar('bold')} />
+      <Botao icon={Italic} rotulo={comTecla(t('Itálico'), 'planilha.italico')} ativo={!!estilo.italic} desligado={semCelula} onClick={() => acoes.alternar('italic')} />
+      <Botao icon={Underline} rotulo={comTecla(t('Sublinhado'), 'planilha.sublinhado')} ativo={!!estilo.underline} desligado={semCelula} onClick={() => acoes.alternar('underline')} />
       <Botao icon={Strikethrough} rotulo={t('Tachado')} ativo={!!estilo.strike} desligado={semCelula} onClick={() => acoes.alternar('strike')} />
       <SeletorDeCor tipo="texto" desligado={semCelula} onAplicar={(cor) => acoes.estilo({ color: cor })} />
       <SeletorDeCor tipo="preenchimento" desligado={semCelula} onAplicar={(cor) => acoes.estilo({ fill: cor })} />
@@ -311,7 +303,7 @@ export default function BarraDaPlanilha({ estado, acoes }) {
       <Divisoria />
 
       {/* Soma automática: o Σ soma; a setinha traz as outras contas. */}
-      <Botao icon={Sigma} rotulo={t('Soma automática (Alt+=)')} desligado={semCelula} onClick={() => acoes.autoSoma(conta('SOMA'))} className="rounded-r-none pr-1" />
+      <Botao icon={Sigma} rotulo={comTecla(t('Soma automática'), 'planilha.soma')} desligado={semCelula} onClick={() => acoes.autoSoma(conta('SOMA'))} className="rounded-r-none pr-1" />
       <MenuDaBarra
         icon={null}
         rotulo={t('Outras contas automáticas')}
@@ -321,6 +313,6 @@ export default function BarraDaPlanilha({ estado, acoes }) {
         itens={CONTAS.map((nome) => ({ label: nomeDa(conta(nome)), onClick: () => acoes.autoSoma(conta(nome)) }))}
       />
       <MenuDeFuncoes desligado={semCelula} onInserir={acoes.inserirFuncao} />
-    </div>
+    </BarraQueCabe>
   )
 }

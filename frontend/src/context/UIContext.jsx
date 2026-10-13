@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ACCENT_PADRAO, ACCENT_PADRAO_ANTIGO, aplicarAccent, corValida } from '@/lib/accent'
 import { idioma } from '@/lib/i18n'
-import { telaCheia } from '@/lib/desktop'
+import { definirZoom, telaCheia } from '@/lib/desktop'
 import { aplicarTema, assinarTemas, baseDoTema, temaPorId, versaoDeTemas } from '@/lib/temas'
 import { FONTES_DA_NOTA, FONTES_DO_APP, pilha } from '@/lib/fontes'
+import { DENSIDADES, LEITURA_PADRAO, TAMANHOS, TAMANHO_PADRAO, leituraDaNota, umDe } from '@/lib/aparencia'
 
 const UIContext = createContext(null)
 
@@ -13,6 +14,18 @@ const ACCENT_KEY = 'notefy.accent'
 const ZEN_KEY = 'notefy.zen'
 const FONTE_APP_KEY = 'notefy.fonteApp'
 const FONTE_NOTA_KEY = 'notefy.fonteNota'
+const TAMANHO_KEY = 'notefy.tamanho'
+const DENSIDADE_KEY = 'notefy.densidade'
+const LEITURA_KEY = 'notefy.leitura'
+
+/** O JSON guardado, ou `null` se não houver ou estiver quebrado. */
+function lerJson(chave) {
+  try {
+    return JSON.parse(localStorage.getItem(chave) || 'null')
+  } catch {
+    return null
+  }
+}
 
 export function UIProvider({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -34,6 +47,10 @@ export function UIProvider({ children }) {
   // Fontes do app e das notas: por aparelho, como o tema e a cor.
   const [fonteApp, setFonteApp] = useState(() => localStorage.getItem(FONTE_APP_KEY) || 'padrao')
   const [fonteNota, setFonteNota] = useState(() => localStorage.getItem(FONTE_NOTA_KEY) || 'app')
+  // Tamanho, densidade e leitura das notas: também do aparelho (`lib/aparencia`).
+  const [tamanho, setTamanhoState] = useState(() => umDe(Number(localStorage.getItem(TAMANHO_KEY)), TAMANHOS, TAMANHO_PADRAO))
+  const [densidade, setDensidadeState] = useState(() => umDe(localStorage.getItem(DENSIDADE_KEY), DENSIDADES, DENSIDADES[0]))
+  const [leituraPadrao, setLeituraPadraoState] = useState(() => leituraDaNota(lerJson(LEITURA_KEY)))
 
   // Fontes, tema e destaque em efeitos de LAYOUT: valem antes do primeiro quadro.
   // Com o efeito comum, o app abria um quadro no claro e só depois escurecia, e
@@ -49,6 +66,22 @@ export function UIProvider({ children }) {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed))
   }, [sidebarCollapsed])
+
+  // Cada janela aplica o próprio zoom ao abrir: ele não fica gravado na webview.
+  useEffect(() => {
+    localStorage.setItem(TAMANHO_KEY, String(tamanho))
+    definirZoom(tamanho / 100)
+  }, [tamanho])
+
+  // `.compacto` no <html>: as linhas e os respiros com a variante `compacto:` (tailwind.config) encolhem.
+  useLayoutEffect(() => {
+    localStorage.setItem(DENSIDADE_KEY, densidade)
+    document.documentElement.classList.toggle('compacto', densidade === 'compacta')
+  }, [densidade])
+
+  useEffect(() => {
+    localStorage.setItem(LEITURA_KEY, JSON.stringify(leituraPadrao))
+  }, [leituraPadrao])
 
   // Criar, editar ou apagar um tema personalizado refaz a aplicação do tema em uso.
   const versaoDosTemas = useSyncExternalStore(assinarTemas, versaoDeTemas)
@@ -119,6 +152,13 @@ export function UIProvider({ children }) {
     (cor) => setAccentState(corValida(cor) ? cor : ACCENT_PADRAO),
     [],
   )
+  const setTamanho = useCallback((valor) => setTamanhoState(umDe(Number(valor), TAMANHOS, TAMANHO_PADRAO)), [])
+  const setDensidade = useCallback((valor) => setDensidadeState(umDe(valor, DENSIDADES, DENSIDADES[0])), [])
+  /** `chave`: `largura` ou `entrelinha`. */
+  const setLeituraPadrao = useCallback(
+    (chave, valor) => setLeituraPadraoState((atual) => leituraDaNota({ ...atual, [chave]: valor ?? LEITURA_PADRAO[chave] })),
+    [],
+  )
 
   const value = useMemo(
     () => ({
@@ -138,6 +178,12 @@ export function UIProvider({ children }) {
       setFonteApp,
       fonteNota,
       setFonteNota,
+      tamanho,
+      setTamanho,
+      densidade,
+      setDensidade,
+      leituraPadrao,
+      setLeituraPadrao,
     }),
     [
       sidebarCollapsed,
@@ -150,6 +196,12 @@ export function UIProvider({ children }) {
       setAccent,
       fonteApp,
       fonteNota,
+      tamanho,
+      setTamanho,
+      densidade,
+      setDensidade,
+      leituraPadrao,
+      setLeituraPadrao,
     ],
   )
 

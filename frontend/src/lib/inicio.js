@@ -175,26 +175,6 @@ export const recorteParaSalvar = (r) => ({
   zoom: Math.round(prender(r.zoom, 1, 3) * 100) / 100,
 })
 
-/** O relógio flutuante (Alt+R): tamanho de partida e limites. */
-export const RELOGIO_FLUTUANTE = { w: 320, h: 200, wMin: 220, hMin: 150, wMax: 640, hMax: 420 }
-
-/**
- * Prende a caixa do relógio flutuante dentro da `tela` (a janela do app),
- * com uma margem: arrastado até a borda, ou com a janela encolhida depois,
- * ele nunca some de vista. O tamanho fica entre os limites e cabe na tela.
- */
-export function prenderNaTela(caixa, tela, margem = 8) {
-  const { wMin, hMin, wMax, hMax } = RELOGIO_FLUTUANTE
-  const w = prender(caixa.w, wMin, Math.max(wMin, Math.min(wMax, tela.w - margem * 2)))
-  const h = prender(caixa.h, hMin, Math.max(hMin, Math.min(hMax, tela.h - margem * 2)))
-  return {
-    x: Math.round(prender(caixa.x, margem, Math.max(margem, tela.w - w - margem))),
-    y: Math.round(prender(caixa.y, margem, Math.max(margem, tela.h - h - margem))),
-    w: Math.round(w),
-    h: Math.round(h),
-  }
-}
-
 /**
  * Mostra ou esconde blocos. Esconder guarda a posição; um bloco que volta
  * a aparecer a perde, e o app o recoloca embaixo de tudo — onde se vê que

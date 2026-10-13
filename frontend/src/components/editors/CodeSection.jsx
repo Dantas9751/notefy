@@ -11,7 +11,7 @@ import { podeExecutar, useExecucao } from '@/hooks/useExecucao'
 import SaidaDoCodigo from './SaidaDoCodigo'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-import { casa } from '@/lib/atalhos'
+import { casa, comTecla } from '@/lib/atalhos'
 
 /**
  * Bloco de código de uma nota.
@@ -236,7 +236,7 @@ const CodeSection = forwardRef(function CodeSection(
           title={
             !clicavel
               ? t('Só dá para executar JavaScript e Python')
-              : executando ? t('Parar') : t('Executar (Ctrl+Enter)')
+              : executando ? t('Parar') : comTecla(t('Executar'), 'nota.sairDoBloco')
           }
           className={cn(
             'shrink-0 rounded p-1 transition',

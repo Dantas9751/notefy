@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Pencil, Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { useUI } from '@/context/UIContext'
-import { Field, Select } from '@/components/ui'
+import { Button, Field, Select } from '@/components/ui'
 import ColorWheel from '@/components/ui/ColorWheel'
 import { ACCENT_PADRAO, CORES_PADRAO } from '@/lib/accent'
 import { FONTES_DA_NOTA, FONTES_DO_APP } from '@/lib/fontes'
@@ -9,10 +9,15 @@ import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import useTemas from '@/hooks/useTemas'
 import { TEMAS, amostraDoTema, apagarTemaPersonalizado, temaPorId } from '@/lib/temas'
 import { cn } from '@/lib/utils'
-import { Bloco, Chave } from './componentes'
+import { Bloco, Chave, Segmentos } from './componentes'
+import PersonalizarBarra from '@/components/layout/PersonalizarBarra'
+import { NOMES_DAS_ENTRELINHAS, NOMES_DAS_LARGURAS, TAMANHOS } from '@/lib/aparencia'
+import { noDesktop } from '@/lib/desktop'
 import EditorDeTema from './EditorDeTema'
 import { usePreferencias } from './index'
 import { IDIOMAS, idioma, t, trocarIdioma } from '@/lib/i18n'
+import { definirModoDaAbertura, modoDaAbertura } from '@/lib/abertura'
+import { fraseComTecla } from '@/lib/atalhos'
 
 /** Opções de fonte, cada uma desenhada nela mesma: escolher pelo olho. */
 function EscolhaDeFonte({ rotulo, opcoes, valor, onEscolher, amostra }) {
@@ -118,13 +123,33 @@ function EscolhaDeTema({ valor, destaque, onEscolher, onCriar, onEditar, onApaga
 }
 
 export default function AbaAparencia() {
-  const { theme, setTheme, zen, setZen, accent, setAccent, fonteApp, setFonteApp, fonteNota, setFonteNota } = useUI()
+  const {
+    theme,
+    setTheme,
+    zen,
+    setZen,
+    accent,
+    setAccent,
+    fonteApp,
+    setFonteApp,
+    fonteNota,
+    setFonteNota,
+    tamanho,
+    setTamanho,
+    densidade,
+    setDensidade,
+    leituraPadrao,
+    setLeituraPadrao,
+  } = useUI()
+  const [personalizandoBarra, setPersonalizandoBarra] = useState(false)
   const { prefs, savePrefs } = usePreferencias()
 
   const corPersonalizada = !CORES_PADRAO.includes(accent)
   // O editor de tema: `null` fechado, `{ tema }` aberto (`tema: null` é um tema novo).
   const [editor, setEditor] = useState(null)
   const [apagando, setApagando] = useState(null)
+  // Fica neste aparelho (localStorage): a abertura passa antes do login.
+  const [aberturaModo, setAberturaModo] = useState(modoDaAbertura)
 
   /** Usa o tema e a cor de destaque dele: é o que escolher uma paleta já faz. */
   const usarTema = (id) => {
@@ -223,13 +248,79 @@ export default function AbaAparencia() {
         />
       </Bloco>
 
+      <Bloco title={t('Tamanho e densidade')} description={t('Quanto cabe na tela. Vale para este computador.')}>
+        {/* No navegador o tamanho é o zoom dele (Ctrl + e Ctrl −): duas escalas brigariam. */}
+        {noDesktop() && (
+          <Segmentos
+            rotulo={t('Tamanho da interface')}
+            opcoes={TAMANHOS.map((n) => [n, `${n}%`])}
+            valor={tamanho}
+            onEscolher={setTamanho}
+            dica={t('Texto, botões e espaços crescem ou diminuem juntos.')}
+          />
+        )}
+        <Segmentos
+          rotulo={t('Densidade')}
+          opcoes={[['confortavel', t('Confortável')], ['compacta', t('Compacta')]]}
+          valor={densidade}
+          onEscolher={setDensidade}
+          dica={t('Compacta aperta as linhas das listas e da barra lateral para caber mais coisa.')}
+        />
+      </Bloco>
+
+      <Bloco
+        title={t('Leitura das notas')}
+        description={t('Como a folha das notas aparece. Cada nota pode ter a sua, no botão Leitura, no alto dela.')}
+      >
+        <Segmentos
+          rotulo={t('Largura da página')}
+          opcoes={Object.keys(NOMES_DAS_LARGURAS).map((id) => [id, NOMES_DAS_LARGURAS[id]])}
+          valor={leituraPadrao.largura}
+          onEscolher={(valor) => setLeituraPadrao('largura', valor)}
+        />
+        <Segmentos
+          rotulo={t('Espaço entre linhas')}
+          opcoes={Object.keys(NOMES_DAS_ENTRELINHAS).map((id) => [id, NOMES_DAS_ENTRELINHAS[id]])}
+          valor={leituraPadrao.entrelinha}
+          onEscolher={(valor) => setLeituraPadrao('entrelinha', valor)}
+        />
+      </Bloco>
+
       <Bloco title={t('Espaço de trabalho')} description={t('Como o Notefy abre e o quanto ele mostra.')}>
         <Chave
           checked={zen}
           onChange={setZen}
           label={t('Modo zen')}
-          description={t('Esconde a barra lateral e os cabeçalhos para sobrar só o conteúdo. Ctrl+. liga e desliga.')}
+          description={fraseComTecla(t('Esconde a barra lateral e os cabeçalhos para sobrar só o conteúdo.'), 'zen', (tecla) => t('{tecla} liga e desliga.', { tecla }))}
         />
+
+        <Field
+          label={t('Barra lateral')}
+          hint={t('A ordem dos atalhos e o que aparece nela. Também pelo botão direito nos atalhos da barra.')}
+        >
+          <Button variant="secondary" onClick={() => setPersonalizandoBarra(true)}>
+            <SlidersHorizontal size={14} aria-hidden />
+            {t('Personalizar a barra lateral')}
+          </Button>
+        </Field>
+        <PersonalizarBarra aberto={personalizandoBarra} onFechar={() => setPersonalizandoBarra(false)} />
+
+        <Field
+          label={t('Abertura animada')}
+          hint={t('A caneta que escreve o nome quando o app abre. Seguindo o sistema, ela fica parada se os efeitos de animação do Windows estiverem desligados.')}
+        >
+          <Select
+            value={aberturaModo}
+            onChange={(e) => {
+              setAberturaModo(e.target.value)
+              definirModoDaAbertura(e.target.value)
+            }}
+          >
+            <option value="sistema">{t('Seguir o sistema')}</option>
+            <option value="sempre">{t('Sempre')}</option>
+            <option value="nunca">{t('Desligada')}</option>
+          </Select>
+        </Field>
 
         {prefs.data && (
           <Field label={t('Tela inicial')} hint={t('A primeira tela ao abrir o aplicativo.')}>
@@ -238,6 +329,7 @@ export default function AbaAparencia() {
               onChange={(e) => savePrefs.mutate({ default_view: e.target.value })}
             >
               <option value="dashboard">{t('Início')}</option>
+              <option value="last">{t('Onde parei (as abas da última vez)')}</option>
               <option value="calendar">{t('Calendário')}</option>
               <option value="board">{t('Quadro')}</option>
             </Select>

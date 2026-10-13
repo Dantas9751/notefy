@@ -194,7 +194,7 @@ export default function TextFilePreview({ doc }) {
           </table>
         </div>
         <p className="shrink-0 pt-2 text-[11px] text-ink-400">
-          {corpo.length} {t('linha(s)')}
+          {corpo.length === 1 ? t('1 linha@@tabela') : t('{n} linhas@@tabela', { n: corpo.length })}
           {corpo.length > visiveis.length && t(', mostrando as {TETO_LINHAS_CSV} primeiras', { TETO_LINHAS_CSV })}
         </p>
       </div>

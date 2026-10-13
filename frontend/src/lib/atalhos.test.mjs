@@ -7,6 +7,9 @@ import {
   GRUPOS,
   bindsDe,
   casa,
+  comTecla,
+  fraseComTecla,
+  teclaDe,
   comboDoEvento,
   conflitoCom,
   itensDoGrupo,
@@ -140,4 +143,20 @@ test('teclas para mostrar', () => {
   assert.deepEqual(teclasDoCombo('Ctrl+ArrowDown'), ['Ctrl', '↓'])
   const lista = itensDoGrupo(GRUPOS.find((g) => g.id === 'abas'))
   assert.deepEqual(lista.find((i) => i.id === 'irParaAba').combos, [['Alt', '1 a 9']])
+})
+
+test('rótulo com a tecla de agora: o nome da tecla no idioma, e some se o atalho for desligado', () => {
+  assert.equal(comTecla('Laviel', 'lavielFlutuante'), 'Laviel (Ctrl+Shift+Espaço)')
+  // Ctrl+Shift+Espaço chega como espaço com Ctrl e Shift.
+  assert.ok(casa(ev({ key: ' ', code: 'Space', ctrlKey: true, shiftKey: true }), 'lavielFlutuante'))
+  salvarBinds({ lavielFlutuante: [] })
+  assert.equal(comTecla('Laviel', 'lavielFlutuante'), 'Laviel')
+})
+
+test('frase com a tecla: série mostra o intervalo, atalho desligado tira a frase', () => {
+  assert.equal(teclaDe('nota.formato'), 'Ctrl+Alt+0 a 3')
+  const sobre = (tecla) => `${tecla} liga e desliga.`
+  assert.equal(fraseComTecla('Modo zen.', 'zen', sobre), 'Modo zen. Ctrl+. liga e desliga.')
+  salvarBinds({ zen: [] })
+  assert.equal(fraseComTecla('Modo zen.', 'zen', sobre), 'Modo zen.')
 })

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões das janelas do Notefy: o padrão do Tauri, o direito de executar o backend empacotado, o de destacar uma aba em janela própria e os botões e o arrastar da janela sem moldura (minimizar, maximizar, fechar). Só no desktop: no Android não há backend empacotado nem janelas extras.",
+  "description": "Permissões das janelas do Notefy: o padrão do Tauri, o de destacar uma aba em janela própria, o de mostrar a janela (ela nasce escondida e a SPA a mostra já desenhada), o zoom da janela (o tamanho da interface, em Aparência) e os botões e o arrastar da janela sem moldura (minimizar, maximizar, fechar). Só no desktop: no Android não há backend empacotado nem janelas extras.",
   "windows": [
     "main",
     "notefy-*"
@@ -21,15 +21,7 @@
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/notefy-server",
-          "sidecar": true,
-          "args": false
-        }
-      ]
-    }
+    "core:window:allow-show",
+    "core:webview:allow-set-webview-zoom"
   ]
 }

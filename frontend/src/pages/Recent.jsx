@@ -85,7 +85,13 @@ export default function Recent() {
     <>
       <PageHeader
         title={t('Recentes')}
-        subtitle={data ? t('{count} item(ns) no total', { count: data.count }) : t('Carregando...')}
+        subtitle={
+          data
+            ? data.count === 1
+              ? t('1 item no total')
+              : t('{n} itens no total', { n: data.count })
+            : t('Carregando...')
+        }
       >
         <FilterBar
           className="mt-4"
@@ -110,7 +116,7 @@ export default function Recent() {
             {agruparPorData(documents, 'updated_at').map((grupo) => (
               <section key={grupo.rotulo}>
                 <h2 className="titulo mb-3 text-[17px]">{grupo.rotulo}</h2>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 compacto:gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {grupo.itens.map((doc) => {
                     const selectionKey = `document:${doc.id}`
                     const selecionado = isSelected(selectionKey)

@@ -17,6 +17,15 @@ uma regra (`frontend/src/lib/nota.js`):
 sair de um bloco e onde se digita "/" para inserir o próximo. Textos vizinhos
 viram um só.
 
+### Leitura
+
+A largura da folha (estreita, média ou inteira) e o espaço entre linhas
+(compacto, normal ou amplo) têm um padrão em Configurações → Aparência →
+Leitura das notas, guardado no aparelho. Cada nota pode fugir dele pelo botão
+**Leitura** no alto dela; a escolha fica na própria nota, em `data.leitura`
+(conferida em `schemas.py`), e "Seguir o padrão" a tira. As peças puras moram
+em `frontend/src/lib/aparencia.js`.
+
 ### Criar sem o mouse
 
 | Para | Faça |
@@ -49,7 +58,8 @@ No celular, a barra é uma fileira que rola de lado.
 
 ## Modelos
 
-Ficam na barra lateral, acima da Lixeira (`/templates`). São duas prateleiras:
+Ficam na barra lateral (`/templates`; por padrão acima da Lixeira, mas a ordem
+da barra é da pessoa). São duas prateleiras:
 
 - **Do Notefy** (`frontend/src/lib/modelos.js`): aula, reunião, diário, plano
   de estudos, lista de tarefas, fichamento, projeto, receita, semana, controle

@@ -510,7 +510,7 @@ export default function FolderDetail({ id: idProp }) {
               {t('Subpastas')}
             </h2>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 compacto:gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {subfolders.map((sub) => {
                 const selectionKey = `folder:${sub.id}`
                 const selecionada = isSelected(selectionKey)
@@ -550,7 +550,7 @@ export default function FolderDetail({ id: idProp }) {
                 : t('Conteúdo')}
             </h2>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 compacto:gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {visible.map((doc) => {
                 const selectionKey = `document:${doc.id}`
                 const selecionado = isSelected(selectionKey)

@@ -2,19 +2,28 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  BookOpenText,
   Check,
   ChevronRight,
   Download,
   LayoutTemplate,
   Lock,
+  MoveHorizontal,
   Paperclip,
   Settings2,
   Star,
   Trash2,
+  UnfoldVertical,
 } from 'lucide-react'
 import api, { extractError } from '@/lib/api'
 import { useFetch } from '@/hooks/useFetch'
 import useEmEstudo from '@/hooks/useEmEstudo'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
+import IconeDoItem from '@/components/IconeDoItem'
+import EscolherIcone from '@/components/modals/EscolherIcone'
+import { MensagemDeExclusao } from '@/hooks/useCascadeDelete'
+import { useUI } from '@/context/UIContext'
+import { NOMES_DAS_ENTRELINHAS, NOMES_DAS_LARGURAS, mudarLeitura } from '@/lib/aparencia'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useTabState, useTabs } from '@/context/TabsContext'
 import { useSplit } from '@/context/SplitContext'
@@ -26,7 +35,7 @@ import {
   Spinner,
 } from '@/components/ui'
 import NoteEditor from '@/components/editors/NoteEditor'
-import ItemNaLixeira from '@/components/ItemNaLixeira'
+import ItemIndisponivel from '@/components/ItemIndisponivel'
 import SpreadsheetEditor from '@/components/editors/SpreadsheetEditor'
 import GraphEditor from '@/components/editors/GraphEditor'
 import DesignEditor from '@/components/editors/design/DesignEditor'
@@ -51,6 +60,7 @@ import {
   podeRefazer,
 } from '@/lib/history'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
+import { motivoDaIndisponibilidade, tituloDoIndisponivel } from '@/lib/erros'
 import { t } from '@/lib/i18n'
 import { avisarErro } from '@/lib/avisoFlutuante'
 import { casa } from '@/lib/atalhos'
@@ -148,6 +158,10 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   const propriedades = usePropriedades()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [salvandoModelo, setSalvandoModelo] = useState(false)
+  const [escolhendoIcone, setEscolhendoIcone] = useState(false)
+  //: Menu "Leitura" da nota, aberto embaixo do botão: `{ x, y }`.
+  const [menuLeitura, setMenuLeitura] = useState(null)
+  const { leituraPadrao } = useUI()
   const autosaveRef = useRef(null)
   // Payload do autosave agendado. Existe para o flush de saída poder
   // mandá-lo — sem isto, sair dentro da janela do debounce descartava
@@ -229,10 +243,17 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
   //
   // Só o título DESTE documento: trocando de um item para outro, o `doc`
   // ainda é o anterior até o novo chegar.
-  // Item que foi para a lixeira não tem nome para mostrar: a aba diz onde ele está.
-  const naLixeira = !isCreate && (errorStatus === 404 || errorStatus === 410)
-  const tituloDaAba = naLixeira ? t('Item na lixeira') : doc && (isCreate || doc.id === id) ? doc.title : undefined
-  useTabState({ title: tituloDaAba, dirty, enabled: !emPainel })
+  // Item indisponível não tem nome para mostrar: a aba diz o que houve com ele.
+  const indisponivel = isCreate ? null : motivoDaIndisponibilidade(errorStatus)
+  const tituloDaAba = indisponivel ? tituloDoIndisponivel(indisponivel) : doc && (isCreate || doc.id === id) ? doc.title : undefined
+  const iconeDaAba = doc && !isCreate && doc.id === id ? doc.icon ?? '' : undefined
+  useTabState({ title: tituloDaAba, dirty, enabled: !emPainel, icone: iconeDaAba })
+
+  // O ícone trocado aqui ou em outro lugar (o botão direito numa lista, outra
+  // janela): só ele muda, sem recarregar o item nem sujar a edição.
+  useListenerDeJanela('notefy:icone', (evento) => {
+    if (evento.detail?.id === id) setDoc((atual) => atual && { ...atual, icon: evento.detail.icon })
+  })
 
   // O cronômetro de estudo credita os segundos a quem está aberto.
   useEmEstudo(doc, !emPainel)
@@ -478,6 +499,36 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
 
   const save = () => persist(doc).catch(() => {})
 
+  /** A leitura desta nota (largura da folha, espaço entre linhas); `null` volta ao padrão de Aparência. */
+  const mudarLeituraDaNota = (chave, valor) => {
+    const data = { ...(docRef.current?.data ?? {}) }
+    const leitura = mudarLeitura(data.leitura, chave, valor)
+    if (leitura) data.leitura = leitura
+    else delete data.leitura
+    patch({ data })
+  }
+
+  const itensDeLeitura = () => {
+    const propria = docRef.current?.data?.leitura ?? {}
+    const opcoes = (chave, nomes) => [
+      {
+        label: t('Seguir o padrão ({valor})', { valor: nomes[leituraPadrao[chave]] }),
+        marcado: !propria[chave],
+        onClick: () => mudarLeituraDaNota(chave, null),
+      },
+      { separator: true },
+      ...Object.keys(nomes).map((valor) => ({
+        label: nomes[valor],
+        marcado: propria[chave] === valor,
+        onClick: () => mudarLeituraDaNota(chave, valor),
+      })),
+    ]
+    return [
+      { label: t('Largura da página'), icon: MoveHorizontal, submenu: opcoes('largura', NOMES_DAS_LARGURAS) },
+      { label: t('Espaço entre linhas'), icon: UnfoldVertical, submenu: opcoes('entrelinha', NOMES_DAS_ENTRELINHAS) },
+    ]
+  }
+
   /** "Permitir edição" da faixa: desmarca o somente leitura sem abrir as Propriedades. */
   const permitirEdicao = async () => {
     try {
@@ -645,8 +696,8 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
     navigate(doc.folder ? `/folders/${doc.folder}` : '/', { replace: true })
   }
 
-  // O item saiu debaixo da aba: foi excluído de outro lugar.
-  if (naLixeira) return <ItemNaLixeira emPainel={emPainel} />
+  // O item saiu debaixo da aba: foi excluído de outro lugar, ou não é desta conta.
+  if (indisponivel) return <ItemIndisponivel motivo={indisponivel} emPainel={emPainel} />
 
   if (loading || !doc) {
     return (
@@ -831,7 +882,19 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
           <ArrowLeft size={16} />
         </button>
 
-        <Icon size={15} className="shrink-0" style={{ color: doc.color || meta.accent }} />
+        {isCreate ? (
+          <Icon size={15} className="shrink-0" style={{ color: doc.color || meta.accent }} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEscolhendoIcone(true)}
+            aria-label={t('Mudar o ícone')}
+            title={t('Mudar o ícone')}
+            className="-mx-1 rounded p-1 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+          >
+            <IconeDoItem item={doc} size={15} style={{ color: doc.color || meta.accent }} />
+          </button>
+        )}
 
         {doc.breadcrumb?.length > 0 && (
           <nav className="hidden min-w-0 items-center gap-1 text-xs text-ink-400 sm:flex">
@@ -883,6 +946,21 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
               >
                 <Star size={15} className={cn(doc.is_favorite && 'fill-amber-400 text-amber-400')} />
               </button>
+              {kind === 'note' && !somenteLeitura && (
+                <button
+                  onClick={(e) => {
+                    const caixa = e.currentTarget.getBoundingClientRect()
+                    setMenuLeitura({ x: caixa.left, y: caixa.bottom + 4 })
+                  }}
+                  aria-label={t('Leitura')}
+                  title={t('Leitura: largura da página e espaço entre linhas')}
+                  aria-haspopup="menu"
+                  aria-expanded={!!menuLeitura}
+                  className="rounded p-1.5 text-ink-400 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+                >
+                  <BookOpenText size={15} />
+                </button>
+              )}
               <ExportMenu document={doc} disabled={dirty} />
               <button
                 onClick={async () => {
@@ -1071,6 +1149,14 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       )}
 
       <ContextMenu
+        open={!!menuLeitura}
+        x={menuLeitura?.x ?? 0}
+        y={menuLeitura?.y ?? 0}
+        onClose={() => setMenuLeitura(null)}
+        items={menuLeitura ? itensDeLeitura() : []}
+      />
+
+      <ContextMenu
         open={!!menuIA}
         x={menuIA?.x ?? 0}
         y={menuIA?.y ?? 0}
@@ -1081,6 +1167,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
       {modalIA}
 
       <ModeloModal open={salvandoModelo} documento={doc} onClose={() => setSalvandoModelo(false)} />
+      <EscolherIcone item={escolhendoIcone ? doc : null} onClose={() => setEscolhendoIcone(false)} />
 
       {/* Escolha da pasta na criação: sem destino, não há o que salvar. */}
       <DestinationModal
@@ -1113,8 +1200,7 @@ export default function DocumentEditor({ mode, kind: routeKind, id: idProp, fold
         }
       >
         <p className="text-sm text-ink-600 dark:text-ink-300">
-          <strong>{doc.title || t('Sem título')}</strong> {t('vai para a lixeira')}
-          {doc.attachments?.length > 0 && t(', junto com {length} anexo(s)', { length: doc.attachments.length })}.
+          <MensagemDeExclusao nome={doc.title || t('Sem título')} anexos={doc.attachments?.length ?? 0} />
         </p>
       </Modal>
     </div>

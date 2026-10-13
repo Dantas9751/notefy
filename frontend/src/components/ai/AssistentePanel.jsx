@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Send, Square, X, Sparkles, Settings, Plus, Eraser, Pin } from 'lucide-react'
+import { Send, Square, X, Sparkles, Settings, Plus, Eraser, Pin, PictureInPicture2, PanelRight } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useAssistente } from '@/context/AssistenteContext'
 import { useSplit } from '@/context/SplitContext'
 import { useTabs } from '@/context/TabsContext'
+import useCaixaFlutuante from '@/hooks/useCaixaFlutuante'
+import { comTecla, fraseComTecla } from '@/lib/atalhos'
+import { LIMITES_DO_LAVIEL } from '@/lib/flutuante'
 import { chatStream, MARCA_EDITAR, runIA } from '@/lib/ai'
 import api from '@/lib/api'
 import { cn, limparMarkdown } from '@/lib/utils'
@@ -14,7 +17,7 @@ import { comandosPara, instrucaoDoComando, sugestoesPara } from './comandos'
 import { detectarAcao, rotuloAcao } from './acoes'
 import { mergeDocumento } from './merge'
 import { anexarTextoNaNota } from './executar'
-import { t } from '../../lib/i18n.js'
+import { t } from '@/lib/i18n'
 
 //: `/notes/<uuid>`, `/designs/<uuid>`...: um editor aberto, com o segmento e o id.
 const ROTA_DE_DOCUMENTO = new RegExp(`^/(${Object.keys(KIND_POR_ROTA).join('|')})/([0-9a-f-]{36})(/|$)`)
@@ -24,18 +27,24 @@ const CHAVE_FRACAO = 'notefy.assistente.fracao'
 const FRACAO_MIN = 0.25
 const FRACAO_MAX = 0.9
 
+/** Onde a caixa do Laviel flutuante fica guardada neste aparelho. */
+const CHAVE_CAIXA = 'notefy.laviel.caixa'
+
 /**
- * Painel do assistente de IA (Ctrl+J).
+ * O chat do Laviel, o assistente de IA.
  *
- * Abre como uma gaveta sobre a METADE do lado em foco: com "abrir ao
- * lado" ativo e o foco no painel, cobre a metade direita do painel;
- * caso contrário cobre a metade direita da main view. O documento em
- * contexto é sempre o do lado em foco — o chat pergunta sobre o que
- * está sendo olhado.
+ * Na gaveta (Ctrl+J), abre sobre a METADE do lado em foco: com "abrir ao
+ * lado" ativo e o foco no painel, cobre a metade direita do painel; caso
+ * contrário, a metade direita da main view. Flutuante (Ctrl+Shift+Espaço),
+ * é uma caixa solta sobre o app, que se arrasta pelo cabeçalho e muda de
+ * tamanho pelo canto. Nos dois, o documento em contexto é o do lado em
+ * foco — o chat pergunta sobre o que está sendo olhado.
  */
 export default function AssistentePanel() {
   const {
     aberto,
+    modo,
+    trocarModo,
     lado,
     fechar,
     conversas,
@@ -56,6 +65,8 @@ export default function AssistentePanel() {
   const { user } = useAuth()
   const location = useLocation()
   const { menu, openMenu, closeMenu } = useContextMenu()
+  const solta = useCaixaFlutuante(CHAVE_CAIXA, LIMITES_DO_LAVIEL)
+  const flutuante = modo === 'flutuante'
 
   const [regiao, setRegiao] = useState(null)
   // Fração da largura do lado que a gaveta ocupa. Metade é o padrão
@@ -163,7 +174,7 @@ export default function AssistentePanel() {
   // lado"). A gaveta é uma fração dela, ancorada à direita — recalculada
   // quando a divisória do split ou a janela mudam.
   useEffect(() => {
-    if (!aberto) return
+    if (!aberto || flutuante) return
     const calcular = () => {
       const alvo =
         lado === 'painel'
@@ -186,7 +197,7 @@ export default function AssistentePanel() {
       window.removeEventListener('resize', calcular)
       observador.disconnect()
     }
-  }, [aberto, lado])
+  }, [aberto, flutuante, lado])
 
   // Arrasto da alça: a largura vira uma fração do lado, então trocar de
   // lado (ou mexer na divisória) preserva a proporção escolhida.
@@ -420,7 +431,7 @@ export default function AssistentePanel() {
         messages: mensagens,
         signal: abortRef.current.signal,
       })
-      escrever(t('Pronto, mudei o item. Ctrl+Z no item desfaz.'))
+      escrever(fraseComTecla(t('Pronto, mudei o item.'), 'desfazer', (tecla) => t('{tecla} no item desfaz.', { tecla })))
       window.dispatchEvent(new CustomEvent(`notefy:saved:${contextoDoc.id}`, { detail: { origem: 'chat' } }))
     } catch (err) {
       if (err.name !== 'AbortError') setErro(err.message || t('Falha na chamada de IA.'))
@@ -441,30 +452,51 @@ export default function AssistentePanel() {
   return (
     <div
       data-assistente=""
-      className="fixed z-40 flex flex-col border-l border-ink-200 bg-white shadow-2xl dark:border-ink-800 dark:bg-ink-950"
-      style={{
-        left: (regiao?.left ?? 0) + (regiao?.width ?? 0) * (1 - cobertura),
-        top: regiao?.top ?? 0,
-        width: (regiao?.width ?? 0) * cobertura,
-        height: regiao?.height ?? 0,
-      }}
+      role={flutuante ? 'dialog' : undefined}
+      aria-label={flutuante ? t('Laviel') : undefined}
+      className={cn(
+        'fixed flex flex-col bg-white dark:bg-ink-950',
+        flutuante
+          ? 'z-[45] overflow-hidden rounded-xl border border-ink-200 shadow-pop dark:border-ink-700'
+          : 'z-40 border-l border-ink-200 shadow-2xl dark:border-ink-800',
+      )}
+      style={
+        flutuante
+          ? solta.estilo
+          : {
+              left: (regiao?.left ?? 0) + (regiao?.width ?? 0) * (1 - cobertura),
+              top: regiao?.top ?? 0,
+              width: (regiao?.width ?? 0) * cobertura,
+              height: regiao?.height ?? 0,
+            }
+      }
+      {...(flutuante ? solta.acompanhar : {})}
     >
-      {/* Alça de largura: mesma pegada da divisória do split. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        title={t('Arraste para redimensionar')}
-        onPointerDown={(e) => {
-          e.preventDefault()
-          setArrastando(true)
-        }}
-        className={cn(
-          'absolute inset-y-0 -left-1 w-2 cursor-col-resize touch-none transition',
-          arrastando ? 'bg-accent-500/40' : 'hover:bg-accent-500/20',
-        )}
-      />
+      {/* Na gaveta, a alça de largura: mesma pegada da divisória do split. */}
+      {!flutuante && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title={t('Arraste para redimensionar')}
+          onPointerDown={(e) => {
+            e.preventDefault()
+            setArrastando(true)
+          }}
+          className={cn(
+            'absolute inset-y-0 -left-1 w-2 cursor-col-resize touch-none transition',
+            arrastando ? 'bg-accent-500/40' : 'hover:bg-accent-500/20',
+          )}
+        />
+      )}
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
+      {/* Flutuante, o cabeçalho é por onde a caixa se arrasta. */}
+      <div
+        {...(flutuante ? solta.alca : {})}
+        className={cn(
+          'flex shrink-0 items-center gap-2 border-b border-ink-200 px-4 py-3 dark:border-ink-800',
+          flutuante && 'cursor-grab touch-none select-none active:cursor-grabbing',
+        )}
+      >
         <Sparkles size={16} className="text-accent-600" />
         <h2 className="flex-1 truncate text-sm font-semibold text-ink-900 dark:text-ink-50">
           {t('Laviel')}
@@ -496,6 +528,16 @@ export default function AssistentePanel() {
           <Eraser size={15} />
         </button>
         <button
+          type="button"
+          onClick={() => trocarModo(flutuante ? 'gaveta' : 'flutuante')}
+          className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
+          aria-label={flutuante ? t('Encaixar na lateral') : t('Soltar sobre o app')}
+          title={flutuante ? comTecla(t('Encaixar na lateral'), 'laviel') : comTecla(t('Soltar sobre o app'), 'lavielFlutuante')}
+        >
+          {flutuante ? <PanelRight size={15} /> : <PictureInPicture2 size={15} />}
+        </button>
+        <button
+          type="button"
           onClick={fechar}
           className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 dark:hover:bg-ink-800 dark:hover:text-ink-200"
           aria-label={t('Fechar')}
@@ -748,6 +790,10 @@ export default function AssistentePanel() {
             </div>
           </div>
         </>
+      )}
+      {/* Flutuante, o canto que muda o tamanho. */}
+      {flutuante && (
+        <span aria-hidden {...solta.canto} className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize touch-none [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6" />
       )}
     </div>
   )
