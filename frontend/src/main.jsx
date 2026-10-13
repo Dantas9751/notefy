@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { marcarAberturaVista } from './lib/abertura'
+import { marcarJanelaDestacada } from './lib/sessao'
 import './index.css'
 
 // Uma janela destacada nasce em `/?open=/notes/<id>`, e não direto na
@@ -15,8 +16,10 @@ import './index.css'
 const rotaPedida = new URLSearchParams(window.location.search).get('open')
 if (rotaPedida?.startsWith('/') && !rotaPedida.startsWith('//')) {
   window.history.replaceState(null, '', rotaPedida)
-  // Uma janela destacada não é o app abrindo: sem a abertura nela.
+  // Uma janela destacada não é o app abrindo: sem a abertura nela, e sem
+  // gravar a sessão por cima da janela principal ("onde parei").
   marcarAberturaVista()
+  marcarJanelaDestacada()
 }
 
 createRoot(document.getElementById('root')).render(

@@ -279,6 +279,8 @@
      tabela) precisam ter a mesma largura, ou a página fica dentada. */
   .folha .prose-note {
     max-width: none;
+    /* O espaçamento entre linhas da nota (Aparência, ou o "Leitura" da própria nota). */
+    line-height: var(--entrelinha, 1.75);
   }
   /* A fonte das notas (Aparência) vale para a folha inteira: título, texto,
      checklist e tabela. O código segue em monoespaçada (`font-mono`). */

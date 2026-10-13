@@ -20,11 +20,16 @@ const novaConversa = (titulo = t('Conversa')) => ({
 })
 
 /**
- * O painel do assistente de IA (Ctrl+J).
+ * O chat do Laviel, o assistente de IA.
  *
- * `lado` diz sobre qual metade da tela o painel se abre: `'main'` (o
+ * `modo` é como ele aparece: `'gaveta'` (Ctrl+J), presa à direita do lado
+ * em foco, ou `'flutuante'` (Ctrl+Shift+Espaço), uma caixa solta sobre o
+ * app que se arrasta e muda de tamanho. É o mesmo chat nos dois: mesmas
+ * conversas, mesmo arquivo em contexto.
+ *
+ * `lado` diz sobre qual metade da tela ele lê e abre: `'main'` (o
  * conteúdo principal) ou `'painel'` (o "abrir ao lado"). Quem decide o
- * lado é o AppLayout, olhando onde está o foco — o painel só guarda.
+ * lado é o AppLayout, olhando onde está o foco — o contexto só guarda.
  *
  * As conversas vivem AQUI, e não dentro do componente, porque fechar o
  * painel desmontava a árvore e apagava o histórico junto. São abas como
@@ -32,6 +37,7 @@ const novaConversa = (titulo = t('Conversa')) => ({
  */
 export function AssistenteProvider({ children }) {
   const [aberto, setAberto] = useState(false)
+  const [modo, setModo] = useState('gaveta')
   const [lado, setLado] = useState('main')
   const [conversas, setConversas] = useState(() => [novaConversa()])
   const [ativaId, setAtivaId] = useState(() => null)
@@ -39,17 +45,24 @@ export function AssistenteProvider({ children }) {
   const idAtiva = ativaId ?? conversas[0]?.id ?? null
   const ativa = conversas.find((c) => c.id === idAtiva) ?? conversas[0] ?? null
 
-  const abrir = useCallback((qualLado) => {
-    if (qualLado) setLado(qualLado)
-    setAberto(true)
-  }, [])
-
   const fechar = useCallback(() => setAberto(false), [])
 
-  const alternar = useCallback((qualLado) => {
-    if (qualLado) setLado(qualLado)
-    setAberto((a) => !a)
-  }, [])
+  /**
+   * O atalho de cada modo: fecha se o chat já está aberto NAQUELE modo; senão
+   * abre nele (aberto no outro, só muda de jeito, sem perder a conversa).
+   */
+  const alternar = useCallback(
+    (qualLado, qualModo = 'gaveta') => {
+      if (aberto && modo === qualModo) {
+        setAberto(false)
+        return
+      }
+      if (qualLado) setLado(qualLado)
+      setModo(qualModo)
+      setAberto(true)
+    },
+    [aberto, modo],
+  )
 
   const abrirConversa = useCallback(() => {
     const conversa = novaConversa()
@@ -155,8 +168,9 @@ export function AssistenteProvider({ children }) {
   const value = useMemo(
     () => ({
       aberto,
+      modo,
+      trocarModo: setModo,
       lado,
-      abrir,
       fechar,
       alternar,
       conversas,
@@ -174,8 +188,8 @@ export function AssistenteProvider({ children }) {
     }),
     [
       aberto,
+      modo,
       lado,
-      abrir,
       fechar,
       alternar,
       conversas,

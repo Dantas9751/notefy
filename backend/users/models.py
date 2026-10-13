@@ -104,6 +104,8 @@ class UserPreferences(models.Model):
         DASHBOARD = "dashboard", "Dashboard"
         CALENDAR = "calendar", "Calendário"
         BOARD = "board", "Kanban"
+        #: Reabre as abas da última sessão (guardadas no aparelho, por conta).
+        LAST = "last", "Onde parei"
 
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="preferences", primary_key=True
@@ -131,6 +133,9 @@ class UserPreferences(models.Model):
     # Início: capa, quais blocos aparecem, em que ordem e largura, e como
     # os itens são desenhados. O formato é conferido em `users/inicio.py`.
     home_layout = models.JSONField("layout do início", default=dict, blank=True)
+    #: Barra lateral: ordem dos atalhos e o que está escondido. O formato é
+    #: conferido em `users/barra.py`.
+    sidebar_layout = models.JSONField("barra lateral", default=dict, blank=True)
     #: Bloco de rascunho do Início. Texto puro e com teto (`MAX_RASCUNHO`):
     #: é o post-it da tela inicial, e "salvar como nota" é o caminho para
     #: o que crescer.

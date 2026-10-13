@@ -2,10 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useLocation } from 'react-router-dom'
 import { PADRAO, limitar } from '@/lib/split'
 import { ROTA_DE_CRIACAO, documentPath } from '@/lib/documents'
+import { chaveDaConta } from '@/lib/conta'
 
 const SplitContext = createContext(null)
 
-/** Por janela, como as abas: cada janela tem o seu arranjo de painéis. */
+/** Por janela e por conta, como as abas: cada janela tem o seu arranjo de painéis. */
 const STORAGE_KEY = 'notefy.split'
 
 /** Rota sem query string: `/notes/new?folder=X` vira `/notes/new`. */
@@ -33,9 +34,10 @@ export const semQuery = (rota) => rota.split('?')[0]
  */
 export function SplitProvider({ children }) {
   const location = useLocation()
+  const [chave] = useState(() => chaveDaConta(STORAGE_KEY))
   const [painel, setPainel] = useState(() => {
     try {
-      const bruto = sessionStorage.getItem(STORAGE_KEY)
+      const bruto = chave && sessionStorage.getItem(chave)
       if (!bruto) return null
       const lido = JSON.parse(bruto)
       // Sessões antigas podem ter guardado `{ id, kind }` em vez de
@@ -60,12 +62,13 @@ export function SplitProvider({ children }) {
   const persistir = useCallback((proximo) => {
     setPainel(proximo)
     try {
-      if (proximo) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(proximo))
-      else sessionStorage.removeItem(STORAGE_KEY)
+      if (!chave) return
+      if (proximo) sessionStorage.setItem(chave, JSON.stringify(proximo))
+      else sessionStorage.removeItem(chave)
     } catch {
       // Modo privado sem quota.
     }
-  }, [])
+  }, [chave])
 
   /**
    * Abre qualquer rota no painel lateral.

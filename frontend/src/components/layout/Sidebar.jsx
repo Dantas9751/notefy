@@ -2,20 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
-  CalendarDays,
-  GanttChartSquare,
-  Clock,
   Folder as FolderIcon,
-  Kanban,
-  Home,
-  LayoutTemplate,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  Paperclip,
   Plus,
   Download,
-  Search,
+  SlidersHorizontal,
   Star,
   Settings,
   Trash2,
@@ -48,21 +41,10 @@ import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { exportarSelecao } from '@/components/ExportMenu'
 import { t } from '@/lib/i18n'
 import { semMouse } from '@/lib/desktop'
-
-const NAV_ITEMS = [
-  { to: '/', get label() { return t('Início') }, icon: Home, end: true },
-  { to: '/recent', get label() { return t('Recentes') }, icon: Clock },
-  // Favoritos não entra aqui: a seção mais abaixo JÁ É a lista, e um
-  // item de navegação levaria a uma tela com os mesmos nomes que já
-  // estão à vista. A seção é o favorito inteiro; não há rota /favorites.
-  { to: '/files', get label() { return t('Arquivos') }, icon: Paperclip },
-  { to: '/search', get label() { return t('Buscar') }, icon: Search }, 
-  { to: '/board', get label() { return t('Quadro') }, icon: Kanban },
-  { to: '/calendar', get label() { return t('Calendário') }, icon: CalendarDays },
-  { to: '/roadmap', get label() { return t('Roadmap') }, icon: GanttChartSquare },
-  { to: '/templates', get label() { return t('Modelos') }, icon: LayoutTemplate },
-  { to: '/trash', get label() { return t('Lixeira') }, icon: Trash2, },
-]
+import { fraseComTecla } from '@/lib/atalhos'
+import { arrumarBarra } from '@/lib/barraLateral'
+import { ATALHOS } from './itensDaBarra'
+import PersonalizarBarra from './PersonalizarBarra'
 
 /** Ativo na barra recolhida: quadrado cheio na cor de destaque, porque ali o ícone é o único sinal. */
 const ATIVO_NO_TRILHO = 'bg-accent-100 text-accent-800 dark:bg-accent-500/20 dark:text-accent-200'
@@ -102,7 +84,7 @@ function NavItem({ to, label, icon: Icon, end, collapsed }) {
           collapsed
             ? cn(QUADRADO, isActive ? ATIVO_NO_TRILHO : 'text-ink-500 hover:bg-ink-200/60 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100')
             : cn(
-                'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition',
+                'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition compacto:py-1',
                 isActive
                   ? 'bg-ink-100 font-medium text-ink-900 dark:bg-ink-800 dark:text-ink-50'
                   : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800/70',
@@ -263,6 +245,7 @@ export default function Sidebar({ sempreAberta = false }) {
 
   const [folderModal, setFolderModal] = useState(null)
   const [categoryModal, setCategoryModal] = useState(null)
+  const [personalizando, setPersonalizando] = useState(false)
 
   // Estados de Multi-Seleção e Ações em Massa
   const [selectedIds, setSelectedIds] = useState([])
@@ -272,9 +255,11 @@ export default function Sidebar({ sempreAberta = false }) {
   const rawHome = user?.settings?.home_page || '/'
   const homeRoute = rawHome.startsWith('/') ? rawHome : `/${rawHome}`
   
-  const dynamicNav = NAV_ITEMS.map((item) =>
-    item.to === '/' ? { ...item, to: homeRoute } : item
-  )
+  // A ordem e o que aparece são da pessoa (Personalizar a barra lateral).
+  const barra = arrumarBarra(user?.preferences?.sidebar_layout)
+  const dynamicNav = barra.atalhos
+    .filter((a) => a.visivel)
+    .map((a) => ({ ...ATALHOS[a.id], id: a.id, ...(a.id === 'inicio' && { to: homeRoute }) }))
 
   const { pedirExclusao, requestDelete, dialogs: deleteDialogs } = useExcluirSelecao({
     selecionados: selectedIds,
@@ -335,6 +320,10 @@ export default function Sidebar({ sempreAberta = false }) {
   const menuItems = () => {
     if (!menu) return []
     const { payload } = menu
+
+    if (payload.type === 'barra') {
+      return [{ label: t('Personalizar a barra lateral'), icon: SlidersHorizontal, onClick: () => setPersonalizando(true) }]
+    }
 
     if (payload.isMultiple) {
       return [
@@ -458,9 +447,9 @@ export default function Sidebar({ sempreAberta = false }) {
         </div>
 
         <nav className={cn('min-h-0 flex-1 overflow-y-auto pb-4', collapsed ? 'px-0' : 'px-3')}>
-          <div className="space-y-0.5 pt-3">
+          <div className="space-y-0.5 pt-3" onContextMenu={(e) => openMenu(e, { type: 'barra' })}>
             {dynamicNav.map((item) => (
-              <NavItem key={item.to} {...item} collapsed={collapsed} />
+              <NavItem key={item.id} {...item} collapsed={collapsed} />
             ))}
           </div>
 
@@ -500,13 +489,15 @@ export default function Sidebar({ sempreAberta = false }) {
                 />
               )}
 
-              <p className="mt-4 px-2 text-[10px] leading-relaxed text-ink-400">
-                {semMouse()
-            ? t('Toque e segure um item ou uma pasta para ver as opções.')
-            : t('Arraste itens e pastas para mover. Clique com o botão direito para mais opções. Ctrl+/ mostra os atalhos.')}
-              </p>
+              {barra.secoes.dica && (
+                <p className="mt-4 px-2 text-[10px] leading-relaxed text-ink-400">
+                  {semMouse()
+                    ? t('Toque e segure um item ou uma pasta para ver as opções.')
+                    : fraseComTecla(t('Arraste itens e pastas para mover. Clique com o botão direito para mais opções.'), 'atalhos', (tecla) => t('{tecla} mostra os atalhos.', { tecla }))}
+                </p>
+              )}
 
-              <FavoritosSidebar aoAbrirMenu={openMenu} />
+              {barra.secoes.favoritos && <FavoritosSidebar aoAbrirMenu={openMenu} />}
             </>
           )}
 
@@ -553,7 +544,7 @@ export default function Sidebar({ sempreAberta = false }) {
 
           {/* Os favoritos também ficam a um passo com a barra recolhida: a
               estrela abre a mesma lista da barra aberta, no mesmo painel. */}
-          {collapsed && (
+          {collapsed && barra.secoes.favoritos && (
             <div className="mx-3 mt-3 border-t border-ink-200 pt-3 dark:border-ink-800">
               <div {...trilho.gatilho('favoritos')}>
                 <button
@@ -589,7 +580,7 @@ export default function Sidebar({ sempreAberta = false }) {
               </button>
             </DicaLateral>
           )}
-          <StudyTimer collapsed={collapsed} />
+          <StudyTimer collapsed={collapsed} oculto={!barra.secoes.estudo} />
           {collapsed && (
             <DicaLateral rotulo={t('Configurações')}>
               <NavLink
@@ -698,6 +689,8 @@ export default function Sidebar({ sempreAberta = false }) {
         }}
       />
 
+      <PersonalizarBarra aberto={personalizando} onFechar={() => setPersonalizando(false)} />
+
       <CategoryFormModal
         open={!!categoryModal}
         category={categoryModal?.category}
@@ -711,7 +704,7 @@ export default function Sidebar({ sempreAberta = false }) {
 
       <DestinationModal
         open={moveModalOpen}
-        title={t('Mover {length} item(s)', { length: selectedIds.length })}
+        title={selectedIds.length === 1 ? t('Mover 1 item') : t('Mover {n} itens', { n: selectedIds.length })}
         confirmLabel={t('Mover para cá')}
         onClose={() => {
           setMoveModalOpen(false)

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DURACAO, DURACAO_REDUZIDA, TEMPOS, caminhoSuave, geometriaDoF, geometriaDoY, planejarEscrita, quadroDaAbertura } from './abertura.js'
+import { DURACAO, DURACAO_REDUZIDA, TEMPOS, caminhoSuave, comoAbrir, geometriaDoF, geometriaDoY, planejarEscrita, quadroDaAbertura } from './abertura.js'
 
 test('começa sem nada à vista e termina com a tela aberta', () => {
   const zero = quadroDaAbertura(0)
@@ -34,7 +34,8 @@ test('a escrita só anda para a frente', () => {
 })
 
 test('movimento reduzido: o nome inteiro, sem caneta, e mais curto', () => {
-  const meio = quadroDaAbertura(500, { reduzido: true })
+  assert.ok(quadroDaAbertura(300, { reduzido: true }).nota < 1, 'o nome aparece aos poucos')
+  const meio = quadroDaAbertura(900, { reduzido: true })
   assert.equal(meio.escrita, 1)
   assert.equal(meio.caneta, 0)
   assert.equal(meio.nota, 1)
@@ -192,4 +193,11 @@ test('geometriaDoY devolve null para uma letra sem dois braços', () => {
   const l = { tinta: new Uint8Array(40 * 40), largura: 40, altura: 40, origemX: 0, linhaDeBase: 30, escala: 1 }
   for (let y = 5; y < 35; y += 1) for (let x = 10; x < 15; x += 1) l.tinta[y * 40 + x] = 1
   assert.equal(geometriaDoY(l), null)
+})
+
+test('como abrir: segue o sistema por padrão, "sempre" anima mesmo com movimento reduzido, "nunca" não abre', () => {
+  assert.equal(comoAbrir('sistema', false), 'completa')
+  assert.equal(comoAbrir('sistema', true), 'reduzida')
+  assert.equal(comoAbrir('sempre', true), 'completa')
+  assert.equal(comoAbrir('nunca', false), null)
 })

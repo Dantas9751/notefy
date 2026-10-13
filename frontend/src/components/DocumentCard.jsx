@@ -8,10 +8,13 @@ import {
   Lock,
   Paperclip,
   PenLine,
+  Smile,
   Trash2,
 } from 'lucide-react'
 import { Badge, ColorDot } from '@/components/ui'
 import FavoriteButton from '@/components/FavoriteButton'
+import IconeDoItem from '@/components/IconeDoItem'
+import { emojiDe } from '@/lib/icone'
 import { CampoDeRenomear } from '@/hooks/useRenomear'
 import { DOCUMENT_STATUS, documentPath, kindMeta } from '@/lib/documents'
 import { limparDragPayload, setDragPayload } from '@/lib/dnd'
@@ -90,7 +93,7 @@ export default function DocumentCard({
       // Explorer, e a única que casa com o botão direito.
       onContextMenu={(event) => onContextMenu?.(event, { type: 'document', document: doc })}
       className={cn(
-        'card group flex h-full cursor-pointer flex-col p-4 transition active:cursor-grabbing',
+        'card group flex h-full cursor-pointer flex-col p-4 transition active:cursor-grabbing compacto:p-3',
         className,
       )}
     >
@@ -99,11 +102,16 @@ export default function DocumentCard({
           Um ponto do lado do título diz o mesmo em menos tinta, e o
           ícone já não precisa carregar cor. */}
       <div className="flex items-start gap-2">
-        <span
-          title={meta.label}
-          className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: accent }}
-        />
+        {/* O emoji que a pessoa deu ao item fica no lugar do ponto. */}
+        {emojiDe(doc) ? (
+          <IconeDoItem item={doc} size={16} className="mt-0.5" />
+        ) : (
+          <span
+            title={meta.label}
+            className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: accent }}
+          />
+        )}
         {renomeando ? (
           // Campo NO LUGAR do título, na mesma caixa e no mesmo tipo: um
           // modal para trocar um nome é uma viagem de ida e volta.
@@ -191,7 +199,7 @@ export default function DocumentCard({
 /** Itens do menu de contexto de um documento. */
 export function documentMenuItems(
   doc,
-  { navigate, onMove, onDuplicate, onDelete, onOpenAside, onRename, onError },
+  { navigate, onMove, onDuplicate, onDelete, onOpenAside, onRename, onIcone, onError },
 ) {
   return [
     { label: t('Abrir'), icon: ExternalLink, onClick: () => navigate(documentPath(doc)) },
@@ -211,6 +219,7 @@ export function documentMenuItems(
     ...(onRename
       ? [{ label: t('Renomear'), icon: PenLine, atalho: 'F2', onClick: onRename }]
       : []),
+    ...(onIcone ? [{ label: t('Ícone...'), icon: Smile, onClick: onIcone }] : []),
     { label: t('Mover para...'), icon: FolderInput, onClick: onMove },
     { label: t('Duplicar'), icon: Copy, onClick: onDuplicate },
     ...((FORMATS[doc.kind] ?? []).length

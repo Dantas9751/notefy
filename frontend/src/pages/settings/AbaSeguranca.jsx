@@ -73,7 +73,7 @@ export default function AbaSeguranca() {
             />
           </Field>
           <div className="flex items-center gap-3">
-            <Button type="submit" variant="secondary" loading={trocando}>
+            <Button type="submit" icon={Check} loading={trocando}>
               {t('Alterar senha')}
             </Button>
             {senhaSalva && (

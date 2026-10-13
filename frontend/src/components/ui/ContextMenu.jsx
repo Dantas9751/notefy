@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ICONE } from '@/lib/ui'
 
@@ -114,7 +114,9 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
           ) : (
             <button
               key={item.label}
-              role="menuitem"
+              // `marcado` (true/false): opção de uma escolha, com o visto na que vale.
+              role={item.marcado === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked={item.marcado}
               disabled={item.disabled}
               onMouseEnter={(event) => {
                 // Item sem submenu fecha o aninhado — senão ele fica
@@ -165,6 +167,9 @@ function Menu({ items, x = 0, y = 0, anchor = null, onClose, onMouseEnter }) {
                   : 'text-ink-700 hover:bg-ink-100 dark:text-ink-200 dark:hover:bg-ink-800',
               )}
             >
+              {item.marcado !== undefined && (
+                <Check size={ICONE.md} className={cn('shrink-0', !item.marcado && 'invisible')} aria-hidden />
+              )}
               {item.icon && (
                 <item.icon
                   size={ICONE.md}

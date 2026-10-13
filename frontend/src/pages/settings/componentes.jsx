@@ -1,3 +1,4 @@
+import { Interruptor } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
 /**
@@ -24,27 +25,40 @@ export function Bloco({ title, description, children }) {
   )
 }
 
+/** Uma entre poucas opções, lado a lado. `opcoes`: `[[id, nome], ...]`. */
+export function Segmentos({ rotulo, opcoes, valor, onEscolher, dica }) {
+  return (
+    <div>
+      <span className="label">{rotulo}</span>
+      <div role="radiogroup" aria-label={rotulo} className="inline-flex flex-wrap rounded-md border border-ink-200 p-0.5 dark:border-ink-700">
+        {opcoes.map(([id, nome]) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={valor === id}
+            onClick={() => onEscolher(id)}
+            className={cn(
+              'rounded px-3 py-1 text-sm transition',
+              valor === id
+                ? 'bg-accent-600 text-white'
+                : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800',
+            )}
+          >
+            {nome}
+          </button>
+        ))}
+      </div>
+      {dica && <p className="mt-1.5 text-xs text-ink-500 dark:text-ink-400">{dica}</p>}
+    </div>
+  )
+}
+
 /** Liga/desliga. O rótulo inteiro é clicável, não só o interruptor. */
 export function Chave({ checked, onChange, label, description }) {
   return (
     <label className="flex cursor-pointer items-start gap-3">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          'mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition',
-          checked ? 'bg-accent-600' : 'bg-ink-300 dark:bg-ink-700',
-        )}
-      >
-        <span
-          className={cn(
-            'block h-4 w-4 rounded-full bg-white shadow transition-transform',
-            checked && 'translate-x-4',
-          )}
-        />
-      </button>
+      <Interruptor checked={checked} onChange={onChange} className="mt-0.5" />
       <span className="min-w-0">
         <span className="block text-sm text-ink-800 dark:text-ink-100">{label}</span>
         {description && (

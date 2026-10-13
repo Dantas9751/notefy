@@ -27,7 +27,7 @@ import { descrever as descreverRecorrencia } from '@/lib/recorrencia'
 import { TASK_PRIORITY, TASK_STATUS, cn, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { avisarErro } from '@/lib/avisoFlutuante'
-import { emLote, ignorar404 } from '@/lib/lote'
+import { emLote, ignorarSeJaSaiu } from '@/lib/lote'
 import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 
 /** MIME próprio: soltar uma tarefa não pode ser confundido com soltar texto. */
@@ -372,7 +372,7 @@ export default function Board() {
   const deleteMany = (ids) =>
     aplicarEmLote(
       ids,
-      (taskId) => api.delete(`/tasks/${taskId}/`).catch(ignorar404),
+      (taskId) => api.delete(`/tasks/${taskId}/`).catch(ignorarSeJaSaiu),
       (recusa) => t('{falhas} de {total} não foram excluídas. {motivo}', recusa),
     )
 

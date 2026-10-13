@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { CheckSquare, Download, Folder as FolderIcon, SearchX, Trash2, X, ExternalLink, Sparkles } from 'lucide-react'
+import IconeDoItem from '@/components/IconeDoItem'
+import { emojiDe } from '@/lib/icone'
 import api, { extractError } from '@/lib/api'
 import { useDebounced, useFetch } from '@/hooks/useFetch'
 import { useExcluirSelecao } from '@/hooks/useCascadeDelete'
@@ -26,11 +28,12 @@ const TYPE_META = {
   ...Object.fromEntries(
     Object.entries(DOCUMENT_KINDS).map(([kind, meta]) => [
       kind,
-      { get label() { return meta.plural }, icon: meta.icon, accent: meta.accent },
+      { get label() { return meta.plural }, get singular() { return meta.label }, icon: meta.icon, accent: meta.accent },
     ]),
   ),
-  folder: { get label() { return t('Pastas') }, icon: FolderIcon, accent: '#78716C' },
-  task: { get label() { return t('Tarefas') }, icon: CheckSquare, accent: '#0EA5E9' },
+  // `label` no filtro (plural, com a contagem); `singular` na etiqueta de cada resultado.
+  folder: { get label() { return t('Pastas') }, get singular() { return t('Pasta') }, icon: FolderIcon, accent: '#78716C' },
+  task: { get label() { return t('Tarefas') }, get singular() { return t('Tarefa') }, icon: CheckSquare, accent: '#0EA5E9' },
 }
 
 export default function SearchPage() {
@@ -324,7 +327,7 @@ export default function SearchPage() {
           <>
             <p className="mb-3 flex items-center gap-2 text-xs text-ink-400">
               <span>
-                {data.total} {t('resultado(s)')}
+                {data.total === 1 ? t('1 resultado') : t('{n} resultados', { n: data.total })}
                 {debouncedQuery && <> {t('para “')}{debouncedQuery}”</>}
               </span>
               {/* A pergunta ao Laviel era só Ctrl+Enter: no toque não existia. */}
@@ -367,18 +370,22 @@ export default function SearchPage() {
                       onClick={(e) => handleClick(uniqueKey, e)}
                       onContextMenu={(e) => abrirMenu(item, e)}
                       className={cn(
-                        'flex items-start gap-3 px-4 py-3 transition hover:bg-ink-50 dark:hover:bg-ink-900',
+                        'flex items-start gap-3 px-4 py-3 transition hover:bg-ink-50 compacto:py-2 dark:hover:bg-ink-900',
                         i === 0 && 'rounded-t-[9px]',
                         i === results.length - 1 && 'rounded-b-[9px]',
                         selecionado &&
                           'bg-accent-50/60 ring-2 ring-inset ring-accent-500 dark:bg-accent-500/10'
                       )}
                     >
-                      <Icon
-                        size={16}
-                        className="mt-0.5 shrink-0"
-                        style={{ color: item.color || meta.accent }}
-                      />
+                      {emojiDe(item) ? (
+                        <IconeDoItem item={item} size={16} className="mt-0.5" />
+                      ) : (
+                        <Icon
+                          size={16}
+                          className="mt-0.5 shrink-0"
+                          style={{ color: item.color || meta.accent }}
+                        />
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           {renomear.estaEditando(item.id) ? (
@@ -398,7 +405,7 @@ export default function SearchPage() {
                             </p>
                           )}
                           <Badge className="bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400">
-                            {meta.label}
+                            {meta.singular}
                           </Badge>
                         </div>
                         <p className="mt-0.5 truncate text-xs text-ink-400">{item.subtitle}</p>

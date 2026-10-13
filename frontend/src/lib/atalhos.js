@@ -44,10 +44,12 @@ export const GRUPOS = [
     get titulo() { return t('Geral') },
     itens: [
       { id: 'buscar', padrao: ['Ctrl+K'], get texto() { return t('Buscar') } },
-      { id: 'laviel', padrao: ['Ctrl+J'], get texto() { return t('Abrir o Laviel') } },
+      { id: 'laviel', padrao: ['Ctrl+J'], get texto() { return t('Laviel na lateral (abre e fecha)') } },
+      // Não Ctrl+Shift+J, o par natural: no Chrome e no Edge ele abre o console e a página nem o recebe.
+      { id: 'lavielFlutuante', padrao: ['Ctrl+Shift+Space'], get texto() { return t('Laviel flutuante (abre e fecha)') } },
       { id: 'zen', padrao: ['Ctrl+.', 'F11'], get texto() { return t('Modo zen (tela cheia; no app, F11 também)') } },
       { id: 'fecharPainel', padrao: ['Ctrl+\\'], get texto() { return t('Fechar o painel ao lado') } },
-      { id: 'relogio', padrao: ['Alt+R'], get texto() { return t('Relógio flutuante (abre e fecha)') } },
+      { id: 'relogio', padrao: ['Ctrl+Shift+O'], get texto() { return t('Relógio flutuante (abre e fecha)') } },
       { id: 'atalhos', padrao: ['Ctrl+/'], get texto() { return t('Esta lista') } },
     ],
   },
@@ -268,6 +270,29 @@ function limpar(mapa) {
 
 /** As teclas de um atalho: as trocadas, ou as de fábrica. `mapa` é para o rascunho da tela de configuração. */
 export const bindsDe = (id, mapa = personalizados) => mapa[id] ?? acaoPorId(id).padrao
+
+/**
+ * A tecla de agora de um atalho, como se mostra e no idioma em uso
+ * ("Ctrl+Shift+Espaço", "Ctrl+Alt+0 a 3"), ou `''` se ele estiver desligado.
+ * As dicas usam isto, e não a tecla de fábrica escrita no texto: com os
+ * atalhos trocáveis, a dica mentia para quem trocou.
+ */
+export function teclaDe(id) {
+  const [combo] = bindsDe(id)
+  return combo ? teclasDoCombo(combo, acaoPorId(id).serie).join('+') : ''
+}
+
+/** `frase` e, se o atalho tiver tecla, a frase sobre ela: "Esconde a barra. Ctrl+. liga e desliga." */
+export function fraseComTecla(frase, id, sobreATecla) {
+  const tecla = teclaDe(id)
+  return tecla ? `${frase} ${sobreATecla(tecla)}` : frase
+}
+
+/** "Fechar o relógio (Ctrl+Shift+O)": o rótulo com a tecla de agora, ou sem ela se não houver. */
+export function comTecla(texto, id) {
+  const tecla = teclaDe(id)
+  return tecla ? `${texto} (${tecla})` : texto
+}
 
 /** O mapa que está valendo (cópia: a tela mexe no rascunho dela, e só `salvarBinds` muda o de verdade). */
 export const bindsSalvos = () => ({ ...personalizados })

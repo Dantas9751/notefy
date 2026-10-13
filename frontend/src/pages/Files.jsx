@@ -164,7 +164,9 @@ export default function Files() {
         title={t('Arquivos')}
         subtitle={
           data
-            ? t('{count} arquivo(s)', { count: data.count })
+            ? data.count === 1
+              ? t('1 arquivo')
+              : t('{n} arquivos', { n: data.count })
             : t('Carregando...')
         }
         actions={
@@ -230,7 +232,7 @@ export default function Files() {
               {agruparPorData(arquivos, 'created_at').map((grupo) => (
                 <section key={grupo.rotulo}>
                   <h2 className="titulo mb-3 text-[17px]">{grupo.rotulo}</h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 compacto:gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {grupo.itens.map((doc) => {
                       const selectionKey = `document:${doc.id}`
                       const selecionado = isSelected(selectionKey)

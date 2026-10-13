@@ -6,10 +6,11 @@ import { semQuery, useSplit } from '@/context/SplitContext'
 import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { abrirEmNovaJanela, emCelular } from '@/lib/desktop'
 import { CREATABLE_KINDS, kindMeta } from '@/lib/documents'
+import IconeDoItem from '@/components/IconeDoItem'
 import DestinationModal from '@/components/modals/DestinationModal'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-import { casa, numeroDaSerie } from '@/lib/atalhos'
+import { casa, numeroDaSerie, teclaDe } from '@/lib/atalhos'
 
 /** Segue a convenção de `lib/dnd.js`: cada arraste tem o seu MIME. */
 const TAB_MIME = 'application/x-notefy-tab'
@@ -131,7 +132,7 @@ export default function TabBar() {
   }
 
   const menuDe = (tab) => [
-    { label: t('Fechar'), icon: X, hint: t('Ctrl+Q'), onClick: () => aoFechar(tab) },
+    { label: t('Fechar'), icon: X, hint: teclaDe('fecharAba'), onClick: () => aoFechar(tab) },
     {
       label: t('Fechar as outras'),
       icon: XCircle,
@@ -214,7 +215,6 @@ export default function TabBar() {
       >
         {tabs.map((tab, indice) => {
           const meta = kindMeta(tab.kind)
-          const Icon = meta.icon
           const ativa = tab.key === activeKey
           // A única aba sendo o Início: fechá-la só a reabriria.
           const fixa = tabs.length === 1 && semQuery(tab.path) === '/'
@@ -290,7 +290,7 @@ export default function TabBar() {
                 arrastando === indice && 'opacity-40',
               )}
             >
-              <Icon size={13} className="shrink-0" style={{ color: meta.accent }} />
+              <IconeDoItem item={{ icon: tab.icone }} kind={tab.kind} size={13} style={{ color: meta.accent }} />
               {!(muitoApertada && !ativa) && <span className="min-w-0 flex-1 truncate">{tab.title || t('Sem título')}</span>}
 
               {/* Ponto de não salvo ocupa o mesmo lugar do X e some ao

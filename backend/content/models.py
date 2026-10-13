@@ -25,7 +25,7 @@ from django.db.models.functions import Lower
 
 from core.idioma import texto
 from core.models import BaseModel, OwnedModel, SoftDeleteQuerySet, TimeStampedModel, UUIDModel
-from core.validators import hex_color_validator, icon_name_validator, normalizar_nome
+from core.validators import hex_color_validator, normalizar_nome, validar_icone
 from organization.models import Folder
 
 from .schemas import empty_data_for, extract_text, secao_tem_conteudo, validate_data
@@ -221,8 +221,9 @@ class Document(BaseModel):
     color = models.CharField(
         "cor", max_length=7, blank=True, validators=[hex_color_validator]
     )
+    #: Um emoji (`📘`), que a lista mostra no lugar do ícone do tipo.
     icon = models.CharField(
-        "ícone", max_length=64, blank=True, validators=[icon_name_validator]
+        "ícone", max_length=64, blank=True, validators=[validar_icone]
     )
     is_favorite = models.BooleanField("favorito", default=False)
     is_archived = models.BooleanField("arquivado", default=False)

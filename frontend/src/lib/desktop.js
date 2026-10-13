@@ -25,6 +25,36 @@ export const semMouse = () =>
 /** O Tauri injeta este objeto na webview antes de qualquer script rodar. */
 export const noDesktop = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
+/** No app do computador, mostra a janela (ela nasce escondida; ver `App`). */
+export async function mostrarJanela() {
+  if (!noDesktop()) return
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  await getCurrentWindow().show().catch(() => {})
+}
+
+/**
+ * No app do computador, o tamanho da interface (1 = 100%): o zoom da própria
+ * janela, como o Ctrl + do navegador. Zoom de verdade, e não `zoom` no CSS:
+ * medidas, arrastes e `innerWidth` continuam na mesma escala do resto.
+ */
+export async function definirZoom(fator) {
+  if (!noDesktop()) return
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+  await getCurrentWebview().setZoom(fator).catch(() => {})
+}
+
+/**
+ * No app do computador, espera o backend embutido aceitar conexão.
+ *
+ * A janela abre antes dele (que leva alguns segundos para subir), e o
+ * primeiro pedido sairia no vazio. No navegador e no celular, volta na hora.
+ */
+export async function esperarBackend() {
+  if (!noDesktop()) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('esperar_backend').catch(() => {})
+}
+
 /**
  * Abre uma rota do app numa janela separada.
  *
@@ -178,6 +208,7 @@ export function idDeInstancia() {
 
 export const EVENTOS_SINCRONIZADOS = [
   'notefy:moved',
+  'notefy:icone',
   'notefy:favorites-changed',
   'notefy:task-changed',
 ]

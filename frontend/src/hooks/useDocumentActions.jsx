@@ -14,6 +14,7 @@ import { documentPath, kindMeta } from '@/lib/documents'
 import DestinationModal from '@/components/modals/DestinationModal'
 import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import ModeloModal from '@/components/modals/ModeloModal'
+import EscolherIcone from '@/components/modals/EscolherIcone'
 import { t } from '@/lib/i18n'
 
 //: Tipos que a IA sabe gerar a partir de outro item.
@@ -75,6 +76,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const [gerando, setGerando] = useState(null)
   const [extrair, setExtrair] = useState(null)
   const [salvandoModelo, setSalvandoModelo] = useState(null)
+  const [iconeDe, setIconeDe] = useState(null)
 
   const done = useCallback(() => {
     refresh()
@@ -154,6 +156,7 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
           }
         },
         onDelete: () => setDeleting(doc),
+        onIcone: () => setIconeDe(doc),
         // Duplicar e exportar rodam com o menu já fechado: o motivo de uma
         // falha só tem onde aparecer no aviso flutuante.
         onError: avisarErro,
@@ -260,6 +263,8 @@ export function useDocumentActions({ onChanged, onRename } = {}) {
   const dialogs = (
     <>
       <ModeloModal open={!!salvandoModelo} documento={salvandoModelo} onClose={() => setSalvandoModelo(null)} />
+
+      <EscolherIcone item={iconeDe} onClose={() => setIconeDe(null)} onMudou={onChanged} />
 
       <DestinationModal
         open={!!moving}

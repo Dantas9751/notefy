@@ -7,7 +7,10 @@ import useEmEstudo from '@/hooks/useEmEstudo'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { useTabState, useTabs } from '@/context/TabsContext'
 import { useSplit } from '@/context/SplitContext'
-import ItemNaLixeira from '@/components/ItemNaLixeira'
+import ItemIndisponivel from '@/components/ItemIndisponivel'
+import IconeDoItem from '@/components/IconeDoItem'
+import EscolherIcone from '@/components/modals/EscolherIcone'
+import useListenerDeJanela from '@/hooks/useListenerDeJanela'
 import { Badge, Button, ErrorState, Modal, Spinner } from '@/components/ui'
 import { usePropriedades } from '@/context/PropriedadesContext'
 import { ContextMenu } from '@/components/ui/ContextMenu'
@@ -16,9 +19,9 @@ import FilePreview, { baixarArquivoNoClique, ehArquivoDeOffice } from '@/compone
 import { ehArquivoDeTexto } from '@/components/TextFilePreview'
 import { documentPath, kindMeta } from '@/lib/documents'
 import { cn, formatBytes, formatDate } from '@/lib/utils'
+import { motivoDaIndisponibilidade, tituloDoIndisponivel } from '@/lib/erros'
 import { t } from '@/lib/i18n'
 
-const IconeDoArquivo = kindMeta('file').icon
 
 /**
  * Visualização de um arquivo.
@@ -68,9 +71,10 @@ export default function FileViewer({ id: idProp }) {
   })
   const { closeTab, activeKey } = useTabs()
   const { fecharPainel } = useSplit()
-  const naLixeira = errorStatus === 404 || errorStatus === 410
+  const indisponivel = motivoDaIndisponibilidade(errorStatus)
   const propriedades = usePropriedades()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [escolhendoIcone, setEscolhendoIcone] = useState(false)
   //: Onde abrir os formatos de "Converter para" (embaixo do botão).
   const [menuConverter, setMenuConverter] = useState(null)
   // Rascunho do nome enquanto se digita. O `doc` só é reescrito quando o
@@ -79,7 +83,16 @@ export default function FileViewer({ id: idProp }) {
   const [erroNome, setErroNome] = useState(null)
 
   // Só o título DESTE arquivo: o `useFetch` segura o anterior enquanto o novo carrega.
-  useTabState({ title: naLixeira ? t('Item na lixeira') : doc?.id === id ? doc.title : undefined, enabled: !emPainel })
+  useTabState({
+    title: indisponivel ? tituloDoIndisponivel(indisponivel) : doc?.id === id ? doc.title : undefined,
+    icone: doc?.id === id ? doc.icon ?? '' : undefined,
+    enabled: !emPainel,
+  })
+
+  // O ícone trocado aqui ou pelo botão direito numa lista: só ele, sem recarregar.
+  useListenerDeJanela('notefy:icone', (evento) => {
+    if (evento.detail?.id === id) setData((atual) => atual && { ...atual, icon: evento.detail.icon })
+  })
 
   // Ler um PDF importado é estudar tanto quanto escrever uma nota.
   useEmEstudo(doc, !emPainel)
@@ -129,8 +142,8 @@ export default function FileViewer({ id: idProp }) {
     )
   }
 
-  // Excluído de outro lugar: a mesma tela do editor de documentos.
-  if (naLixeira) return <ItemNaLixeira emPainel={emPainel} />
+  // Excluído de outro lugar, ou de outra conta: a mesma tela do editor de documentos.
+  if (indisponivel) return <ItemIndisponivel motivo={indisponivel} emPainel={emPainel} />
 
   if (error) {
     return (
@@ -153,8 +166,16 @@ export default function FileViewer({ id: idProp }) {
           <ArrowLeft size={16} />
         </button>
 
-        {/* O ícone do tipo antes do caminho, como no editor. */}
-        <IconeDoArquivo size={15} className="shrink-0" style={{ color: doc.color || kindMeta('file').accent }} />
+        {/* O ícone antes do caminho, como no editor: o clique troca o emoji do item. */}
+        <button
+          type="button"
+          onClick={() => setEscolhendoIcone(true)}
+          aria-label={t('Mudar o ícone')}
+          title={t('Mudar o ícone')}
+          className="-mx-1 rounded p-1 transition hover:bg-ink-100 dark:hover:bg-ink-800"
+        >
+          <IconeDoItem item={doc} kind="file" size={15} style={{ color: doc.color || kindMeta('file').accent }} />
+        </button>
 
         {doc.breadcrumb?.length > 0 && (
           <nav className="hidden min-w-0 items-center gap-1 text-xs text-ink-400 sm:flex">
@@ -229,6 +250,8 @@ export default function FileViewer({ id: idProp }) {
           </Button>
         </div>
       </div>
+
+      <EscolherIcone item={escolhendoIcone ? doc : null} onClose={() => setEscolhendoIcone(false)} />
 
       <ContextMenu
         open={!!menuConverter}

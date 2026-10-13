@@ -22,7 +22,10 @@ export async function emLote(itens, operacao) {
   return motivos.length ? { falhas: motivos.length, total: itens.length, motivo: motivos[0] } : null
 }
 
-/** Para `.catch`: 404 é sucesso quando o pedido era tirar o item dali (outra aba chegou antes). */
-export function ignorar404(err) {
-  if (err?.response?.status !== 404) throw err
+/** O item já não está ali: apagado (404) ou na lixeira (410) — outra aba chegou antes. */
+export const jaSaiu = (err) => err?.response?.status === 404 || err?.response?.status === 410
+
+/** Para `.catch`: já ter saído é sucesso quando o pedido era tirar o item dali. */
+export function ignorarSeJaSaiu(err) {
+  if (!jaSaiu(err)) throw err
 }

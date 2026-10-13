@@ -91,7 +91,7 @@ Vale para o Android e para qualquer tela sem mouse.
 | Ctrl+clique para marcar vários | O toque longo marca o item; com a seleção aberta, cada toque soma ou tira. O X da barra sai do modo |
 | Controle que aparece no hover | Sempre visível sem mouse (`index.css`) |
 | Ctrl+Z no quadro | Desfazer e refazer no canto, junto do zoom |
-| Ctrl+J | Botão do Laviel ao lado do sino |
+| Ctrl+J e Ctrl+Shift+Espaço (Laviel na gaveta e solto) | Botão do Laviel ao lado do sino; no chat, o botão ao lado do X o solta sobre o app ou o encaixa de volta |
 | Ctrl+Enter na busca | "Perguntar ao Laviel" ao lado dos resultados |
 | Arrastar cartão, bloco ou item | "Mover para..." no menu do toque longo; o bloco da nota tem menu na alça |
 | Atalhos da nota (`/`, `[] `, Ctrl+Shift+9) | Os mesmos `/` e `[] ` no teclado virtual, ou a barra de funções, que rola de lado |

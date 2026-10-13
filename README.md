@@ -188,8 +188,12 @@ Os testes do backend gravam os uploads numa pasta temporária, que some no fim
 
 ### 4. Aplicativo, idiomas e Android
 
-- `build-desktop.ps1` gera o instalador do Windows (o Django vai junto,
-  empacotado, e o Tauri o liga e desliga com a janela).
+- `build-desktop.ps1` gera o instalador do Windows. O Django vai junto, numa
+  pasta (`backend/`, PyInstaller `onedir`: sobe em ~2 s, sem se descompactar a
+  cada abertura), e o Tauri o liga com a janela e encerra a árvore inteira ao
+  sair. A janela não tem a barra do Windows (minimizar, maximizar e fechar
+  ficam na faixa de abas), abre já desenhada — sem o clarão branco do WebView —
+  e reabre onde estava, inclusive em outro monitor.
 - O app fala português (Brasil) e inglês (EUA); a escolha fica em
   Configurações. Como funciona, e como adicionar um idioma:
   [`docs/idiomas-e-android.md`](docs/idiomas-e-android.md).
@@ -204,7 +208,7 @@ Os testes do backend gravam os uploads numa pasta temporária, que some no fim
 | Modelo | Módulo | Papel |
 | --- | --- | --- |
 | `User` | users | Login por nome de usuário, sem e-mail. PK em UUID. |
-| `UserPreferences` | users | Tema, estado da sidebar, layout do Início e o bloco de rascunho. |
+| `UserPreferences` | users | Tema, tela inicial (inclusive "onde parei"), arrumação e estado da sidebar, layout do Início e o bloco de rascunho. |
 | `Category` | organization | Tag global do usuário, com cor e ícone. |
 | `Folder` | organization | Pasta auto-relacionável, com `path` materializado. |
 | `Document` | content | Nota, arquivo, planilha, diagrama, canvas ou design — `kind` decide. |
@@ -374,17 +378,36 @@ renderiza um resultado sem saber de qual tabela ele veio.
 - **Abertura** ao abrir o app (`components/Abertura.jsx`, `lib/abertura.js`): "Note"
   na serifada dos títulos e uma caneta que escreve "fy" na fonte do sistema, num
   tom frio tirado das cores do tema (vale para os temas personalizados). Passa
-  uma vez por abertura, some sozinha em ~3,5 s, pula com qualquer clique ou
-  tecla, e com movimento reduzido vira só um fade do nome.
+  uma vez por abertura, em ~3,5 s — ou até o app ficar pronto, segurando o nome
+  escrito em vez de abrir para uma tela vazia —, e pula com qualquer clique ou
+  tecla. Em Configurações → Aparência → "Abertura animada": seguir o sistema
+  (com movimento reduzido, como os "Efeitos de animação" do Windows desligados,
+  vira só um fade do nome), sempre, ou desligada.
+- **Personalizar sem complicar.** Em Configurações → Aparência: tamanho da
+  interface (90% a 125%, o zoom da própria janela, no app do computador) e
+  densidade confortável ou compacta (a variante `compacto:` do Tailwind), ambos
+  do aparelho (`lib/aparencia.js`); e a leitura das notas — largura da página e
+  espaço entre linhas —, com exceção por nota no botão **Leitura**. A barra
+  lateral se arruma pelo botão direito nos atalhos: ordem, o que aparece, e as
+  partes favoritos, tempo de estudo (que continua contando escondido) e dica;
+  vai para a conta (`sidebar_layout`, `lib/barraLateral.js`). Cada item pode ter
+  um emoji no lugar do ícone do tipo (botão direito → Ícone..., ou o ícone no alto
+  do item), que aparece nas listas, nas abas, nos favoritos e na busca
+  (`lib/icone.js`). A tela inicial "Onde parei" reabre as abas da última vez
+  (`lib/sessao.js`; só a janela principal grava).
 - `Ctrl/Cmd+K` abre a busca global; `Ctrl/Cmd+S` salva a nota aberta;
+  `Ctrl/Cmd+J` abre o Laviel na gaveta da direita e `Ctrl/Cmd+Shift+Espaço`, solto
+  sobre o app (o mesmo chat; arrasta pelo cabeçalho e muda de tamanho pelo
+  canto); `Ctrl/Cmd+Shift+O` solta o relógio do Início sobre o app;
   `Ctrl/Cmd+/` lista todos os atalhos. **Todos trocam** em Configurações →
   Atalhos (rascunho até o Salvar; redefine um ou todos); o registro único
-  está em `lib/atalhos.js` e os handlers perguntam `casa(evento, 'id')`.
+  está em `lib/atalhos.js`, os handlers perguntam `casa(evento, 'id')` e as
+  dicas mostram a tecla de agora (`comTecla`, `fraseComTecla`), nunca a de fábrica.
 
 ### Design
 
 Minimalista, inspirado no Notion: cinzas levemente quentes (o cinza puro do
 Tailwind fica frio numa tela de leitura), largura de texto limitada a ~70
-caracteres, entrelinha 1.75, bordas suaves e stack de fontes do sistema — zero
+caracteres, entrelinha 1.75 (ajustável em Aparência), bordas suaves e stack de fontes do sistema — zero
 requisição de rede, renderização imediata. Tokens em
 [`tailwind.config.js`](frontend/tailwind.config.js).

@@ -54,7 +54,7 @@ export default function AbaLaviel() {
   return (
     <Bloco
       title={t('Laviel')}
-      description={t('O assistente de estudos do Notefy: o chat (Ctrl+J), as ações de IA dos editores e a busca por pergunta. Escolha um provedor para ligá-lo. A chave fica guardada só neste computador.')}
+      description={t('O assistente de estudos do Notefy: o chat (na lateral ou solto sobre o app), as ações de IA dos editores e a busca por pergunta. Escolha um provedor para ligá-lo. A chave fica guardada só neste computador.')}
     >
       {iniciado && (
         <>

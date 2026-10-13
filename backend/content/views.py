@@ -646,6 +646,7 @@ class FavoritesView(APIView):
                     # escolhida pelo usuário, que pinta o ícone na lista.
                     "folder": str(doc.folder_id) if doc.folder_id else "",
                     "color": doc.color,
+                    "icon": doc.icon,
                 }
             )
 

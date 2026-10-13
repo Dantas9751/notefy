@@ -11,6 +11,7 @@ from rest_framework_simplejwt.serializers import (
     TokenRefreshSerializer,
 )
 
+from .barra import limpar_barra
 from .inicio import MAX_RASCUNHO, limpar_inicio
 from .models import User, UserPreferences
 
@@ -57,6 +58,12 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
         except DjangoValidationError as erro:
             raise serializers.ValidationError(erro.messages)
 
+    def validate_sidebar_layout(self, value):
+        try:
+            return limpar_barra(value)
+        except DjangoValidationError as erro:
+            raise serializers.ValidationError(erro.messages)
+
     def get_ai_key_set(self, obj) -> bool:
         return bool(obj.ai_key)
 
@@ -78,6 +85,7 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "ai_base_url",
             "ai_key_set",
             "home_layout",
+            "sidebar_layout",
             "scratch_pad",
         )
 

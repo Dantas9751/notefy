@@ -7,10 +7,11 @@
  * e um cronômetro esquecido ligado a noite toda mente mais do que não
  * medir nada.
  *
- * O total é POR DIA do calendário local. Vira à meia-noite sem ninguém
- * mandar: a chave do dia muda e o contador começa do zero.
+ * O total é POR DIA do calendário local e POR CONTA. Vira à meia-noite sem
+ * ninguém mandar: a chave do dia muda e o contador começa do zero.
  */
 
+import { chaveDaConta } from './conta.js'
 import { t } from './i18n.js'
 
 /** Quanto tempo sem teclado/mouse/toque antes de considerar que parou. */
@@ -18,14 +19,16 @@ export const OCIOSO_MS = 60_000
 
 const PREFIXO = 'notefy.estudo.'
 
-/** `notefy.estudo.2026-09-19` — data LOCAL, não UTC.
+const dia = (quando) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${quando.getFullYear()}-${pad(quando.getMonth() + 1)}-${pad(quando.getDate())}`
+}
+
+/** `notefy.estudo.2026-09-19@<conta>` — data LOCAL, não UTC; `null` sem conta.
  *
  *  `toISOString()` daria o dia em UTC: quem estuda às 22h em Brasília
  *  veria o tempo cair no dia seguinte. */
-export function chaveDoDia(quando = new Date()) {
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${PREFIXO}${quando.getFullYear()}-${pad(quando.getMonth() + 1)}-${pad(quando.getDate())}`
-}
+export const chaveDoDia = (quando = new Date()) => chaveDaConta(`${PREFIXO}${dia(quando)}`)
 
 /**
  * O relógio deve andar agora?
@@ -55,6 +58,7 @@ export function formatarDuracao(segundos) {
 }
 
 export function lerTotal(chave) {
+  if (!chave) return 0
   try {
     const bruto = Number(localStorage.getItem(chave))
     return Number.isFinite(bruto) && bruto > 0 ? bruto : 0
@@ -64,6 +68,7 @@ export function lerTotal(chave) {
 }
 
 export function gravarTotal(chave, segundos) {
+  if (!chave) return
   try {
     localStorage.setItem(chave, String(Math.floor(segundos)))
   } catch {
@@ -95,10 +100,8 @@ export function historico(dias = 7, agora = new Date()) {
 // dele zeraria o histórico de quem já tem dias gravados.
 // --------------------------------------------------------------------------
 
-/** `notefy.estudo.2026-09-20.docs` */
-export function chaveDosDocumentos(quando = new Date()) {
-  return `${chaveDoDia(quando)}.docs`
-}
+/** `notefy.estudo.2026-09-20.docs@<conta>` */
+export const chaveDosDocumentos = (quando = new Date()) => chaveDaConta(`${PREFIXO}${dia(quando)}.docs`)
 
 /**
  * `{ [id]: { s: segundos, titulo, kind } }`
@@ -108,6 +111,7 @@ export function chaveDosDocumentos(quando = new Date()) {
  * gasto nele continua sendo verdade sobre o dia que passou.
  */
 export function lerPorDocumento(chave) {
+  if (!chave) return {}
   try {
     const bruto = JSON.parse(localStorage.getItem(chave) || '{}')
     return bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? bruto : {}
@@ -117,6 +121,7 @@ export function lerPorDocumento(chave) {
 }
 
 export function gravarPorDocumento(chave, mapa) {
+  if (!chave) return
   try {
     localStorage.setItem(chave, JSON.stringify(mapa))
   } catch {
@@ -167,4 +172,51 @@ export function marcarDocumentoAberto(documento) {
 
 export function documentoAberto() {
   return aberto
+}
+
+// --------------------------------------------------------------------------
+// O que foi gravado antes de o estudo ter dono
+//
+// Até aqui as chaves não tinham conta (`notefy.estudo.2026-10-11`), e
+// quem entrava com outra conta no mesmo aparelho via o tempo e a lista da
+// anterior. Esse histórico sem dono passa para a conta que entrar SÓ se
+// todos os itens da lista forem dela; senão é de outra pessoa (ou misturado)
+// e é descartado — atribuir o tempo de alguém à conta errada é o próprio
+// defeito que isto conserta.
+// --------------------------------------------------------------------------
+
+const SEM_DONO = /^notefy\.estudo\.\d{4}-\d{2}-\d{2}(\.docs)?$/
+
+/** `ehDaConta(id)`: promessa de `true` se o documento `id` é da conta em uso. */
+export async function adotarEstudoSemDono(ehDaConta) {
+  let chaves
+  try {
+    chaves = Object.keys(localStorage).filter((chave) => SEM_DONO.test(chave))
+  } catch {
+    return
+  }
+  if (!chaves.length) return
+  const ids = new Set(chaves.filter((chave) => chave.endsWith('.docs')).flatMap((chave) => Object.keys(lerPorDocumento(chave))))
+  const respostas = await Promise.all([...ids].map((id) => Promise.resolve(ehDaConta(id)).catch(() => false)))
+  const daConta = respostas.every(Boolean)
+  for (const chave of chaves) {
+    const nova = chaveDaConta(chave)
+    if (daConta && nova) {
+      // O cronômetro pode ter começado a gravar na chave nova enquanto a conferência rodava: soma.
+      if (chave.endsWith('.docs')) {
+        const juntos = { ...lerPorDocumento(chave) }
+        for (const [id, valor] of Object.entries(lerPorDocumento(nova))) {
+          juntos[id] = { ...valor, s: (juntos[id]?.s ?? 0) + (valor?.s ?? 0) }
+        }
+        gravarPorDocumento(nova, juntos)
+      } else {
+        gravarTotal(nova, lerTotal(chave) + lerTotal(nova))
+      }
+    }
+    try {
+      localStorage.removeItem(chave)
+    } catch {
+      /* sem storage: nada a limpar */
+    }
+  }
 }

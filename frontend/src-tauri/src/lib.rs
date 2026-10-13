@@ -5,10 +5,12 @@
 //! dois cliques, o servidor vem junto, empacotado como um executável
 //! (o "sidecar"), e este processo é quem o liga e desliga.
 //!
-//! O ciclo é: subir o sidecar, esperar a porta responder, abrir a janela.
-//! Esperar importa — a SPA pede `/api/me/` no primeiro instante, e uma
-//! janela aberta antes do servidor mostraria um erro de conexão para um
-//! usuário que não tem o que fazer a respeito.
+//! O ciclo é: subir o backend e abrir a janela na hora; a SPA pergunta
+//! `esperar_backend` antes do primeiro pedido. Esperar importa — ela pede
+//! `/api/me/` no primeiro instante, e sem a espera mostraria erro de
+//! conexão (ou perderia a sessão) para um usuário que não tem o que fazer a
+//! respeito. Mas a espera é dela, e não da janela: esperar aqui travava a
+//! janela inteira.
 
 #[cfg(desktop)]
 mod midia;
@@ -23,43 +25,57 @@ use tauri::{Manager, RunEvent};
 #[cfg(desktop)]
 use tauri_plugin_dialog::DialogExt;
 #[cfg(desktop)]
-use tauri_plugin_shell::process::CommandChild;
-#[cfg(desktop)]
-use tauri_plugin_shell::ShellExt;
+use std::process::{Child, Command, Stdio};
 
 /// Mesma porta gravada no `desktop_server.py` e compilada no frontend.
 #[cfg(desktop)]
 const BACKEND_ADDR: &str = "127.0.0.1:8756";
 
-/// Teto para o primeiro arranque. O executável do backend se descompacta
-/// antes de subir, e num disco lento isso passa de dez segundos.
+/// Teto para o primeiro arranque: o Django carrega todos os apps e roda as
+/// migrations pendentes antes de abrir a porta, e num disco lento (ou logo
+/// depois de atualizar) isso demora.
 #[cfg(desktop)]
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Guarda o processo filho para poder encerrá-lo quando o app fechar.
+/// Guarda o processo do backend para poder encerrá-lo quando o app fechar.
 #[cfg(desktop)]
-struct Backend(std::sync::Mutex<Option<CommandChild>>);
+struct Backend(std::sync::Mutex<Option<Child>>);
 
-/// Encerra o backend inteiro.
+/// Sobe o backend: o executável dentro de `backend/`, nos recursos do app.
 ///
-/// O executável é um PyInstaller de arquivo único, que no Windows roda em
-/// dois processos: o que se descompacta (filho deste) e o Python de verdade
-/// (neto). `kill()` só alcança o primeiro — o servidor ficava órfão,
-/// segurando a porta e o próprio `notefy-server.exe`, e depois de atualizar
-/// o app novo conversava com o backend velho.
+/// É uma pasta (PyInstaller `onedir`), e não um sidecar de arquivo único: o
+/// arquivo único se descompactava no Temp a cada abertura — 4.700 arquivos,
+/// uns 14 s — e, encerrado à força, deixava a pasta para trás.
 #[cfg(desktop)]
-fn encerrar_backend(child: CommandChild) {
+fn iniciar_backend(app: &tauri::App) -> std::io::Result<Child> {
+    let pasta = app.path().resource_dir().map_err(std::io::Error::other)?.join("backend");
+    let exe = if cfg!(windows) { "notefy-server.exe" } else { "notefy-server" };
+    Command::new(pasta.join(exe))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
+/// Encerra o backend e o que ele tiver aberto.
+///
+/// Pela árvore, e não só o processo: no tempo do arquivo único o servidor
+/// de verdade era um neto, que o `kill()` não alcançava — ficava órfão,
+/// segurando a porta e o próprio `notefy-server.exe`.
+#[cfg(desktop)]
+fn encerrar_backend(mut child: Child) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         // Sem piscar uma janela de console ao fechar o app.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &child.pid().to_string(), "/T", "/F"])
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
     let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Espera a porta aceitar conexão — é o sinal de que o Django está pronto.
@@ -73,6 +89,25 @@ fn wait_for_backend() -> bool {
         std::thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+/// Responde quando o backend aceitar conexão (`false` se desistir no tempo-limite).
+///
+/// A janela abre na hora, com a abertura animada, e a SPA pergunta isto
+/// antes do primeiro pedido. Esperar dentro do `setup` travava a thread da
+/// janela: o Windows a dava como "Não respondendo" e a animação pulava
+/// para o fim.
+#[cfg(desktop)]
+#[tauri::command]
+async fn esperar_backend() -> bool {
+    tauri::async_runtime::spawn_blocking(wait_for_backend).await.unwrap_or(false)
+}
+
+/// No celular não há backend embutido: a SPA fala com o servidor na nuvem.
+#[cfg(not(desktop))]
+#[tauri::command]
+async fn esperar_backend() -> bool {
+    true
 }
 
 /// Desfaz o percent-encoding do nome do arquivo.
@@ -250,12 +285,24 @@ pub fn run() {
                 let _ = janela.set_focus();
             }
         }))
-        .plugin(tauri_plugin_shell::init())
+        // Reabre onde estava: posição, tamanho, monitor e maximizada. Só a
+        // principal (as destacadas têm rótulo novo a cada vez), e sem o
+        // "visível": quem mostra é o `setup`, já com a janela no lugar.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE
+                        - tauri_plugin_window_state::StateFlags::DECORATIONS,
+                )
+                .with_filter(|rotulo| rotulo == "main")
+                .build(),
+        )
         .manage(Backend(std::sync::Mutex::new(None)));
 
     construtor
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![salvar_arquivo, mostrar_na_pasta, midia::midia_atual, midia::midia_comando])
+        .invoke_handler(tauri::generate_handler![esperar_backend, salvar_arquivo, mostrar_na_pasta, midia::midia_atual, midia::midia_comando])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -265,23 +312,23 @@ pub fn run() {
                 )?;
             }
 
-            #[cfg(desktop)]
-            let (_rx, child) = app
-                .shell()
-                .sidecar("notefy-server")
-                .expect("o executável do backend não foi encontrado no pacote")
-                .spawn()
-                .expect("não foi possível iniciar o backend do Notefy");
-
+            // Sobe o backend sem esperar a porta: a SPA espera por conta
+            // própria (`esperar_backend`) enquanto a abertura anima.
+            //
+            // A janela nasce escondida e quem a mostra é a SPA, já desenhada:
+            // mostrada aqui, ela piscava o branco do WebView antes da página.
+            // Se a SPA não mostrar (falhou ao carregar), mostra assim mesmo.
             #[cfg(desktop)]
             {
+                let child = iniciar_backend(app).expect("não foi possível iniciar o backend do Notefy");
                 app.state::<Backend>().0.lock().unwrap().replace(child);
-
-                if !wait_for_backend() {
-                    // A janela abre mesmo assim: a SPA já sabe mostrar erro de
-                    // conexão e oferecer "tentar de novo", o que é melhor do
-                    // que um app que não abre.
-                    eprintln!("Notefy: o backend não respondeu a tempo em {BACKEND_ADDR}");
+                if let Some(janela) = app.get_webview_window("main") {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_secs(4));
+                        if !janela.is_visible().unwrap_or(true) {
+                            let _ = janela.show();
+                        }
+                    });
                 }
             }
 

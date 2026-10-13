@@ -13,12 +13,14 @@ import { cn } from '@/lib/utils'
 import { usePersistedSet } from '@/hooks/usePersistedSet'
 import { CampoDeRenomear } from '@/hooks/useRenomear'
 import { t } from '@/lib/i18n'
+import { chaveDaConta } from '@/lib/conta'
 
 const EXPANDED_KEY = 'notefy.expanded'
 
-/** Estado de expansão persistido. */
+/** Estado de expansão persistido, por conta (são ids das categorias e pastas dela). */
 export function useExpanded() {
-  const { values: expanded, toggle, ensureOpen } = usePersistedSet(EXPANDED_KEY)
+  const [chave] = useState(() => chaveDaConta(EXPANDED_KEY))
+  const { values: expanded, toggle, ensureOpen } = usePersistedSet(chave)
   return { expanded, toggle, ensureOpen }
 }
 
@@ -165,7 +167,7 @@ function FolderRow({ node, depth, categoryId, state, actions, selectedIds, onSel
             cn(
               // Só cor e fundo mudam. Trocar o PESO da fonte fazia a
               // palavra "engordar" e reflowar ao marcar — parecia bug.
-              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-1 text-sm transition outline-none focus:outline-none focus:ring-0',
+              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 compacto:py-1 pr-1 text-sm transition outline-none focus:outline-none focus:ring-0',
               isActive || isSelected
                 ? 'text-accent-700 dark:text-accent-300'
                 : 'text-ink-600 dark:text-ink-300',
@@ -290,7 +292,7 @@ function CategoryRow({ category, state, actions, selectedIds, onSelectIds }) {
           }} 
           className={({ isActive }) =>
             cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 text-sm transition outline-none focus:outline-none focus:ring-0',
+              'flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 compacto:py-1 text-sm transition outline-none focus:outline-none focus:ring-0',
               isActive
                 ? 'font-medium text-accent-700 dark:text-accent-300'
                 : 'text-ink-700 dark:text-ink-200',

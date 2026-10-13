@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { SAIDA_AO_PULAR, caminhoSuave, geometriaDoF, geometriaDoY, planejarEscrita, quadroDaAbertura } from '@/lib/abertura'
+import { SAIDA_AO_PULAR, caminhoSuave, comoAbrir, geometriaDoF, geometriaDoY, inicioDaSaida, modoDaAbertura, planejarEscrita, quadroDaAbertura } from '@/lib/abertura'
 
 /**
  * A abertura do app: "Note" aparece composto na serifada dos títulos, e uma
@@ -15,9 +15,12 @@ import { SAIDA_AO_PULAR, caminhoSuave, geometriaDoF, geometriaDoY, planejarEscri
  * escuro, as paletas e os temas personalizados pintam a abertura sem nenhuma
  * linha a mais aqui. Por isso é SVG desenhado pelo app, e não um vídeo.
  *
- * Cobre o app enquanto ele carrega por baixo, some sozinha em ~3 s, e
+ * Cobre o app enquanto ele carrega por baixo e some sozinha em ~3 s — ou
+ * quando o app ficar `pronto`, se ele demorar mais: até lá ela segura o
+ * nome escrito, em vez de abrir para uma tela vazia. E
  * qualquer clique ou tecla pula para o fim. Com movimento reduzido, o nome
- * só aparece inteiro e some.
+ * só aparece inteiro e some — a não ser que a pessoa tenha escolhido
+ * "sempre" em Aparência (`comoAbrir`).
  */
 
 const ENTRE_NOTE_E_FY = 3
@@ -140,10 +143,11 @@ function Caneta() {
   )
 }
 
-export default function Abertura({ onFim }) {
+export default function Abertura({ onFim, pronto = true }) {
   const notaRef = useRef(null)
   const textoRef = useRef(null)
   const fyRef = useRef(null)
+  const grupoFyRef = useRef(null)
   const letrasRef = useRef({})
   const tracosRef = useRef([])
   const canetaRef = useRef(null)
@@ -152,6 +156,8 @@ export default function Abertura({ onFim }) {
   const [medidas, setMedidas] = useState(null)
   const fimRef = useRef(onFim)
   fimRef.current = onFim
+  const prontoRef = useRef(pronto)
+  prontoRef.current = pronto
 
   // Efeito comum, e não de layout: mede depois que o tema e a fonte escolhida já valem
   // (o `UIContext` aplica os dois em efeitos de layout, que rodam antes de todo efeito comum).
@@ -169,7 +175,7 @@ export default function Abertura({ onFim }) {
 
   useEffect(() => {
     if (!medidas) return undefined
-    const reduzido = reduzMovimento()
+    const reduzido = comoAbrir(modoDaAbertura(), reduzMovimento()) === 'reduzida'
     const tracos = tracosRef.current
     const comprimentos = tracos.map((traco) => traco.getTotalLength())
     tracos.forEach((traco, i) => (traco.style.strokeDasharray = `${comprimentos[i]}`))
@@ -193,8 +199,11 @@ export default function Abertura({ onFim }) {
     let giro = 0
     let quadroPedido = 0
 
+    const segura = inicioDaSaida(reduzido)
     const desenhar = (agora) => {
       inicio ??= agora
+      // O app ainda carregando: o tempo para logo antes da saída (pular continua valendo).
+      if (!prontoRef.current && pulouEm === null && agora - inicio > segura) inicio = agora - segura
       const q = quadroDaAbertura(agora - inicio, { reduzido })
       if (pulouEm !== null) {
         // Pular: o que já foi escrito fica, e a tela some a partir de onde estava.
@@ -203,6 +212,8 @@ export default function Abertura({ onFim }) {
       }
 
       notaRef.current.style.opacity = q.nota
+      // Sem a caneta, o "fy" já está inteiro: entra junto com o "Note", e não antes dele.
+      grupoFyRef.current.style.opacity = reduzido ? q.nota : 1
       notaRef.current.style.transform = `translateY(${q.subida}px)`
       cenaRef.current.style.opacity = q.cena
 
@@ -273,16 +284,14 @@ export default function Abertura({ onFim }) {
     >
       <svg
         viewBox={`-10 -100 ${largura + 20} 160`}
-        className="w-[min(78vw,560px)] overflow-visible"
-        // Um pouco acima do centro: o centro geométrico parece baixo.
-        style={{ marginBottom: '6vh' }}
+        className="w-[min(44vw,320px)] overflow-visible"
       >
         <g ref={notaRef} style={{ opacity: 0 }}>
           <text ref={textoRef} x="0" y="0" fontSize="100" letterSpacing="-2" className="fill-ink-900 font-serif dark:fill-ink-50">
             Note
           </text>
         </g>
-        <g transform={`translate(${origem} 0)`}>
+        <g ref={grupoFyRef} transform={`translate(${origem} 0)`}>
           {['f', 'y'].map((letra) => (
             <mask key={letra} id={`abertura-${letra}`} maskUnits="userSpaceOnUse" x="-50" y="-150" width="400" height="250">
               <g fill="none" stroke="white" strokeLinecap="round" strokeLinejoin="round">

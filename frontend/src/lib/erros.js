@@ -34,6 +34,14 @@ const POR_STATUS = {
 const semResposta = () => t('Não foi possível falar com o servidor. Ele está rodando?')
 const erroDoServidor = () => t('O servidor encontrou um erro. Tente de novo em instantes.')
 
+/**
+ * Por que o item de uma aba não abre: `lixeira` (410) ou `inexistente` (404 —
+ * apagado de vez, ou de outra conta); `null` se o erro é outro.
+ */
+export const motivoDaIndisponibilidade = (status) => ({ 404: 'inexistente', 410: 'lixeira' })[status] ?? null
+
+export const tituloDoIndisponivel = (motivo) => (motivo === 'lixeira' ? t('Item na lixeira') : t('Item não encontrado'))
+
 /** O corpo é uma página HTML (erro do Django, proxy, portal de wi-fi)? */
 function ehPaginaHtml(texto) {
   return /^\s*(<!doctype|<html)/i.test(texto)

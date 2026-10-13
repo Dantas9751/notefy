@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { BotaoIcone, CampoCor, CampoNumero, Escolha, LinhaDeItem, Secao } from './campos'
 import { nomeDaCamada } from './PainelDeCamadas'
+import { comTecla } from '@/lib/atalhos'
 
 /**
  * Direita do editor: "Design" (propriedades) e "Código" (o CSS da camada).
@@ -238,7 +239,7 @@ function SecaoDeAutoLayout({ itens, editar, onAutoLayout }) {
   if (!frames.length || frames.length !== itens.length) return null
   const comLayout = frames.every((i) => temLayout(i.camada))
   if (!comLayout) {
-    return <Secao titulo={t('Auto layout')} vazio onAdicionar={onAutoLayout} tituloAdicionar={t('Adicionar auto layout (Shift+A)')} />
+    return <Secao titulo={t('Auto layout')} vazio onAdicionar={onAutoLayout} tituloAdicionar={comTecla(t('Adicionar auto layout'), 'design.autoLayout')} />
   }
   const l = (ler) => comum(frames, (i) => ler(i.camada.layout))
   const mudar = (campos) => editar((c) => ({ ...c, layout: { ...c.layout, ...campos } }))
@@ -527,12 +528,12 @@ function AbaDesign({ itens, editar, acoes, pagina, ferramenta }) {
       <Secao titulo={t('Posição')}>
         <div className="mb-1.5 flex items-center justify-between">
           {[
-            ['esquerda', AlignStartVertical, t('Alinhar à esquerda (Alt+A)')],
-            ['centroH', AlignCenterVertical, t('Centralizar na horizontal (Alt+H)')],
-            ['direita', AlignEndVertical, t('Alinhar à direita (Alt+D)')],
-            ['topo', AlignStartHorizontal, t('Alinhar ao topo (Alt+W)')],
-            ['centroV', AlignCenterHorizontal, t('Centralizar na vertical (Alt+V)')],
-            ['base', AlignEndHorizontal, t('Alinhar à base (Alt+S)')],
+            ['esquerda', AlignStartVertical, comTecla(t('Alinhar à esquerda'), 'design.alinharEsquerda')],
+            ['centroH', AlignCenterVertical, comTecla(t('Centralizar na horizontal'), 'design.centralizarH')],
+            ['direita', AlignEndVertical, comTecla(t('Alinhar à direita'), 'design.alinharDireita')],
+            ['topo', AlignStartHorizontal, comTecla(t('Alinhar ao topo'), 'design.alinharTopo')],
+            ['centroV', AlignCenterHorizontal, comTecla(t('Centralizar na vertical'), 'design.centralizarV')],
+            ['base', AlignEndHorizontal, comTecla(t('Alinhar à base'), 'design.alinharBase')],
           ].map(([modo, Icone, titulo]) => (
             <BotaoIcone key={modo} titulo={titulo} disabled={algumNoFluxo} onClick={() => acoes.alinhar(modo)}>
               <Icone size={15} />

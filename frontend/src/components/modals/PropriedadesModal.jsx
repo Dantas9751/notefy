@@ -220,13 +220,14 @@ export default function PropriedadesModal({ alvo, onClose, onSalvo }) {
       )}
       {ehDocumento && anexos.length > 0 && (
         <Linha rotulo={t('Anexos')}>
-          {t('{n} anexo(s)', { n: anexos.length })} · {formatBytes(anexos.reduce((soma, a) => soma + (a.size || 0), 0))}
+          {anexos.length === 1 ? t('1 anexo') : t('{n} anexos', { n: anexos.length })} · {formatBytes(anexos.reduce((soma, a) => soma + (a.size || 0), 0))}
         </Linha>
       )}
       {numeros && (
         <>
           <Linha rotulo={t('Contém')}>
-            {t('{itens} item(ns), {pastas} pasta(s)', { itens: numeros.itens, pastas: numeros.pastas })}
+            {numeros.itens === 1 ? t('1 item') : t('{n} itens', { n: numeros.itens })},{' '}
+            {numeros.pastas === 1 ? t('1 pasta') : t('{n} pastas', { n: numeros.pastas })}
           </Linha>
           <Linha rotulo={t('Tamanho')}>{tamanho(numeros.tamanho)}</Linha>
         </>

@@ -9,6 +9,7 @@ import { BLOCOS, CAPAS } from '@/lib/inicio'
 import { urlDeMedia } from '@/lib/fileMedia'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { comTecla } from '@/lib/atalhos'
 
 /**
  * Imagens da conta para a capa, o fundo ou o relógio (`destino`). Uma foto
@@ -367,7 +368,7 @@ export default function PersonalizarInicio({
             'foto',
             t('Relógio'),
             t('Sem fundo'),
-            <p className="mt-3 text-[11px] text-ink-400">{t('O relógio é um dos blocos do Início: arraste e redimensione como os outros. Alt+R o abre flutuando sobre o app, em qualquer tela.')}</p>,
+            <p className="mt-3 text-[11px] text-ink-400">{comTecla(t('O relógio é um dos blocos do Início: arraste e redimensione como os outros. Ele também abre flutuando sobre o app, em qualquer tela'), 'relogio')}.</p>,
           )}
 
           <Secao

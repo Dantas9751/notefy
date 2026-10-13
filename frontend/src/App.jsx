@@ -9,7 +9,8 @@ import { AssistenteProvider } from '@/context/AssistenteContext'
 import { Spinner } from '@/components/ui'
 import AppLayout from '@/components/layout/AppLayout'
 import Abertura from '@/components/Abertura'
-import { aberturaJaVista, marcarAberturaVista } from '@/lib/abertura'
+import { aberturaJaVista, marcarAberturaVista, modoDaAbertura } from '@/lib/abertura'
+import { mostrarJanela } from '@/lib/desktop'
 import { FaixaDaJanela } from '@/components/layout/ControlesDaJanela'
 import { ligarToqueLongo } from '@/lib/toqueLongo'
 import { idioma } from '@/lib/i18n'
@@ -203,17 +204,30 @@ export default function App() {
 
   // A abertura passa uma vez por abertura do app: recarregar ou navegar não repete.
   // (O `main.jsx` marca como vista nas janelas destacadas, que não são o app abrindo.)
-  const [abertura, setAbertura] = useState(() => !aberturaJaVista())
+  const [abertura, setAbertura] = useState(() => !aberturaJaVista() && modoDaAbertura() !== 'nunca')
   useEffect(() => {
     if (abertura) marcarAberturaVista()
   }, [abertura])
+
+  // A janela nasce escondida e só aparece aqui, já com o tema e a abertura na
+  // tela: mostrada antes, ela piscava o branco do WebView antes de a página
+  // existir. (O Rust a mostra de todo jeito se isto não chegar.)
+  useEffect(() => {
+    mostrarJanela()
+  }, [])
 
   return (
     <UIProvider>
       <AuthProvider>
         <AppRoutes key={lingua} />
+        {abertura && <AberturaAteOAppFicarPronto onFim={() => setAbertura(false)} />}
       </AuthProvider>
-      {abertura && <Abertura onFim={() => setAbertura(false)} />}
     </UIProvider>
   )
+}
+
+/** A abertura segura o nome escrito até a sessão ser conferida (com o backend já de pé). */
+function AberturaAteOAppFicarPronto({ onFim }) {
+  const { booting } = useAuth()
+  return <Abertura onFim={onFim} pronto={!booting} />
 }

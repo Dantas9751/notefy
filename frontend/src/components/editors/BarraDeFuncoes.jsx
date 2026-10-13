@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { Children, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlignCenter,
@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronsRight,
   Code2,
   Highlighter,
   ImagePlus,
@@ -33,6 +34,7 @@ import {
 import ColorWheel from '@/components/ui/ColorWheel'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { comTecla } from '@/lib/atalhos'
 
 /**
  * A barra de funções da nota — o "cabeçalho de funções" do Word.
@@ -140,6 +142,95 @@ export function Botao({ icon: Icon, rotulo, ativo = false, desligado = false, on
 
 export function Divisoria() {
   return <span aria-hidden className="mx-px h-5 w-px shrink-0 bg-ink-200 dark:bg-ink-700" />
+}
+
+/** Espaço do "»" no fim da fileira: o botão (32 px) e o vão até ele. */
+const LARGURA_DO_MAIS = 36
+const celularAgora = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches
+
+/**
+ * A fileira de uma barra de funções, do tamanho que cabe.
+ *
+ * Com `flex-wrap`, faltar poucos pixels (a janela do app tem uns 980) jogava
+ * um botão sozinho para uma segunda fileira. Aqui o que não cabe vai para o
+ * "»" no fim, que abre o resto num painel; a fileira nunca termina numa
+ * divisória. No celular continua a fileira que rola de lado, como o teclado
+ * de formatação dos apps de texto.
+ *
+ * As larguras são medidas quando cada peça está à mostra e guardadas por
+ * posição: é delas que sai quantas voltam quando a barra cresce.
+ */
+export function BarraQueCabe({ rotulo, children }) {
+  const itens = Children.toArray(children)
+  const fileiraRef = useRef(null)
+  const maisRef = useRef(null)
+  const larguras = useRef([])
+  const [cabem, setCabem] = useState(itens.length)
+  const [celular, setCelular] = useState(celularAgora)
+  const [maisAberto, setMaisAberto] = useState(false)
+
+  useLayoutEffect(() => {
+    const fileira = fileiraRef.current
+    if (!fileira || celular) return undefined
+    const calcular = () => {
+      for (const filho of fileira.querySelectorAll(':scope > [data-item]')) {
+        larguras.current[Number(filho.dataset.item)] = filho.getBoundingClientRect().width
+      }
+      const estilo = getComputedStyle(fileira)
+      const util = fileira.clientWidth - parseFloat(estilo.paddingLeft) - parseFloat(estilo.paddingRight)
+      const vao = parseFloat(estilo.columnGap) || 0
+      const largura = (i) => (larguras.current[i] ?? 32) + vao
+      const total = itens.reduce((soma, _, i) => soma + largura(i), 0)
+      let k = itens.length
+      if (total > util) {
+        let soma = 0
+        k = 0
+        while (k < itens.length && soma + largura(k) <= util - LARGURA_DO_MAIS) soma += largura(k++)
+        while (k > 0 && itens[k - 1].type === Divisoria) k -= 1
+      }
+      setCabem((atual) => (atual === k ? atual : k))
+    }
+    calcular()
+    const observador = new ResizeObserver(calcular)
+    observador.observe(fileira)
+    return () => observador.disconnect()
+  })
+
+  useLayoutEffect(() => {
+    const consulta = window.matchMedia('(max-width: 639px)')
+    const mudou = () => setCelular(consulta.matches)
+    consulta.addEventListener('change', mudou)
+    return () => consulta.removeEventListener('change', mudou)
+  }, [])
+
+  const visiveis = celular ? itens : itens.slice(0, cabem)
+  const resto = celular ? [] : itens.slice(cabem).filter((item, i) => !(i === 0 && item.type === Divisoria))
+
+  return (
+    <div
+      ref={fileiraRef}
+      role="toolbar"
+      aria-label={rotulo}
+      className={cn(
+        'flex flex-nowrap items-center gap-px px-2 py-1',
+        celular && 'overflow-x-auto [scrollbar-width:none]',
+      )}
+    >
+      {visiveis.map((item, i) => (
+        <div key={item.key ?? i} data-item={i} className="flex shrink-0 items-center gap-px">
+          {item}
+        </div>
+      ))}
+      {resto.length > 0 && (
+        <span ref={maisRef} className="ml-auto flex shrink-0">
+          <Botao icon={ChevronsRight} rotulo={t('Mais ferramentas')} ativo={maisAberto} onClick={() => setMaisAberto((v) => !v)} />
+        </span>
+      )}
+      <Painel ancora={maisRef} aberto={maisAberto && resto.length > 0} onFechar={() => setMaisAberto(false)}>
+        <div className="flex max-w-[22rem] flex-wrap items-center gap-px">{resto}</div>
+      </Painel>
+    </div>
+  )
 }
 
 export function Escolha({ valor, opcoes, rotulo, desligado, onEscolher, onAntes, className }) {
@@ -495,26 +586,16 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
   const AlinhamentoAtual = alinhamento.icon
 
   return (
-    <div
-      role="toolbar"
-      aria-label={t('Barra de funções da nota')}
-      className={cn(
-        'flex items-center gap-px px-2 py-1',
-        // Celular: uma fileira que rola de lado, como o teclado de
-        // formatação dos apps de texto; quatro fileiras empilhadas comeriam
-        // a tela inteira acima da folha.
-        'max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:[scrollbar-width:none] sm:flex-wrap',
-      )}
-    >
-      <Botao icon={Undo2} rotulo={t('Desfazer (Ctrl+Z)')} onClick={acoes.desfazer} />
-      <Botao icon={Redo2} rotulo={t('Refazer (Ctrl+Y)')} onClick={acoes.refazer} />
+    <BarraQueCabe rotulo={t('Barra de funções da nota')}>
+      <Botao icon={Undo2} rotulo={comTecla(t('Desfazer'), 'desfazer')} onClick={acoes.desfazer} />
+      <Botao icon={Redo2} rotulo={comTecla(t('Refazer'), 'refazer')} onClick={acoes.refazer} />
 
       <Divisoria />
 
       <Escolha
         valor={BLOCOS.some((b) => b.value === bloco) ? bloco : 'p'}
         opcoes={BLOCOS}
-        rotulo={t('Estilo do parágrafo (Ctrl+Alt+0 a 3)')}
+        rotulo={comTecla(t('Estilo do parágrafo'), 'nota.formato')}
         desligado={semTexto}
         onAntes={acoes.guardarSelecao}
         onEscolher={(v) => acoes.comando('formatBlock', v)}
@@ -542,9 +623,9 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
 
       <Divisoria />
 
-      <Botao icon={List} rotulo={t('Lista (Ctrl+Shift+8)')} ativo={marcas.insertUnorderedList} desligado={semTexto} onClick={() => acoes.comando('insertUnorderedList')} />
-      <Botao icon={ListOrdered} rotulo={t('Lista numerada (Ctrl+Shift+7)')} ativo={marcas.insertOrderedList} desligado={semTexto} onClick={() => acoes.comando('insertOrderedList')} />
-      <Botao icon={ListChecks} rotulo={t('Checklist (Ctrl+Shift+9)')} onClick={() => acoes.inserir('checklist')} />
+      <Botao icon={List} rotulo={comTecla(t('Lista'), 'nota.lista')} ativo={marcas.insertUnorderedList} desligado={semTexto} onClick={() => acoes.comando('insertUnorderedList')} />
+      <Botao icon={ListOrdered} rotulo={comTecla(t('Lista numerada'), 'nota.numerada')} ativo={marcas.insertOrderedList} desligado={semTexto} onClick={() => acoes.comando('insertOrderedList')} />
+      <Botao icon={ListChecks} rotulo={comTecla(t('Checklist'), 'nota.checklist')} onClick={() => acoes.inserir('checklist')} />
       <Botao icon={IndentDecrease} rotulo={t('Diminuir recuo (Shift+Tab)')} desligado={semTexto} onClick={() => acoes.comando('outdent')} />
       <Botao icon={IndentIncrease} rotulo={t('Aumentar recuo (Tab)')} desligado={semTexto} onClick={() => acoes.comando('indent')} />
       <MenuDaBarra
@@ -575,6 +656,6 @@ export default function BarraDeFuncoes({ estado, acoes, podeImagem }) {
           { icon: RemoveFormatting, label: t('Limpar formatação'), onClick: () => acoes.comando('removeFormat'), disabled: semTexto },
         ]}
       />
-    </div>
+    </BarraQueCabe>
   )
 }

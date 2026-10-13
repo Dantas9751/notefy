@@ -5,6 +5,7 @@ import { Faixa, amostraDaTinta, ehFerramentaDeTraco, ferramentasDo } from './Bar
 import { semMouse } from '@/lib/desktop'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { fraseComTecla } from '@/lib/atalhos'
 
 /**
  * As ferramentas em coluna, à esquerda do quadro: a outra forma de mostrar o
@@ -192,7 +193,7 @@ export default function PaletaLateral({
         {t('Arraste para mover. Puxe a bolinha para conectar e o quadradinho para redimensionar. Duplo clique edita.')}{' '}
         {semMouse()
           ? t('Toque e segure um objeto para duplicar ou excluir. Os botões no canto dão zoom e desfazem.')
-          : t('Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Delete apaga, Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.')}
+          : fraseComTecla(t('Ctrl+roda dá zoom. Ctrl+arrastar marca vários. Ctrl+C/Ctrl+V copia e cola. Botão direito duplica ou exclui.'), 'canvas.apagar', (tecla) => t('{tecla} apaga a seleção.', { tecla }))}
       </p>
     </>
   )
