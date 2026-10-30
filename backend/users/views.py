@@ -1,6 +1,9 @@
+import io
+import os
 import zipfile
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, serializers, status
@@ -20,6 +23,7 @@ from core.excecoes import JSONParserSeguro
 from core.idioma import texto
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from PIL import Image
 
 from . import backup
 from .models import UserPreferences
@@ -142,6 +146,20 @@ class PreferencesView(generics.RetrieveUpdateAPIView):
 #: Onde cada foto do Início fica guardada: `?para=` escolhe.
 FOTOS_DO_INICIO = {"capa": "home_cover", "fundo": "home_background", "foto": "home_photo"}
 
+#: O que o `<img>` do app (WebView2) desenha. TIFF e outros o Pillow abre, mas a capa sairia quebrada.
+FORMATOS_DA_WEB = {"JPEG", "PNG", "GIF", "WEBP", "BMP"}
+
+
+def _no_formato_da_web(imagem):
+    """A foto como veio, ou convertida para PNG se o app não conseguir desenhá-la."""
+    if getattr(getattr(imagem, "image", None), "format", None) in FORMATOS_DA_WEB:
+        return imagem
+    imagem.seek(0)
+    with Image.open(imagem) as foto:
+        saida = io.BytesIO()
+        foto.convert("RGBA" if "A" in foto.getbands() else "RGB").save(saida, "PNG")
+    return ContentFile(saida.getvalue(), name=f"{os.path.splitext(imagem.name)[0]}.png")
+
 
 class CapaDoInicioView(APIView):
     """As fotos do Início: a capa, o papel de parede e a do relógio
@@ -179,6 +197,7 @@ class CapaDoInicioView(APIView):
                 {"imagem": [texto(f"A imagem passa do limite de {limite} MB.", f"The image is over the {limite} MB limit.")]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        imagem = _no_formato_da_web(imagem)
         prefs, _ = UserPreferences.objects.get_or_create(user=request.user)
         antiga = getattr(prefs, nome)
         if antiga:

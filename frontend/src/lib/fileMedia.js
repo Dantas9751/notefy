@@ -31,6 +31,14 @@ export function caminhoDeMedia(fileUrl) {
   }
 }
 
+/**
+ * Imagem que dá para desenhar num `<img>`. TIFF e HEIC são imagens para o
+ * servidor, mas nem o navegador nem o WebView2 do app abrem: a miniatura
+ * saía quebrada. Esses ficam como arquivo comum (ícone e download).
+ */
+const IMAGEM_SEM_SUPORTE = /^image\/(x-)?(tiff|heic|heif)$/i
+export const imagemMostravel = (doc) => doc?.file_kind === 'image' && !IMAGEM_SEM_SUPORTE.test(doc.mime_type ?? '')
+
 /** URL absoluta da mídia na origem da API — o que o axios consegue buscar. */
 export function urlDeMedia(fileUrl) {
   return `${origemDaApi()}${caminhoDeMedia(fileUrl)}`
