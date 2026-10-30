@@ -3,7 +3,7 @@ import { FileText, Paperclip } from 'lucide-react'
 import { useFetch } from '@/hooks/useFetch'
 import { ListSkeleton } from '@/components/ui'
 import Bloco, { Abas } from './Bloco'
-import { urlDeMedia } from '@/lib/fileMedia'
+import { imagemMostravel, urlDeMedia } from '@/lib/fileMedia'
 import { cn, formatBytes, formatRelative } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -21,7 +21,7 @@ export default function BlocoArquivos({ className, aba, onTrocarAba }) {
   const navigate = useNavigate()
   const arquivos = useFetch('/documents/', { params: { kind: 'file', ordering: '-created_at', page_size: 24 } })
   const todos = arquivos.data?.results ?? []
-  const imagem = (a) => a.file_kind === 'image'
+  const imagem = imagemMostravel
   const lista = (aba === 'imagens' ? todos.filter(imagem) : aba === 'documentos' ? todos.filter((a) => !imagem(a)) : todos).slice(0, aba === 'imagens' ? 9 : 6)
 
   return (

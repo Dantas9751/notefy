@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Download, FileWarning, Moon, Sun } from 'lucide-react'
-import { buscarArquivo } from '@/lib/fileMedia'
+import { buscarArquivo, imagemMostravel } from '@/lib/fileMedia'
 import { baixar } from '@/lib/desktop'
 import { Button, Spinner } from '@/components/ui'
 import TextFilePreview, { ehArquivoDeTexto, extensaoDe } from '@/components/TextFilePreview'
@@ -342,7 +342,7 @@ export default function FilePreview({ doc }) {
   if (ehArquivoDeTexto(doc)) return <TextFilePreview doc={doc} />
   if (EXTENSOES_DE_PLANILHA.includes(extensaoDe(doc.original_name || doc.title))) return <PlanilhaPreview doc={doc} />
   if (ehArquivoDeOffice(doc)) return <OfficePreview doc={doc} />
-  if (['image', 'pdf', 'audio', 'video'].includes(doc.file_kind)) {
+  if (imagemMostravel(doc) || ['pdf', 'audio', 'video'].includes(doc.file_kind)) {
     return <MediaPreview doc={doc} />
   }
   return null

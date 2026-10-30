@@ -18,6 +18,7 @@ import { formatosDeConversao } from '@/hooks/useDocumentActions'
 import FilePreview, { baixarArquivoNoClique, ehArquivoDeOffice } from '@/components/FilePreview'
 import { ehArquivoDeTexto } from '@/components/TextFilePreview'
 import { documentPath, kindMeta } from '@/lib/documents'
+import { imagemMostravel } from '@/lib/fileMedia'
 import { cn, formatBytes, formatDate } from '@/lib/utils'
 import { motivoDaIndisponibilidade, tituloDoIndisponivel } from '@/lib/erros'
 import { t } from '@/lib/i18n'
@@ -35,7 +36,8 @@ import { t } from '@/lib/i18n'
 
 function PreviewDoArquivo({ doc }) {
   const temPreview =
-    ['image', 'pdf', 'audio', 'video'].includes(doc.file_kind) ||
+    imagemMostravel(doc) ||
+    ['pdf', 'audio', 'video'].includes(doc.file_kind) ||
     ehArquivoDeTexto(doc) ||
     ehArquivoDeOffice(doc)
 

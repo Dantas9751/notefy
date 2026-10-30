@@ -214,6 +214,29 @@ class CapaDoInicioTests(APITestCase):
         self.assertEqual(resposta.status_code, 400)
         self.assertFalse(UserPreferences.objects.get_or_create(user=self.user)[0].home_cover)
 
+    def test_tiff_vira_png_para_o_app_conseguir_mostrar(self):
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGBA", (8, 4), (51, 102, 153, 128)).save(buffer, format="TIFF")
+        resposta = self.enviar(buffer.getvalue(), nome="papel.tiff", tipo="image/tiff")
+        self.assertEqual(resposta.status_code, 201, resposta.content)
+        self.assertTrue(resposta.json()["url"].endswith(".png"))
+        with Image.open(UserPreferences.objects.get(user=self.user).home_cover.path) as foto:
+            self.assertEqual((foto.format, foto.mode), ("PNG", "RGBA"))
+
+    def test_gif_animado_fica_como_veio(self):
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        quadros = [Image.new("RGB", (8, 4), cor) for cor in ("red", "blue")]
+        quadros[0].save(buffer, format="GIF", save_all=True, append_images=quadros[1:], duration=100, loop=0)
+        resposta = self.enviar(buffer.getvalue(), nome="anima.gif", tipo="image/gif")
+        self.assertEqual(resposta.status_code, 201, resposta.content)
+        self.assertTrue(resposta.json()["url"].endswith(".gif"))
+        with open(UserPreferences.objects.get(user=self.user).home_cover.path, "rb") as salvo:
+            self.assertEqual(salvo.read(), buffer.getvalue())
+
     def test_excluir_tira_a_foto(self):
         self.enviar(_png())
         self.assertEqual(self.client.delete("/api/me/cover/").status_code, 204)

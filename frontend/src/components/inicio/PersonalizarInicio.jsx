@@ -6,7 +6,7 @@ import { ContextMenu, useContextMenu } from '@/components/ui/ContextMenu'
 import { Chave } from '@/pages/settings/componentes'
 import { FotoDaCapa, fundoDaCapa, imagemDoArraste } from './Capa'
 import { BLOCOS, CAPAS } from '@/lib/inicio'
-import { urlDeMedia } from '@/lib/fileMedia'
+import { imagemMostravel, urlDeMedia } from '@/lib/fileMedia'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { comTecla } from '@/lib/atalhos'
@@ -22,7 +22,8 @@ function EscolherImagem({ destino, enviando, onEscolher, onEnviar, onVoltar }) {
   const imagens = useFetch('/documents/', {
     params: { kind: 'file', file_kind: 'image', anexos: true, ordering: '-created_at', page_size: 48 },
   })
-  const lista = imagens.data?.results ?? []
+  // TIFF e HEIC não abrem num <img>: escolhidos, a capa ficaria quebrada.
+  const lista = (imagens.data?.results ?? []).filter(imagemMostravel)
   const [arrastando, setArrastando] = useState(false)
   const arquivoRef = useRef(null)
 
